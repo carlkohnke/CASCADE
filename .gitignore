@@ -1,0 +1,29 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# environments
+.venv/
+venv/
+.env
+
+# generated data / outputs
+data/
+outputs/
+results/
+figures/
+logs/
+*.log
+
+# common heavy scientific output formats
+*.vtk
+*.vtu
+*.vtp
+*.stl
+*.obj
+*.h5
+*.hdf5
+*.npy
+*.npz
+*.csv
+*.pkl

@@ -1,0 +1,147 @@
+88:    target = Path(sys.prefix) / "targets" / "x86_64-linux"
+510:# Hemoglobin-bound O2 capacity in mol / m^3 blood per unit tube hematocrit.
+1144:KRATIO_LUT_PATH = Path(__file__).with_name("besselks.npz")
+1414:        path = Path(__file__).with_name("TissueSim_trial_errors.log")
+1415:        with path.open("a", encoding="utf-8") as handle:
+1426:        path = Path(__file__).with_name("TissueSim_crash.log")
+1427:        with path.open("a", encoding="utf-8") as handle:
+1829:    global TRICOLOR_CMAP
+3676:    global _LAST_CONCENTRATION_TIMINGS, _LAST_CEXT_SOURCE_STATE
+3779:        data = np.load(path)
+4987:    global _CEXT_GPU_KERNEL
+5012:extern "C" __global__ void cext_kernel(
+5127:    global _CEXT_GPU_DIRECT_KERNEL
+5133:extern "C" __global__ void cext_direct_kernel(
+5286:    global _FROZEN_TOPDOWN_GPU_KERNEL
+5314:extern "C" __global__ void frozen_topdown_kernel(
+5557:    global _FROZEN_TOPDOWN_GRAETZ_GPU_KERNEL
+5673:extern "C" __global__ void frozen_topdown_graetz_kernel(
+6143:    global _LAST_CEXT_SOURCE_STATE
+6246:    global _CEXT_ITERATION_CACHE_KERNEL
+6274:extern "C" __global__ void cext_iteration_cache_kernel(
+6476:    global _LAST_CEXT_SOURCE_STATE
+7989:    global _CEXT_HYBRID_DEPOSIT_KERNEL
+7995:extern "C" __global__ void cext_hybrid_deposit_kernel(
+8193:    global _CEXT_LOCAL_CELL_MAX_LAMBDA_KERNEL
+8211:extern "C" __global__ void cext_local_cell_max_lambda_kernel(
+8238:    global _CEXT_FAST_LOCAL_ONLY_SELF_KERNEL
+8244:extern "C" __global__ void cext_fast_local_only_self_kernel(
+8486:    global_cap = float(
+8489:    if global_cap > 0.0:
+8490:        _cp.minimum(out_g, _cp.float32(global_cap), out=out_g)
+8503:    global _CEXT_GPU_LOCAL_CORR_KERNEL
+8509:extern "C" __global__ void cext_local_corr_kernel(
+8615:    global _CEXT_HYBRID_BG_KERNEL
+8621:extern "C" __global__ void cext_hybrid_bg_kernel(
+8823:    global _CEXT_FFT_MOMENT_DEPOSIT_KERNEL
+8829:extern "C" __global__ void cext_fft_moment_deposit_kernel(
+8874:    global _CEXT_FFT_MOMENT_DEPOSIT_BATCH_KERNEL
+8880:extern "C" __global__ void cext_fft_moment_deposit_batch_kernel(
+9238:    global _CEXT_FFT_DISCRETE_SELF_KERNEL
+9244:extern "C" __global__ void cext_fft_discrete_self_kernel(
+9384:    global _CEXT_FFT_DISCRETE_SELF_FUSED_O2_KERNEL
+9390:extern "C" __global__ void cext_fft_discrete_self_fused_o2_kernel(
+10021:        global_cap = float(_cp.nanmax(state["seg_cap_gl"]).item())
+10023:        global_cap = float(np.nanmax(np.asarray(ext_state.get("seg_cap_gl", np.zeros((0,), dtype=np.float32)), dtype=float))) if np.asarray(ext_state.get("seg_cap_gl", ())).size else 0.0
+10036:    if global_cap > 0.0:
+10037:        _cp.minimum(total_g, _cp.float32(global_cap), out=total_g)
+10063:        if global_cap > 0.0:
+10064:            _cp.minimum(total_g, _cp.float32(global_cap), out=total_g)
+10359:    global _CEXT_TREECODE_DEPOSIT_KERNEL
+10365:extern "C" __global__ void cext_treecode_deposit_kernel(
+10414:    global _CEXT_TREECODE_UPSWEEP_KERNEL
+10420:extern "C" __global__ void cext_treecode_upsweep_kernel(
+10478:    global _CEXT_TREECODE_KERNEL
+10484:extern "C" __global__ void cext_treecode_kernel(
+10518:    float global_cap,
+10651:    if (global_cap > 0.0f) total = fminf(total, global_cap);
+10735:    global_cap = float(np.nanmax(np.asarray(ext_state.get("seg_cap_gl", np.zeros((0,), dtype=np.float32)), dtype=float))) if np.asarray(ext_state.get("seg_cap_gl", ())).size else 0.0
+10774:            np.float32(global_cap),
+11809:    global _LAST_CEXT_FROZEN_STEP_TIMINGS
+12067:    global _LAST_CONCENTRATION_TIMINGS
+12688:    global _LAST_CONCENTRATION_TIMINGS
+13132:    global _LAST_CONCENTRATION_TIMINGS
+13487:            global_freeze_ready = (
+13491:            if iter_idx >= int(hybrid_active_set_start) and global_freeze_ready:
+14257:    global _TISSUE_GPU_KERNEL
+14285:extern "C" __global__ void tissue_greens_kernel(
+14423:    global TISSUE_ACCEL_MODE, TISSUE_STREAMING_ENABLED, _LAST_TISSUE_TIMINGS
+14668:    global _CEXT_TISSUE_GPU_KERNEL
+14674:extern "C" __global__ void cext_tissue_greens_kernel(
+14760:    global _CEXT_TISSUE_CELL_GPU_KERNEL
+14766:extern "C" __global__ void cext_tissue_cell_greens_kernel(
+15020:    global _LAST_TISSUE_TIMINGS
+15499:    global _LAST_TISSUE_TIMINGS
+15708:    global _LAST_TISSUE_TIMINGS
+16462:    with path.open("w", newline="") as csvfile:
+16483:    with path.open("r", newline="") as csvfile:
+16500:    with path.open("w", newline="") as csvfile:
+16913:    with path.open("a", newline="") as csvfile:
+16926:    with path.open("a", newline="") as csvfile:
+17111:    root = Path(TREE_CACHE_DIRNAME)
+17114:    return Path(__file__).resolve().parent / root
+17129:    global _DEFAULT_TREE_PARAMS
+17296:    base = Path(__file__).resolve().parent
+17305:    path = Path(normalized)
+17307:        path = Path(__file__).resolve().parent / path
+17314:    with path.open("r", newline="") as csvfile:
+17333:            with path.open("r", newline="") as readfile:
+17340:    with path.open("a", newline="") as csvfile:
+17562:    with np.load(path, allow_pickle=False) as npz:
+19501:    global ACTIVE_FLUID, QIN_TARGET
+19511:    global GL_ORDER, GL_ORDER_CEXT
+19516:    global DISTANCE_SAMPLE_COUNT, COMPUTE_AVG_DISTANCE_TO_CHANNEL, TARGET_TERMINAL_COUNTS, NEAREST_TISSUE_VESSELS, WINDOW_FACTOR, OUTPUT_CSV_NAME
+19517:    global TREE_FAST_CACHE_ENABLE
+19537:    global SOLVER_TIMING_DETAILS, TISSUE_CACHE_CHUNK_SIZE, TISSUE_KDTREE_WORKERS, TISSUE_KDTREE_CANDIDATE_MULT
+19538:    global TISSUE_ACCEL_MODE, TISSUE_GPU_CHUNK_POINTS, TISSUE_GPU_VALIDATE_POINTS
+19539:    global CEXT_ACCEL_MODE, CEXT_FROZEN_ACCEL_MODE, CEXT_INIT_MODE, CEXT_LAMBDA_SOURCE, CEXT_WINDOW_FACTOR, CEXT_VESS_COUPLING_MAX_ITER
+19540:    global CEXT_VESS_COUPLING_TOL, CEXT_VESS_COUPLING_REL_TOL, CEXT_VESS_COUPLING_OMEGA, CEXT_VESS_COUPLING_ACCEL
+19541:    global CEXT_VESS_COUPLING_OMEGA_MIN, CEXT_VESS_COUPLING_OMEGA_MAX
+19542:    global CEXT_VESS_COUPLING_TRUST_ABS, CEXT_VESS_COUPLING_TRUST_REL
+19543:    global CEXT_VESS_COUPLING_ANDERSON_DEPTH, CEXT_VESS_COUPLING_ANDERSON_REG, CEXT_VESS_COUPLING_ANDERSON_START
+19544:    global CEXT_VESS_COUPLING_ANDERSON_GATE_RATIO, CEXT_VESS_COUPLING_ANDERSON_MIN_STABLE_ITERS
+19545:    global CEXT_VESS_COUPLING_ANDERSON_OMEGA_GATE_FACTOR
+19546:    global CEXT_VESS_COUPLING_ACCEL_ACCEPT_FACTOR, CEXT_VESS_COUPLING_ACCEL_STEP_FACTOR, CEXT_VESS_COUPLING_ACCEL_RESTART_FACTOR
+19547:    global CEXT_VESS_COUPLING_BEST_STALL_ITERS, CEXT_VESS_COUPLING_BEST_REVERT_FACTOR
+19548:    global CEXT_VESS_COUPLING_STEP_REJECT_FACTOR, CEXT_VESS_COUPLING_STEP_RETRY_FACTOR
+19549:    global CEXT_ACTIVE_SET_ENABLE, CEXT_ACTIVE_SET_START, CEXT_ACTIVE_SET_STABLE_ITERS
+19550:    global CEXT_ACTIVE_SET_REL_TOL, CEXT_ACTIVE_SET_ABS_TOL, CEXT_ACTIVE_SET_REFRESH_PERIOD
+19551:    global CEXT_ACTIVE_SET_MIN_ACTIVE_COUNT, CEXT_ACTIVE_SET_MIN_ACTIVE_FRACTION
+19552:    global CEXT_TARGET_ACTIVE_SET_ENABLE, CEXT_TARGET_ACTIVE_SET_START, CEXT_TARGET_ACTIVE_SET_STABLE_ITERS
+19553:    global CEXT_TARGET_ACTIVE_SET_REL_TOL, CEXT_TARGET_ACTIVE_SET_ABS_TOL
+19554:    global CEXT_TARGET_ACTIVE_SET_MIN_ACTIVE_COUNT, CEXT_TARGET_ACTIVE_SET_NEIGHBOR_PAD
+19555:    global CEXT_HYBRID_BG_GRID, CEXT_HYBRID_BG_LAMBDA_BINS, CEXT_HYBRID_BG_NEAR_RADIUS_MULT
+19556:    global CEXT_HYBRID_BG_VCYCLES, CEXT_HYBRID_BG_ASSIGNMENT, CEXT_HYBRID_BG_SOLVER, CEXT_HYBRID_BG_ENABLE_SOURCE_FREEZING, CEXT_HYBRID_BG_MODE
+19557:    global CEXT_HYBRID_FFT_QUANTILE_BINS, CEXT_HYBRID_FFT_O2_CORRECTION, CEXT_HYBRID_FFT_SELF_SUBTRACT
+19558:    global CEXT_HYBRID_FFT_SELF_SUB_TARGET_SAMPLING, CEXT_HYBRID_FFT_SELF_SUB_SCALE
+19559:    global CEXT_TREECODE_THETA, CEXT_TREECODE_ORDER, CEXT_TREECODE_LEAF_NODES
+19560:    global CEXT_TREECODE_LAMBDA_BINS, CEXT_TREECODE_NEAR_RADIUS_MULT, CEXT_TREECODE_GPU_LOCAL
+19561:    global CEXT_TAIL_SOLVER, CEXT_TAIL_TRIGGER_START_ITER, CEXT_TAIL_TRIGGER_STALL_ITERS
+19562:    global CEXT_TAIL_TRIGGER_ACTIVE_COUNT, CEXT_TAIL_MAX_NONLINEAR_ITERS
+19563:    global CEXT_TAIL_GMRES_RESTART, CEXT_TAIL_GMRES_MAXITER
+19564:    global CEXT_GRID_CELL_FACTOR
+19565:    global CEXT_STREAMING_TARGET_CANDIDATE_SLOTS, CEXT_GPU_VALIDATE_SEGMENTS
+19566:    global CEXT_APPROX_WINDOW_SCALE, CEXT_MAX_CANDIDATES_PER_TARGET
+19567:    global FINITE_RADIUS_O2_TERMS, LUMEN_WALL_CLOSURE, GRAETZ_N_RADIAL, GRAETZ_N_MODES
+19568:    global GRAETZ_MAX_FP_ITERS, GRAETZ_VELOCITY_PROFILE, LUMEN_DIFFUSIVITY_CM2_S
+19569:    global LUMEN_DIFFUSIVITY_OVERRIDE_CM2_S
+19674:    global HEMATOCRIT_MODEL, HEMATOCRIT_FLOW_ITERATIONS, HEMATOCRIT_RELAXATION
+19675:    global HEMATOCRIT_QTOL_NL_MIN, HEMATOCRIT_HDTOL
+19686:    global KIRCHHOFF_DIAGNOSTICS, KIRCHHOFF_SOLVER, KIRCHHOFF_BC_MODE, KIRCHHOFF_VALIDATE_TREE
+19687:    global KIRCHHOFF_VALIDATE_SPARSE_SOLVER, KIRCHHOFF_SPARSE_SOLVER
+19697:    global TISSUE_STREAMING_ENABLED, TISSUE_STREAMING_MIN_POINTS
+19698:    global TISSUE_STREAMING_TARGET_CANDIDATE_SLOTS, TISSUE_STREAMING_MAX_CHUNK_POINTS
+19699:    global TISSUE_STREAMING_PRUNE_BY_WINDOW, TISSUE_STREAMING_CHUNK_WORKERS
+19700:    global TISSUE_STREAMING_NUMBA_THREADS_PER_WORKER
+19718:    global N_EQUAL_BIFURCATIONS
+19723:    global CONCENTRATION_SOLVER
+19725:    global PLOT_FLOW, PLOT_CONC_VESSELS, PLOT_CONC_VESSELS_POINTS, PLOT_VIABILITY_POINTS
+19813:        nondim_output_path = Path(__file__).with_name(NONDIMENSIONAL_CSV_NAME)
+19831:        output_path = Path(__file__).with_name(run["output_csv_name"])
+19855:                violin_path = Path(__file__).with_name(VIOLIN_CSV_NAME)
+19941:                                Path(tree_path),
+19986:                                    Path(cached_path),
+20177:                                        globals()["CEXT_TRACE_TISSUE_POINTS"] = max_points
+20178:                                        globals()["CEXT_TRACE_TISSUE_CACHE"] = tissue_cache
+20441:        fn = globals().get(name)
+20462:            with open(profile_out, "w", encoding="ascii") as handle:

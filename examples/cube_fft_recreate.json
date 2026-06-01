@@ -1,0 +1,100 @@
+{
+  "domain": {
+    "type": "cube",
+    "side_length": 1.0,
+    "random_seed": 42
+  },
+  "network": {
+    "mode": "tree",
+    "target_terminal_count": 1,
+    "root": {
+      "start": [0.49, -0.49, -0.49],
+      "direction": [-0.49, 0.49, 0.49]
+    }
+  },
+  "growth": {
+    "n_closest_vessels": 2,
+    "n_points": 50,
+    "weighted_sampling": false,
+    "ignore_collisions": true,
+    "allow_inside_vessels": true,
+    "n_equal_bifurcations": 200000
+  },
+  "simulation": {
+    "fluid": "both",
+    "build_fluid": "blood",
+    "qin_target_ul_min": 900.0,
+    "concentration_solver": "topdown_ext_hybrid_bg",
+    "distance_sample_count": 1000000,
+    "sample_mode": "random",
+    "tissue_accel": "gpu",
+    "tissue_gpu_validate_points": 0,
+    "nearest_tissue_vessels": 250,
+    "window_factor": 6,
+    "solver_timing_details": true,
+    "cext": {
+      "accel_mode": "gpu",
+      "frozen_accel_mode": "gpu",
+      "vess_coupling_accel": "anderson",
+      "hybrid_bg_mode": "fft",
+      "hybrid_bg_solver": "fft"
+    }
+  },
+  "outputs": {
+    "out_dir": "runs/cube_fft",
+    "prefix": "Cube_FFT",
+    "write_paraview": false,
+    "write_summary_csv": false,
+    "write_segments_csv": false,
+    "write_points_csv": false,
+    "save_network": false
+  },
+  "sweep": {
+    "output_csv": "runs/cube_fft/Cube_FFT.csv",
+    "work_dir": "runs/cube_fft/work",
+    "target_terminal_counts": [
+      0,
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      8,
+      10,
+      15,
+      25,
+      35,
+      50,
+      75,
+      100,
+      150,
+      250,
+      350,
+      500,
+      750,
+      1000,
+      2000,
+      5000,
+      10000,
+      20000,
+      50000,
+      100000,
+      200000,
+      300000,
+      400000,
+      500000,
+      650000,
+      1000000,
+      2000000,
+      3000000
+    ],
+    "fluids": ["water", "blood"],
+    "distance_sample_counts": [1000000],
+    "qin_target_ul_min_values": [900.0],
+    "side_lengths": [1.0],
+    "legacy_columns_only": true,
+    "legacy_single_trial_std_nan": true,
+    "save_final_network": false
+  }
+}

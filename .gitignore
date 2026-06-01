@@ -15,6 +15,12 @@ figures/
 logs/
 *.log
 
+# GFM generated runs, audits, and local benchmark caches
+runs/
+gfm_run*/
+.gfm_audit_runs*/
+.gfm_benchmark_cache/
+
 # common heavy scientific output formats
 *.vtk
 *.vtu

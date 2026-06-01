@@ -23,6 +23,7 @@ import time
 import traceback
 import cProfile
 import pstats
+import random as _py_random
 
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -99,8 +100,7 @@ except Exception:  # pragma: no cover
     _HAVE_CUPY = False
 
 try:
-    from svv.domain.domain import Domain
-    from svv.tree.tree import Tree
+    from gfm.svv_adapter import Domain, Tree
 except ModuleNotFoundError as exc:  # pragma: no cover
     _IMPORT_ERROR = exc
     Domain = None  # type: ignore[assignment]
@@ -415,7 +415,7 @@ def _normalize_tree_int_dtype(value: object | None) -> str:
         return "int64"
 
 
-TREE_DATA_DTYPE_STR = _normalize_tree_float_dtype(os.environ.get("SVV_TREE_DATA_DTYPE", "float32"))  # Previous default: float64.
+TREE_DATA_DTYPE_STR = _normalize_tree_float_dtype(os.environ.get("SVV_TREE_DATA_DTYPE", "float64"))
 TREE_INDEX_DTYPE_STR = _normalize_tree_int_dtype(os.environ.get("SVV_TREE_INDEX_DTYPE", "int64"))
 TREE_DATA_DTYPE = np.float32 if TREE_DATA_DTYPE_STR == "float32" else np.float64
 TREE_INDEX_DTYPE = np.int32 if TREE_INDEX_DTYPE_STR == "int32" else np.int64
@@ -1457,6 +1457,8 @@ def build_domain(side_length: float = 1.0) -> Domain:
     cube = pv.Cube(x_length=side, y_length=side, z_length=side)
     domain = Domain(cube)
     domain.random_seed = 42
+    np.random.seed(int(domain.random_seed))
+    _py_random.seed(int(domain.random_seed))
     domain.create()
     domain.solve()
     domain.build()

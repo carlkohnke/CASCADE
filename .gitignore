@@ -27,8 +27,11 @@ cascade_run*/
 gfm_run*/
 .cascade_audit_runs*/
 .cascade_benchmark_cache/
+.cascade_validation_runs*/
 .gfm_audit_runs*/
 .gfm_benchmark_cache/
+/validation/runs/
+/validation/tmp/
 
 # common heavy scientific output formats
 *.vtk
@@ -52,3 +55,9 @@ examples/.cascade_gui_test/
 *.bak
 CASCADE_Project/
 backups/
+
+# Compact validation evidence is intentionally versioned even though generic
+# result directories and scientific data files are ignored above.
+!/validation/
+!/validation/results/
+!/validation/results/**

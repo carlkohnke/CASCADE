@@ -21,6 +21,8 @@ The current version is `0.1.0rc1`. It is a release candidate while full numerica
 
 The completed installation and operational gates are recorded in [the rc1 release report](docs/release-0.1.0rc1.md). Full legacy parity and speed acceptance remain a separate validation step.
 
+The living internal production tracker, test plan, work log, decisions, and evidence map begin at [docs/internal/README.md](docs/internal/README.md). These records are maintained throughout the release and testing process but excluded from published package artifacts.
+
 ## Requirements
 
 - Linux or WSL2 on x86-64.

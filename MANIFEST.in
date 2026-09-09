@@ -10,6 +10,7 @@ recursive-include scripts *.py
 recursive-include tests *.py
 recursive-include src/cascade/gui/assets *.svg
 prune backups
+prune docs/internal
 prune examples/.cascade_gui_test
 prune examples/cascade_run_*
 prune examples/runs

@@ -13,6 +13,7 @@ from time import perf_counter
 from typing import Any
 
 import numpy as np
+import svv
 
 CASCADE_ROOT = Path(__file__).resolve().parents[1]
 if str(CASCADE_ROOT) not in sys.path:
@@ -25,9 +26,11 @@ from cascade.simulation import run_simulation
 from cascade.svv_adapter import Tree
 
 
-DEFAULT_LEGACY_TREE = Path(
-    "/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/"
-    "svv/SCRIPTS/trees_cache_heart/tree_ebf58642624d04b2ffebd2f0b12a3739_t10000.tree.npz"
+DEFAULT_LEGACY_TREE = (
+    Path(svv.__file__).resolve().parent
+    / "SCRIPTS"
+    / "trees_cache_heart"
+    / "tree_ebf58642624d04b2ffebd2f0b12a3739_t10000.tree.npz"
 )
 DEFAULT_LOCAL_TREE = CASCADE_ROOT / ".cascade_benchmark_cache" / "legacy_cube_t10000.tree.npz"
 

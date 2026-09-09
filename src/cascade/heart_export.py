@@ -15,6 +15,7 @@ import numpy as np
 import pyvista as pv
 from tqdm import tqdm
 
+from .gpu import preload_cuda_component_libraries
 from .svv_adapter import Domain, Forest
 
 
@@ -2233,6 +2234,7 @@ def main(argv: list[str] | None = None) -> int:
     cext_ts = None
     cext_parameters = {"enabled": False}
     if cext_enabled:
+        preload_cuda_component_libraries()
         _log(f"Loading CASCADE Cext TissueSim module: {args.cext_tissuesim}")
         cext_ts = _load_cext_tissuesim(args.cext_tissuesim)
         if cext_ts._cp is None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass
 from importlib import metadata
 import os
@@ -44,6 +45,67 @@ class GpuProbeResult:
     detail: str = ""
 
 
+_DLL_DIRECTORY_HANDLES: list[Any] = []
+
+
+def cuda_component_library_dirs() -> tuple[Path, ...]:
+    """Return library directories supplied by NVIDIA CUDA component wheels."""
+    candidates: list[Path] = []
+    for distribution_name in (
+        "nvidia-cuda-runtime",
+        "nvidia-cufft",
+        "nvidia-nvjitlink",
+    ):
+        try:
+            distribution = metadata.distribution(distribution_name)
+        except metadata.PackageNotFoundError:
+            continue
+        for relative in (
+            "nvidia/cu13/lib",
+            "nvidia/cu13/bin",
+            "nvidia/cufft/lib",
+            "nvidia/cufft/bin",
+            "nvidia/nvjitlink/lib",
+            "nvidia/nvjitlink/bin",
+        ):
+            candidate = Path(distribution.locate_file(relative)).resolve()
+            if candidate.is_dir() and candidate not in candidates:
+                candidates.append(candidate)
+    return tuple(candidates)
+
+
+def preload_cuda_component_libraries() -> tuple[str, ...]:
+    """Make wheel-provided CUDA libraries visible to the current process."""
+    directories = cuda_component_library_dirs()
+    if not directories:
+        return ()
+
+    if os.name == "nt":
+        add_directory = getattr(os, "add_dll_directory", None)
+        if add_directory is not None:
+            for directory in directories:
+                _DLL_DIRECTORY_HANDLES.append(add_directory(str(directory)))
+        return tuple(str(path) for path in directories)
+
+    if not sys.platform.startswith("linux"):
+        return tuple(str(path) for path in directories)
+
+    # Load by absolute path so a user does not need to export LD_LIBRARY_PATH.
+    # nvJitLink must be globally visible before cuFFT is loaded.
+    for library_name in ("libnvJitLink.so.13", "libcufft.so.12"):
+        library_path = next(
+            (directory / library_name for directory in directories if (directory / library_name).is_file()),
+            None,
+        )
+        if library_path is None:
+            continue
+        try:
+            ctypes.CDLL(str(library_path), mode=ctypes.RTLD_GLOBAL)
+        except OSError as exc:
+            raise RuntimeError(f"Could not load CUDA component library {library_path}: {exc}") from exc
+    return tuple(str(path) for path in directories)
+
+
 def gpu_requested(config: Any) -> bool:
     """Return whether this run can enter a CuPy-backed solver path."""
     simulation = config.simulation
@@ -73,6 +135,12 @@ def gpu_requested(config: Any) -> bool:
 def probe_gpu_runtime(*, timeout_s: float = 30.0) -> GpuProbeResult:
     """Test CUDA in an isolated process so the caller keeps no GPU context."""
     probe_env = os.environ.copy()
+    component_dirs = cuda_component_library_dirs()
+    if component_dirs:
+        variable = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
+        existing = probe_env.get(variable, "")
+        prefix = os.pathsep.join(str(path) for path in component_dirs)
+        probe_env[variable] = prefix if not existing else prefix + os.pathsep + existing
     if not probe_env.get("CUDA_PATH"):
         candidates = [Path(sys.prefix) / "targets" / "x86_64-linux"]
         try:
@@ -135,6 +203,7 @@ def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
     """Fail early with an actionable message when a configured GPU path is broken."""
     if not gpu_requested(config):
         return None
+    preload_cuda_component_libraries()
     result = probe_gpu_runtime()
     if result.ready:
         return result

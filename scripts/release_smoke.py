@@ -121,6 +121,25 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 "outputs": {"out_dir": str(root / "custom-out"), "write_paraview": True},
             },
+            "forest": {
+                "schema_version": 1,
+                "domain": {"type": "cube", "side_length": 1.0, "random_seed": 42},
+                "network": {
+                    "mode": "forest",
+                    "target_terminal_counts": [1, 1],
+                    "roots": [
+                        {"start": [0.49, -0.49, -0.49], "direction": [-0.49, 0.49, 0.49]},
+                        {"start": [-0.49, 0.49, -0.49], "direction": [0.49, -0.49, 0.49]},
+                    ],
+                },
+                "growth": {"enabled": False},
+                "simulation": {"geometry_only": True, "tissue_accel": "cpu"},
+                "outputs": {
+                    "out_dir": str(root / "forest-out"),
+                    "prefix": "forest_smoke",
+                    "write_paraview": True,
+                },
+            },
         }
         for name, settings in cases.items():
             path = root / f"{name}.json"
@@ -132,11 +151,42 @@ def main(argv: list[str] | None = None) -> int:
             if missing:
                 raise RuntimeError(f"{name} smoke case is missing outputs: {missing}")
 
+        heart_out = root / "heart-out"
+        heart_command = [
+            str(cascade),
+            "export-heart",
+            "--forest", str(root / "forest-out" / "forest_smoke.forest"),
+            "--domain", str(root / "forest-out" / "domain_boundary.vtp"),
+            "--out-dir", str(heart_out),
+            "--prefix", "heart_smoke",
+            "--nx", "4", "--ny", "4", "--nz", "4",
+            "--finite-radius-o2-terms", "none",
+            "--lumen-wall-closure", "wellmixed",
+            "--vessel-resolution", "2",
+        ]
+        if args.gpu_extra:
+            heart_command.extend(
+                [
+                    "--cext-bg-grid", "8",
+                    "--cext-bg-lambda-bins", "2",
+                    "--cext-vess-coupling-max-iter", "1",
+                    "--cext-active-set-enable", "false",
+                    "--cext-target-active-set-enable", "false",
+                    "--tissue-accel", "gpu",
+                    "--tissue-gpu-validate-points", "0",
+                ]
+            )
+        else:
+            heart_command.extend(["--no-cext", "--tissue-accel", "cpu"])
+        run(heart_command, cwd=root)
+
         validation = (
             "import json, pathlib, pyvista as pv; "
             f"root=pathlib.Path({str(root)!r}); "
             "assert pv.read(root/'tree-out'/'vessels.vtp').n_points > 0; "
             "assert pv.read(root/'custom-out'/'vessels.vtp').n_points > 0; "
+            "assert pv.read(root/'heart-out'/'heart_smoke_forest_vessels.vtp').n_points > 0; "
+            "assert pv.read(root/'heart-out'/'heart_smoke_forest_oxygen_points.vtp').n_points > 0; "
             "m=json.loads((root/'custom-out'/'manifest.json').read_text()); "
             "assert m['cascade']['version'] and m['dependencies']['svv_version']=='0.0.48'; "
             "assert m['inputs']['settings_sha256']; "

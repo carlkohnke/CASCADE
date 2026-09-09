@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 from pathlib import Path
-import sys
 from time import perf_counter
 from typing import Any
 
@@ -18,13 +17,12 @@ from .connectivity import repair_trees, validate_trees
 from .config import RunConfig, RootConfig
 from . import _svv_branch_bifurcation as gfm_bifurcation
 from .grid import sample_grid_points
+from .settings import apply_settings, collect_config_settings
 from .simple import build_simple_network
 from .svv_adapter import Domain, Forest, Tree
 
 
 GFM_ROOT = Path(__file__).resolve().parents[1]
-if str(GFM_ROOT) not in sys.path:
-    sys.path.insert(0, str(GFM_ROOT))
 
 
 @dataclass
@@ -43,8 +41,8 @@ class NetworkBuildResult:
     load_source: Path | None = None
 
 
-def load_tissuesim_module():
-    import TissueSim_cube_local as ts
+def load_runtime_module():
+    from .runtime import tissuesim as ts
 
     return ts
 
@@ -58,7 +56,22 @@ def resolve_path(value: str | Path | None, *, base_dir: Path | None = None) -> P
     return path.resolve()
 
 
-def apply_tissuesim_settings(ts, config: RunConfig) -> None:
+def resolve_domain_path(value: str | Path | None, *, base_dir: Path | None = None) -> Path | None:
+    path = resolve_path(value, base_dir=base_dir)
+    if path is None or path.exists():
+        return path
+
+    original = Path(value).expanduser()
+    if original.is_absolute():
+        return path
+
+    library_path = (GFM_ROOT / "domains" / original).resolve()
+    if library_path.exists():
+        return library_path
+    return path
+
+
+def apply_runtime_settings(ts, config: RunConfig) -> None:
     sim = config.simulation
     growth = config.growth
     ts.FLUID = sim.fluid
@@ -72,40 +85,32 @@ def apply_tissuesim_settings(ts, config: RunConfig) -> None:
     ts.TREE_DATA_DTYPE = np.float64
     ts.TREE_INDEX_DTYPE = np.int64
 
-    if sim.tissue_accel is not None and hasattr(ts, "TISSUE_ACCEL_MODE"):
-        ts.TISSUE_ACCEL_MODE = str(sim.tissue_accel).strip().lower()
-    if sim.tissue_gpu_validate_points is not None and hasattr(ts, "TISSUE_GPU_VALIDATE_POINTS"):
-        ts.TISSUE_GPU_VALIDATE_POINTS = int(sim.tissue_gpu_validate_points)
-
-    for key, value in sim.tissuesim.items():
-        const_name = str(key).strip().upper()
-        if hasattr(ts, const_name):
-            setattr(ts, const_name, value)
-
-    for key, value in growth.equal_terminal.items():
-        const_name = str(key).strip().upper()
-        if not const_name.startswith("EQUAL_"):
-            const_name = f"EQUAL_TERMINAL_{const_name}"
-        if hasattr(ts, const_name):
-            setattr(ts, const_name, value)
-
-    for key, value in sim.cext.items():
-        const_name = str(key).strip().upper()
-        if not const_name.startswith("CEXT_"):
-            const_name = f"CEXT_{const_name}"
-        if hasattr(ts, const_name):
-            setattr(ts, const_name, value)
+    report = apply_settings(ts, collect_config_settings(config))
+    config.runtime_setting_overrides = report["applied"]
+    config.runtime_setting_warnings = report["warnings"]
+    for warning in config.runtime_setting_warnings:
+        print(f"Warning: {warning}", flush=True)
 
 
 def build_domain(config: RunConfig, ts=None):
-    ts = ts or load_tissuesim_module()
+    ts = ts or load_runtime_module()
     domain_cfg = config.domain
     np.random.seed(int(domain_cfg.random_seed))
+    if getattr(domain_cfg, "mesh", None) is not None:
+        return ts.build_domain(mesh=domain_cfg.mesh, random_seed=int(domain_cfg.random_seed))
     kind = str(domain_cfg.kind).strip().lower()
     if kind == "cube":
-        domain = ts.build_domain(float(domain_cfg.side_length))
-        domain.random_seed = int(domain_cfg.random_seed)
-        return domain
+        return ts.build_domain(float(domain_cfg.side_length), random_seed=int(domain_cfg.random_seed))
+    if kind in {"sphere", "pv.sphere", "pyvista_sphere"}:
+        radius = float(domain_cfg.radius if domain_cfg.radius is not None else float(domain_cfg.side_length) / 2.0)
+        center = tuple(float(v) for v in (domain_cfg.center or [0.0, 0.0, 0.0]))
+        mesh = pv.Sphere(
+            radius=radius,
+            center=center,
+            theta_resolution=int(domain_cfg.theta_resolution),
+            phi_resolution=int(domain_cfg.phi_resolution),
+        )
+        return ts.build_domain(mesh=mesh, random_seed=int(domain_cfg.random_seed))
     if kind in {"box", "rectangular", "rectangular_box"}:
         x_len = float(domain_cfg.x_length if domain_cfg.x_length is not None else domain_cfg.side_length)
         y_len = float(domain_cfg.y_length if domain_cfg.y_length is not None else domain_cfg.side_length)
@@ -118,7 +123,7 @@ def build_domain(config: RunConfig, ts=None):
         domain.set_random_generator()
         return domain
 
-    domain_path = resolve_path(domain_cfg.path, base_dir=config.settings_path.parent if config.settings_path else None)
+    domain_path = resolve_domain_path(domain_cfg.path, base_dir=config.settings_path.parent if config.settings_path else None)
     if domain_path is None:
         raise ValueError("domain.path is required for non-cube domains.")
     suffix = domain_path.suffix.lower()
@@ -137,18 +142,42 @@ def build_domain(config: RunConfig, ts=None):
     return domain
 
 
-def build_or_load_network(config: RunConfig) -> NetworkBuildResult:
-    ts = load_tissuesim_module()
-    apply_tissuesim_settings(ts, config)
+def build_or_load_network(
+    config: RunConfig, *, domain_override=None
+) -> NetworkBuildResult:
+    ts = load_runtime_module()
+    apply_runtime_settings(ts, config)
     timings: dict[str, float] = {}
 
-    t0 = perf_counter()
-    domain = build_domain(config, ts=ts)
-    timings["domain_s"] = perf_counter() - t0
+    cached = None if domain_override is not None else _load_shared_geometry_cache(config)
+    if cached is not None:
+        domain, trees, forest, load_source = cached
+        timings["geometry_cache_load_s"] = float(load_source[1])
+        t0 = perf_counter()
+        sample_points, sample_meta = _pre_sample_points(ts, domain, config)
+        timings["sample_points_s"] = perf_counter() - t0
+        if trees is not None:
+            target_counts = _target_counts_for_config(config, len(trees), trees=trees)
+            print(f"Reusing sweep geometry cache: {load_source[0]}", flush=True)
+            return NetworkBuildResult(
+                domain=domain,
+                trees=trees,
+                forest=forest,
+                target_counts=target_counts,
+                build_timings=timings,
+                sample_points=sample_points,
+                sample_meta=sample_meta,
+                load_source=load_source[0],
+            )
+        print(f"Reusing sweep domain cache: {load_source[0]}", flush=True)
+    else:
+        t0 = perf_counter()
+        domain = domain_override if domain_override is not None else build_domain(config, ts=ts)
+        timings["domain_s"] = perf_counter() - t0
 
-    t0 = perf_counter()
-    sample_points, sample_meta = _pre_sample_points(ts, domain, config)
-    timings["sample_points_s"] = perf_counter() - t0
+        t0 = perf_counter()
+        sample_points, sample_meta = _pre_sample_points(ts, domain, config)
+        timings["sample_points_s"] = perf_counter() - t0
 
     input_path = resolve_path(
         config.network.input_path,
@@ -170,7 +199,7 @@ def build_or_load_network(config: RunConfig) -> NetworkBuildResult:
             _extend_trees_to_targets(ts, trees, domain, config, target_counts, forest=forest)
             timings["growth_s"] = perf_counter() - t0
         repairs, reports = _repair_and_validate_if_requested(trees, config)
-        return NetworkBuildResult(
+        return _save_shared_geometry_cache(NetworkBuildResult(
             domain=domain,
             trees=trees,
             forest=forest,
@@ -181,13 +210,13 @@ def build_or_load_network(config: RunConfig) -> NetworkBuildResult:
             connectivity_repairs=repairs,
             connectivity_reports=reports,
             load_source=input_path,
-        )
+        ), config)
 
     if config.network_mode == "simple":
         t0 = perf_counter()
         simple_network = build_simple_network(ts, domain, config)
         timings["growth_s"] = perf_counter() - t0
-        return NetworkBuildResult(
+        return _save_shared_geometry_cache(NetworkBuildResult(
             domain=domain,
             trees=[simple_network],
             forest=None,
@@ -195,7 +224,7 @@ def build_or_load_network(config: RunConfig) -> NetworkBuildResult:
             build_timings=timings,
             sample_points=sample_points,
             sample_meta=sample_meta,
-        )
+        ), config)
 
     t0 = perf_counter()
     trees = _build_configured_trees(ts, domain, config)
@@ -203,7 +232,7 @@ def build_or_load_network(config: RunConfig) -> NetworkBuildResult:
     forest = _make_forest(config, domain, trees) if config.network_mode == "forest" else None
     target_counts = _target_counts_for_config(config, len(trees), trees=trees)
     repairs, reports = _repair_and_validate_if_requested(trees, config)
-    return NetworkBuildResult(
+    return _save_shared_geometry_cache(NetworkBuildResult(
         domain=domain,
         trees=trees,
         forest=forest,
@@ -213,7 +242,115 @@ def build_or_load_network(config: RunConfig) -> NetworkBuildResult:
         sample_meta=sample_meta,
         connectivity_repairs=repairs,
         connectivity_reports=reports,
-    )
+    ), config)
+
+
+def _shared_geometry_cache_dir(config: RunConfig) -> Path | None:
+    gui = config.raw.get("gui", {}) if isinstance(config.raw, dict) else {}
+    value = gui.get("shared_geometry_cache_dir") if isinstance(gui, dict) else None
+    if not value:
+        return None
+    return resolve_path(value, base_dir=config.settings_path.parent if config.settings_path else None)
+
+
+def _load_shared_geometry_cache(
+    config: RunConfig,
+) -> tuple[Any, list[Any] | None, Any | None, tuple[Path, float]] | None:
+    """Load a completed GUI-sweep geometry bundle, if one is available."""
+    cache_dir = _shared_geometry_cache_dir(config)
+    if cache_dir is None:
+        return None
+    manifest_path = cache_dir / "ready.json"
+    if not manifest_path.is_file():
+        return None
+    t0 = perf_counter()
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if int(manifest.get("format", 0)) != 1:
+            raise ValueError("unsupported cache format")
+        domain_path = cache_dir / str(manifest["domain"])
+        domain = Domain.load(str(domain_path))
+        domain.random_seed = int(config.domain.random_seed)
+        domain.set_random_generator()
+        network_name = manifest.get("network")
+        if not network_name:
+            return domain, None, None, (cache_dir, perf_counter() - t0)
+
+        # Cached networks are final geometry.  Load them in simulation mode so
+        # the normal input-path code cannot extend/regrow them for this run.
+        growth_enabled = bool(config.growth.enabled)
+        use_cache = bool(config.outputs.use_cache)
+        config.growth.enabled = False
+        config.outputs.use_cache = False
+        try:
+            trees, forest = _load_existing_network(cache_dir / str(network_name), domain, config)
+        finally:
+            config.growth.enabled = growth_enabled
+            config.outputs.use_cache = use_cache
+        return domain, trees, forest, (cache_dir, perf_counter() - t0)
+    except Exception as exc:
+        print(f"Warning: could not reuse sweep geometry cache at {cache_dir}: {exc}", flush=True)
+        return None
+
+
+def _save_shared_geometry_cache(result: NetworkBuildResult, config: RunConfig) -> NetworkBuildResult:
+    """Publish a geometry bundle after a successful first run in a GUI sweep."""
+    cache_dir = _shared_geometry_cache_dir(config)
+    if cache_dir is None:
+        return result
+    manifest_path = cache_dir / "ready.json"
+    if manifest_path.is_file():
+        return result
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        domain_saved = Path(
+            result.domain.save(
+                str(cache_dir / "domain.dmn"),
+                include_boundary=True,
+                include_mesh=True,
+                include_patch_normals=True,
+            )
+        )
+        network_saved: Path | None = None
+        network_kind = "domain"
+        if result.forest is not None:
+            network_saved = _published_archive_path(
+                result.forest.save(str(cache_dir / "network.forest"))
+            )
+            network_kind = "forest"
+        elif result.trees and not getattr(result.trees[0], "_gfm_simple_network", False):
+            network_saved = _published_archive_path(
+                result.trees[0].save(str(cache_dir / "network.tree.npz"))
+            )
+            network_kind = "tree"
+
+        manifest = {
+            "format": 1,
+            "kind": network_kind,
+            "domain": domain_saved.name,
+            "network": None if network_saved is None else network_saved.name,
+        }
+        temporary = cache_dir / "ready.json.tmp"
+        temporary.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        temporary.replace(manifest_path)
+        print(f"Saved sweep geometry cache: {cache_dir}", flush=True)
+    except Exception as exc:
+        # Caching is an optimization: never discard a completed simulation
+        # setup merely because its reusable copy could not be written.
+        print(f"Warning: could not save sweep geometry cache at {cache_dir}: {exc}", flush=True)
+    return result
+
+
+def _published_archive_path(reported_path: str | Path) -> Path:
+    """Resolve NumPy's implicit .npz suffix and publish the reported filename."""
+    path = Path(reported_path)
+    if path.is_file():
+        return path
+    appended = Path(str(path) + ".npz")
+    if appended.is_file():
+        appended.replace(path)
+        return path
+    raise FileNotFoundError(f"Network save did not create {path} or {appended}.")
 
 
 def save_network_if_requested(result: NetworkBuildResult, config: RunConfig) -> Path | None:
@@ -330,7 +467,19 @@ def _build_configured_trees(ts, domain, config: RunConfig) -> list[Any]:
     targets = _target_counts_for_config(config, len(config.network.roots))
     trees = []
     for idx, (root, target) in enumerate(zip(config.network.roots, targets)):
-        _set_tissuesim_root(ts, root, side_length=float(config.domain.side_length))
+        start = np.asarray(root.start, dtype=float).reshape(1, 3)
+        try:
+            inside = bool(np.asarray(domain.within(start, layer=1e-5)).reshape(-1)[0])
+        except Exception:
+            inside = True
+        if not inside:
+            rendered = ", ".join(f"{value:.6g}" for value in start[0])
+            raise ValueError(
+                f"Inlet {idx + 1} at ({rendered}) is outside the tissue domain. "
+                "Move the inlet onto or just inside the domain surface."
+            )
+        _set_runtime_root(ts, root, side_length=float(config.domain.side_length))
+        _set_runtime_tree_conditions(ts, config, idx)
         qin_cm3_s = _flow_for_tree(config, idx, len(targets))
         terminal_flow = _terminal_flow_for_target(config, qin_cm3_s, int(target))
         tree = ts.grow_tree(
@@ -378,11 +527,7 @@ def _extend_trees_to_targets(ts, trees: list[Any], domain, config: RunConfig, ta
         target = max(int(target), 1)
         qin_cm3_s = _flow_for_tree(config, idx, len(trees))
         terminal_flow = _terminal_flow_for_target(config, qin_cm3_s, target)
-        ts._sync_loaded_tree_params(
-            tree,
-            side_length=float(config.domain.side_length),
-            terminal_flow_override=terminal_flow,
-        )
+        sync_tree_parameters_for_run(ts, tree, config, idx, terminal_flow)
         if target <= current:
             continue
         tree.n_add(
@@ -413,11 +558,7 @@ def _extend_trees_scheduled(ts, trees: list[Any], domain, config: RunConfig, tar
             target = max(int(targets[idx]), 1)
             qin_cm3_s = _flow_for_tree(config, idx, len(trees))
             terminal_flow = _terminal_flow_for_target(config, qin_cm3_s, target)
-            ts._sync_loaded_tree_params(
-                tree,
-                side_length=float(config.domain.side_length),
-                terminal_flow_override=terminal_flow,
-            )
+            sync_tree_parameters_for_run(ts, tree, config, idx, terminal_flow)
             tree.n_add(
                 1,
                 n_closest_vessels=int(config.growth.n_closest_vessels),
@@ -535,11 +676,7 @@ def _grow_remaining_bulk_no_collision(
         _attach_tree_domain(tree, domain)
         qin_cm3_s = _flow_for_tree(config, idx, len(trees))
         terminal_flow = _terminal_flow_for_target(config, qin_cm3_s, int(targets[idx]))
-        ts._sync_loaded_tree_params(
-            tree,
-            side_length=float(config.domain.side_length),
-            terminal_flow_override=terminal_flow,
-        )
+        sync_tree_parameters_for_run(ts, tree, config, idx, terminal_flow)
         _prepare_loaded_tree_for_incremental_growth(tree)
         tree.n_add(
             add_n,
@@ -571,11 +708,7 @@ def _grow_one_nearest_tree(
         tree = trees[int(tree_idx)]
         qin_cm3_s = _flow_for_tree(config, int(tree_idx), len(trees))
         terminal_flow = _terminal_flow_for_target(config, qin_cm3_s, int(targets[int(tree_idx)]))
-        ts._sync_loaded_tree_params(
-            tree,
-            side_length=float(config.domain.side_length),
-            terminal_flow_override=terminal_flow,
-        )
+        sync_tree_parameters_for_run(ts, tree, config, int(tree_idx), terminal_flow)
         t0 = perf_counter()
         try:
             with _fixed_growth_points(point, mesh_cell):
@@ -1123,7 +1256,7 @@ def _repair_and_validate_if_requested(trees: list[Any], config: RunConfig) -> tu
     return repairs, reports
 
 
-def _set_tissuesim_root(ts, root: RootConfig, *, side_length: float) -> None:
+def _set_runtime_root(ts, root: RootConfig, *, side_length: float) -> None:
     scale = float(side_length) if side_length else 1.0
     start = np.asarray(root.start, dtype=float).reshape(1, 3) / scale
     ts.ROOT_LOCATION = start
@@ -1132,6 +1265,11 @@ def _set_tissuesim_root(ts, root: RootConfig, *, side_length: float) -> None:
 
 def _flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
     source = str(config.simulation.flow_source).strip().lower().replace("_", "-")
+    condition = _inlet_condition_for_tree(config, tree_id)
+    if source == "per-inlet" and condition is not None:
+        qin_ul_min = float(condition["flow_ul_min"])
+        q_scale = float(config.domain.side_length) ** 3
+        return qin_ul_min * 1.0e-3 / 60.0 * q_scale
     qin_ul_min = (
         float(config.simulation.total_qin_ul_min)
         if source == "total-qin-split" and config.simulation.total_qin_ul_min is not None
@@ -1144,15 +1282,65 @@ def _flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
 
 
 def _terminal_flow_for_target(config: RunConfig, qin_cm3_s: float, target_count: int) -> float | None:
-    # Match TissueSim_cube_local's scaled-flow convention: target_count is the
+    # Match the legacy scaled-flow convention: target_count is the
     # number passed to n_add, so terminal sinks are target_count + 1.
-    if not getattr(load_tissuesim_module(), "SCALE_Q_BY_VOLUME", True):
+    if not getattr(load_runtime_module(), "SCALE_Q_BY_VOLUME", True):
         return None
     return float(qin_cm3_s) / float(max(int(target_count), 1) + 1)
 
 
 def flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
     return _flow_for_tree(config, tree_id, n_trees)
+
+
+def _inlet_condition_for_tree(config: RunConfig, tree_id: int) -> dict[str, float] | None:
+    conditions = list(config.simulation.inlet_conditions or [])
+    if 0 <= int(tree_id) < len(conditions):
+        return conditions[int(tree_id)]
+    return None
+
+
+def pressures_for_tree(config: RunConfig, tree_id: int) -> tuple[float, float]:
+    hemo = config.runtime_settings.get(
+        "hemodynamics", config.runtime_settings.get("kirchhoff", {})
+    )
+    root_pressure = float(hemo.get("root_pressure", hemo.get("ROOT_PRESSURE", 66661.0)))
+    terminal_pressure = float(
+        hemo.get("terminal_pressure", hemo.get("TERMINAL_PRESSURE", 40000.0))
+    )
+    condition = _inlet_condition_for_tree(config, tree_id)
+    if condition is not None:
+        root_pressure = float(condition["inlet_pressure_pa"])
+        terminal_pressure = float(condition["outlet_pressure_pa"])
+    return root_pressure, terminal_pressure
+
+
+def inlet_concentration_for_tree(config: RunConfig, tree_id: int) -> float | None:
+    condition = _inlet_condition_for_tree(config, tree_id)
+    if condition is None:
+        return None
+    return float(condition["inlet_concentration_mmol_l"])
+
+
+def _set_runtime_tree_conditions(ts, config: RunConfig, tree_id: int) -> None:
+    root_pressure, terminal_pressure = pressures_for_tree(config, tree_id)
+    ts.ROOT_PRESSURE = root_pressure
+    ts.TERMINAL_PRESSURE = terminal_pressure
+
+
+def sync_tree_parameters_for_run(
+    ts,
+    tree,
+    config: RunConfig,
+    tree_id: int,
+    terminal_flow_override: float | None,
+) -> None:
+    _set_runtime_tree_conditions(ts, config, tree_id)
+    ts._sync_loaded_tree_params(
+        tree,
+        side_length=float(config.domain.side_length),
+        terminal_flow_override=terminal_flow_override,
+    )
 
 
 def terminal_flow_for_target(config: RunConfig, qin_cm3_s: float, target_count: int) -> float | None:

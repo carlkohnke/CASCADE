@@ -49,7 +49,12 @@ class DomainConfig:
     x_length: float | None = None
     y_length: float | None = None
     z_length: float | None = None
+    radius: float | None = None
+    center: list[float] | None = None
+    theta_resolution: int = 12
+    phi_resolution: int = 8
     path: str | None = None
+    mesh: Any | None = None
     random_seed: int = 42
 
 
@@ -112,9 +117,10 @@ class SimulationConfig:
     build_fluid: str = "blood"
     qin_target_ul_min: float = 900.0
     total_qin_ul_min: float | None = None
-    concentration_solver: str = "topdown"
+    concentration_solver: str = "network_ext"
     distance_sample_count: int = 1000
     flow_source: str = "per_tree"
+    inlet_conditions: list[dict[str, float]] = field(default_factory=list)
     sample_mode: str = "random"
     tissue_grid: dict[str, Any] = field(default_factory=dict)
     geometry_only: bool = False
@@ -122,6 +128,7 @@ class SimulationConfig:
     compute_avg_distance_to_channel: bool = False
     tissue_accel: str | None = None
     tissue_gpu_validate_points: int | None = None
+    viability_threshold: float | None = None
     infarction: dict[str, Any] = field(default_factory=dict)
     cext: dict[str, Any] = field(default_factory=dict)
     tissuesim: dict[str, Any] = field(default_factory=dict)
@@ -151,6 +158,9 @@ class RunConfig:
     growth: GrowthConfig
     simulation: SimulationConfig
     outputs: OutputsConfig
+    runtime_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
+    runtime_setting_overrides: dict[str, Any] = field(default_factory=dict)
+    runtime_setting_warnings: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
     settings_path: Path | None = None
 
@@ -182,6 +192,7 @@ def parse_config(raw: dict[str, Any]) -> RunConfig:
     growth = _parse_growth(raw.get("growth", {}))
     simulation = _parse_simulation(raw.get("simulation", {}))
     outputs = _parse_outputs(raw.get("outputs", {}))
+    runtime_settings = _parse_runtime_settings(raw.get("settings", raw.get("runtime_settings", {})))
     _validate(network, growth, simulation, outputs)
     return RunConfig(
         domain=domain,
@@ -189,6 +200,7 @@ def parse_config(raw: dict[str, Any]) -> RunConfig:
         growth=growth,
         simulation=simulation,
         outputs=outputs,
+        runtime_settings=runtime_settings,
         raw=dict(raw),
     )
 
@@ -196,18 +208,36 @@ def parse_config(raw: dict[str, Any]) -> RunConfig:
 def _parse_domain(raw: Any) -> DomainConfig:
     data = dict(raw or {})
     kind = str(data.get("type", data.get("kind", "cube"))).strip().lower()
+    side_length = float(data.get("side_length", data.get("side_len", 1.0)))
     dimensions = data.get("dimensions", data.get("lengths"))
     x_len = y_len = z_len = None
     if dimensions is not None:
         dims = _as_float_list(dimensions, name="domain.dimensions", length=3)
         x_len, y_len, z_len = dims
+    radius_raw = data.get("radius", data.get("sphere_radius"))
+    radius = None if radius_raw is None else float(radius_raw)
+    if radius is not None and radius <= 0.0:
+        raise ValueError("domain.radius must be positive.")
+    center_raw = data.get("center")
+    center = None if center_raw is None else _as_float_list(center_raw, name="domain.center", length=3)
+    theta_resolution = int(data.get("theta_resolution", data.get("sphere_theta_resolution", 12)))
+    phi_resolution = int(data.get("phi_resolution", data.get("sphere_phi_resolution", 8)))
+    if theta_resolution < 8:
+        raise ValueError("domain.theta_resolution must be at least 8.")
+    if phi_resolution < 8:
+        raise ValueError("domain.phi_resolution must be at least 8.")
     return DomainConfig(
         kind=kind,
-        side_length=float(data.get("side_length", data.get("side_len", 1.0))),
+        side_length=side_length,
         x_length=None if data.get("x_length", data.get("box_x_cm", x_len)) is None else float(data.get("x_length", data.get("box_x_cm", x_len))),
         y_length=None if data.get("y_length", data.get("box_y_cm", y_len)) is None else float(data.get("y_length", data.get("box_y_cm", y_len))),
         z_length=None if data.get("z_length", data.get("box_z_cm", z_len)) is None else float(data.get("z_length", data.get("box_z_cm", z_len))),
+        radius=radius,
+        center=center,
+        theta_resolution=theta_resolution,
+        phi_resolution=phi_resolution,
         path=data.get("path"),
+        mesh=data.get("mesh"),
         random_seed=int(data.get("random_seed", 42)),
     )
 
@@ -326,9 +356,10 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
         total_qin_ul_min=(
             None if data.get("total_qin_ul_min") is None else float(data.get("total_qin_ul_min"))
         ),
-        concentration_solver=str(data.get("concentration_solver", "topdown")).strip().lower(),
+        concentration_solver=str(data.get("concentration_solver", "network_ext")).strip().lower(),
         distance_sample_count=int(data.get("distance_sample_count", 1000)),
         flow_source=str(data.get("flow_source", "per_tree")).strip().lower(),
+        inlet_conditions=_parse_inlet_conditions(data.get("inlet_conditions", [])),
         sample_mode=str(data.get("sample_mode", data.get("tissue_sample_mode", "random"))).strip().lower(),
         tissue_grid=dict(data.get("tissue_grid", data.get("grid", {})) or {}),
         geometry_only=_as_bool(data.get("geometry_only"), False),
@@ -338,10 +369,40 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
         tissue_gpu_validate_points=(
             None if data.get("tissue_gpu_validate_points") is None else int(data.get("tissue_gpu_validate_points"))
         ),
+        viability_threshold=(
+            None if data.get("viability_threshold") is None else float(data.get("viability_threshold"))
+        ),
         infarction=dict(data.get("infarction", {}) or {}),
         cext=dict(data.get("cext", {}) or {}),
         tissuesim=tissuesim,
     )
+
+
+def _parse_inlet_conditions(raw: Any) -> list[dict[str, float]]:
+    if raw in (None, []):
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("simulation.inlet_conditions must be a list.")
+    parsed = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"simulation.inlet_conditions[{index}] must be an object.")
+        try:
+            parsed.append(
+                {
+                    "flow_ul_min": float(item["flow_ul_min"]),
+                    "inlet_pressure_pa": float(item["inlet_pressure_pa"]),
+                    "outlet_pressure_pa": float(item["outlet_pressure_pa"]),
+                    "inlet_concentration_mmol_l": float(
+                        item["inlet_concentration_mmol_l"]
+                    ),
+                }
+            )
+        except KeyError as exc:
+            raise ValueError(
+                f"simulation.inlet_conditions[{index}] is missing {exc.args[0]}."
+            ) from exc
+    return parsed
 
 
 def _parse_outputs(raw: Any) -> OutputsConfig:
@@ -363,6 +424,21 @@ def _parse_outputs(raw: Any) -> OutputsConfig:
     )
 
 
+def _parse_runtime_settings(raw: Any) -> dict[str, dict[str, Any]]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("settings must be an object whose keys are named settings sections.")
+    parsed: dict[str, dict[str, Any]] = {}
+    for section, values in raw.items():
+        if values is None:
+            continue
+        if not isinstance(values, dict):
+            raise ValueError(f"settings.{section} must be an object.")
+        parsed[str(section)] = dict(values)
+    return parsed
+
+
 def _validate(network: NetworkConfig, growth: GrowthConfig, simulation: SimulationConfig, outputs: OutputsConfig) -> None:
     if network.mode not in {"tree", "forest", "simple"}:
         raise ValueError("network.mode must be 'tree', 'forest', or 'simple'.")
@@ -370,11 +446,27 @@ def _validate(network: NetworkConfig, growth: GrowthConfig, simulation: Simulati
         raise ValueError("tree mode requires exactly one root unless network.input_path is provided.")
     if network.mode == "forest" and len(network.roots) < 1 and network.input_path is None:
         raise ValueError("forest mode requires at least one root unless network.input_path is provided.")
-    if simulation.flow_source not in {"per_tree", "total_split", "tree-root-flow", "tree_root_flow", "total-qin-split", "total_qin_split"}:
+    if simulation.flow_source not in {"per_tree", "per_inlet", "total_split", "tree-root-flow", "tree_root_flow", "total-qin-split", "total_qin_split"}:
         raise ValueError(
             "simulation.flow_source must be one of 'per_tree', 'total_split', "
-            "'tree-root-flow', or 'total-qin-split'."
+            "'per_inlet', 'tree-root-flow', or 'total-qin-split'."
         )
+    if simulation.flow_source == "per_inlet" and not simulation.inlet_conditions:
+        raise ValueError("per-inlet flow requires simulation.inlet_conditions.")
+    if simulation.inlet_conditions and network.input_path is None:
+        if len(simulation.inlet_conditions) != len(network.roots):
+            raise ValueError(
+                "The number of inlet condition sets must match the number of network roots."
+            )
+    for index, condition in enumerate(simulation.inlet_conditions):
+        if condition["flow_ul_min"] <= 0:
+            raise ValueError(f"Inlet {index + 1} flow must be positive.")
+        if condition["inlet_pressure_pa"] <= condition["outlet_pressure_pa"]:
+            raise ValueError(
+                f"Inlet {index + 1} pressure must be above its outlet/reference pressure."
+            )
+        if condition["inlet_concentration_mmol_l"] < 0:
+            raise ValueError(f"Inlet {index + 1} oxygen concentration cannot be negative.")
     if simulation.sample_mode not in {"random", "grid"}:
         raise ValueError("simulation.sample_mode must be 'random' or 'grid'.")
     if growth.n_closest_vessels <= 0:
@@ -420,10 +512,17 @@ def example_config() -> dict[str, Any]:
             "fluid": "blood",
             "build_fluid": "blood",
             "qin_target_ul_min": 900.0,
-            "concentration_solver": "topdown",
+            "concentration_solver": "network_ext",
             "distance_sample_count": 1000,
             "sample_mode": "random",
             "geometry_only": False,
+        },
+        "settings": {
+            "kirchhoff": {"solver": "tree", "bc_mode": "legacy_equal_terminal_flow"},
+            "hematocrit": {"model": "pries_secomb", "flow_iterations": 2},
+            "oxygen": {"finite_radius_o2_terms": "both", "lumen_wall_closure": "graetz"},
+            "cext": {"accel_mode": "gpu", "vess_coupling_accel": "anderson"},
+            "tissue": {"accel_mode": "gpu", "nearest_vessels": 250},
         },
         "outputs": {
             "out_dir": "gfm_run",

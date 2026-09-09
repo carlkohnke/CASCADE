@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from .config import RunConfig
+from .lattice import LATTICE_TYPES, generate_lattice
 
 
 @dataclass
@@ -37,7 +38,9 @@ class SimpleNetwork:
 
 def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
     raw = dict(config.network.simple or {})
-    dims = _domain_dimensions(config)
+    bounds_min, bounds_max = _domain_bounds(domain, config)
+    dims = tuple(float(v) for v in (bounds_max - bounds_min))
+    domain_center = tuple(float(v) for v in (0.5 * (bounds_min + bounds_max)))
     mode = str(raw.get("mode", raw.get("channel_mode", "onechannel"))).strip().lower()
     axis = str(raw.get("axis", raw.get("channel_axis", "x"))).strip().lower()
     radius = float(raw.get("radius_cm", raw.get("channel_radius_cm", 0.015)))
@@ -47,18 +50,64 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
     solve_separate = _as_bool(raw.get("solve_channels_separately"), True)
     edge_extension_frac = float(raw.get("edge_extension_frac", raw.get("edge_channel_extension_frac", 0.0)))
     y_offsets = raw.get("y_offsets_cm", raw.get("channel_y_offsets_cm", [-0.2, 0.0, 0.2]))
-    snake_arc_segments = int(raw.get("snake_arc_segments", 3))
+    snake_arc_segments = int(raw.get("snake_arc_segments", 5))
+    snake_straight_segments = int(raw.get("snake_straight_segments", 5))
 
-    starts, ends, radii, lengths, inlet_nodes, outlet_nodes, prox_ids, dist_ids = _build_channels(
-        ts,
-        dims=dims,
-        mode=mode,
-        axis=axis,
-        radius_cm=radius,
-        z_from_bottom_cm=z_from_bottom,
-        y_offsets_cm=y_offsets,
-        snake_arc_segments=snake_arc_segments,
-    )
+    lattice_type = str(raw.get("lattice_type", mode)).strip().lower()
+    is_lattice = mode == "lattice" or lattice_type in LATTICE_TYPES
+    lattice_meta: dict[str, Any] = {}
+    if is_lattice:
+        lattice_type = "cubic" if lattice_type == "lattice" else lattice_type
+        lattice = generate_lattice(
+            int(raw.get("cells", raw.get("cells_per_axis", 4))),
+            dims,
+            radius,
+            lattice_type=lattice_type,
+            inlet_points_cm=raw.get("inlet_points_cm"),
+            outlet_points_cm=raw.get("outlet_points_cm"),
+            radius_expression=raw.get("radius_expression"),
+            subdivisions=int(raw.get("subdivisions", raw.get("segment_subdivisions", 1))),
+            center_cm=domain_center,
+            node_inside=domain.within,
+        )
+        starts = np.asarray(lattice["segment_starts_cm"], dtype=float)
+        ends = np.asarray(lattice["segment_ends_cm"], dtype=float)
+        radii = np.asarray(lattice["segment_radii_cm"], dtype=float)
+        lengths = np.asarray(lattice["segment_lengths_cm"], dtype=float)
+        edge_nodes = np.asarray(lattice["edge_nodes"], dtype=np.int64)
+        prox_ids, dist_ids = edge_nodes[:, 0], edge_nodes[:, 1]
+        inlet_nodes = [int(v) for v in lattice["inlet_nodes"]]
+        outlet_nodes = [int(v) for v in lattice["outlet_nodes"]]
+        mode = "lattice"
+        solve_separate = False
+        lattice_meta = {
+            "lattice_type": lattice_type,
+            "cells": int(lattice["cells"]),
+            "subdivisions": int(lattice["subdivisions"]),
+            "radius_expression": str(lattice["radius_expression"]),
+            "inlet_points_cm": np.asarray(lattice["inlet_points_cm"]).tolist(),
+            "outlet_points_cm": np.asarray(lattice["outlet_points_cm"]).tolist(),
+            "inlet_connection_count": int(lattice["inlet_connection_count"]),
+            "outlet_connection_count": int(lattice["outlet_connection_count"]),
+            "bounding_box_center_cm": np.asarray(lattice["bounding_box_center_cm"]).tolist(),
+            "nodes_removed_by_domain": int(lattice["nodes_removed_by_domain"]),
+            "edges_removed_by_domain": int(lattice["edges_removed_by_domain"]),
+        }
+        if str(getattr(ts, "KIRCHHOFF_SOLVER", "tree")).strip().lower().startswith("tree"):
+            print("Lattice graph selected: switching Kirchhoff solver from tree to spsolve.", flush=True)
+            ts.KIRCHHOFF_SOLVER = "spsolve"
+    else:
+        starts, ends, radii, lengths, inlet_nodes, outlet_nodes, prox_ids, dist_ids = _build_channels(
+            ts,
+            dims=dims,
+            mode=mode,
+            axis=axis,
+            radius_cm=radius,
+            z_from_bottom_cm=z_from_bottom,
+            y_offsets_cm=y_offsets,
+            snake_arc_segments=snake_arc_segments,
+            snake_straight_segments=snake_straight_segments,
+        )
     tissue_starts, tissue_ends, decay_starts, decay_ends = _extended_tissue_geometry(
         starts,
         ends,
@@ -150,6 +199,7 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
             "flow_ul_min": float(flow_ul_min),
             "concentration_inlet": float(inlet_conc),
             "edge_extension_frac": float(edge_extension_frac),
+            **lattice_meta,
         },
     )
 
@@ -230,6 +280,39 @@ def _domain_dimensions(config: RunConfig) -> tuple[float, float, float]:
     )
 
 
+def _domain_bounds(domain, config: RunConfig) -> tuple[np.ndarray, np.ndarray]:
+    """Resolve the built domain's actual axis-aligned bounds in centimeters."""
+    for candidate in (
+        getattr(domain, "boundary", None),
+        getattr(domain, "original_boundary", None),
+        getattr(domain, "mesh", None),
+    ):
+        bounds = getattr(candidate, "bounds", None)
+        if bounds is not None and len(bounds) == 6:
+            lower = np.asarray([bounds[0], bounds[2], bounds[4]], dtype=float)
+            upper = np.asarray([bounds[1], bounds[3], bounds[5]], dtype=float)
+            if np.all(np.isfinite(lower)) and np.all(upper > lower):
+                return lower, upper
+    points = np.asarray(getattr(domain, "points", np.empty((0, 3))), dtype=float)
+    if points.ndim == 2 and points.shape[0] and points.shape[1] == 3:
+        lower, upper = np.min(points, axis=0), np.max(points, axis=0)
+        if np.all(np.isfinite(lower)) and np.all(upper > lower):
+            return lower, upper
+
+    dims = np.asarray(_domain_dimensions(config), dtype=float)
+    if str(config.domain.kind).strip().lower() in {"sphere", "pv.sphere", "pyvista_sphere"}:
+        radius = float(
+            config.domain.radius
+            if config.domain.radius is not None
+            else config.domain.side_length / 2.0
+        )
+        dims[:] = 2.0 * radius
+        center = np.asarray(config.domain.center or [0.0, 0.0, 0.0], dtype=float)
+    else:
+        center = np.zeros(3, dtype=float)
+    return center - 0.5 * dims, center + 0.5 * dims
+
+
 def _build_channels(
     ts,
     *,
@@ -240,6 +323,7 @@ def _build_channels(
     z_from_bottom_cm: float,
     y_offsets_cm: Any,
     snake_arc_segments: int,
+    snake_straight_segments: int,
 ):
     x_len, y_len, z_len = dims
     x_half = x_len / 2.0
@@ -250,7 +334,7 @@ def _build_channels(
     if mode == "single":
         mode = "onechannel"
     if mode == "snake":
-        points = _snake_channel_points(z, snake_arc_segments)
+        points = _snake_channel_points(z, snake_arc_segments, snake_straight_segments)
         starts = points[:-1].copy()
         ends = points[1:].copy()
     else:
@@ -283,7 +367,7 @@ def _build_channels(
     return starts, ends, radii, lengths, inlet_nodes, outlet_nodes, prox_ids, dist_ids
 
 
-def _snake_channel_points(z: float, arc_segments: int) -> np.ndarray:
+def _snake_channel_points(z: float, arc_segments: int, straight_segments: int = 5) -> np.ndarray:
     def arc(center, radius, theta_start, theta_end, n_segments, *, x_sign):
         theta = np.linspace(theta_start, theta_end, n_segments + 1, dtype=float)
         cx, cy, cz = center
@@ -292,6 +376,7 @@ def _snake_channel_points(z: float, arc_segments: int) -> np.ndarray:
         return np.column_stack((x, y, np.full_like(x, cz)))
 
     nseg = max(2, int(arc_segments))
+    straight_nseg = max(1, int(straight_segments))
     inlet = np.array([0.53, -0.2, z], dtype=float)
     first_turn_start = np.array([-0.325, -0.2, z], dtype=float)
     first_turn_end = np.array([-0.325, 0.0, z], dtype=float)
@@ -300,12 +385,18 @@ def _snake_channel_points(z: float, arc_segments: int) -> np.ndarray:
     outlet = np.array([-0.53, 0.2, z], dtype=float)
     first_arc = arc((-0.325, -0.1, z), 0.1, -np.pi / 2.0, np.pi / 2.0, nseg, x_sign=-1.0)
     second_arc = arc((0.325, 0.1, z), 0.1, -np.pi / 2.0, np.pi / 2.0, nseg, x_sign=1.0)
+    def straight(start, end):
+        return np.linspace(start, end, straight_nseg + 1, dtype=float)
+
+    # Every straight run and each half-turn receive their own controllable
+    # tessellation.  This is the geometry used by both the solver and setup
+    # preview, keeping the visible path identical to a completed result.
     return np.vstack((
-        np.vstack((inlet, first_turn_start)),
+        straight(inlet, first_turn_start),
         first_arc[1:],
-        np.vstack((first_turn_end, second_turn_start))[1:],
+        straight(first_turn_end, second_turn_start)[1:],
         second_arc[1:],
-        np.vstack((second_turn_end, outlet))[1:],
+        straight(second_turn_end, outlet)[1:],
     ))
 
 

@@ -1,13 +1,29 @@
-# GFM
+# OxyGFM
 
-GFM is a command-line simulation and export layer for vascular growth and tissue oxygen analysis. It wraps public `svv` with GFM-owned compatibility code so workflows that previously depended on locally edited `svv` files can run from this repository instead of from `site-packages/svv/SCRIPTS`.
+OxyGFM is a command-line simulation and export layer for vascular growth and tissue oxygen analysis. For the growth algorithm, this program wraps public svVascularize (`svv`).
 
-The current implementation keeps the numerical behavior of `TissueSim_cube_local.py` as the source of truth, but exposes it through structured JSON settings and a package layout:
+The current implementation preserves the numerical behavior of the original TissueSim workflows, but the CLI now uses package-owned code under `gfm/` and does not import the old root-level scripts:
 
 ```bash
 python -m gfm.cli run --settings settings.json
 python -m gfm.cli sweep --settings sweep_settings.json
 ```
+
+## CASCADE Studio GUI
+
+The repository now includes a guided native GUI for configuring, queueing, running, and analyzing CASCADE simulations:
+
+```bash
+cd /home/carl/GFM
+python setup_env.py --gui --gpu cu13
+.venv/bin/python -m gfm.gui
+```
+
+After installation, `gfm-gui` launches the same application. On Carl's WSL setup, double-click `launch_gui_windows.vbs` for a console-free launch; `launch_gui_windows.bat` is the diagnostic fallback.
+
+The GUI covers domains; svVascularize growth/import; simple-cubic, diamond-cubic/tetrahedral, BCC, and octet lattices; unit-aware physical inputs; guided and expert solver settings; generalized sweeps; hardware warnings; a persistent sequential run queue; CSV summary plotting; and a separate VTK viewer. Each simulation runs in its own Python process, only one at a time, so worker memory and CUDA allocations are released between jobs and the GUI never holds full simulation arrays.
+
+See [docs/gui.md](docs/gui.md) for the workflow, memory behavior, supported inputs, and current scientific boundaries.
 
 The goal is to support reproducible tree, forest, simple-channel, simulation, cache, CSV, and ParaView workflows while avoiding edits outside this repo.
 
@@ -19,7 +35,7 @@ GFM supports three network modes:
 
 - `tree`: one vascular tree grown from a configured root.
 - `forest`: multiple trees grown from configured roots, with per-tree or total target counts.
-- `simple`: idealized channel geometries for microfluidic-style analysis.
+- `simple`: simpler, user-created channel geometries for microfluidic-style analysis.
 
 Tree and forest workflows can:
 
@@ -43,11 +59,11 @@ Simple mode is intended for channel-design studies and uses the same flow/concen
 
 ### Simulation
 
-GFM exposes the main TissueSim simulation controls through JSON:
+GFM exposes the main tree and tissue simulation controls through JSON:
 
 - Fluids: `blood` and `water`.
 - Flow sources: per-tree flow, loaded tree root flow, and total-Qin splitting.
-- Concentration solvers supported by `TissueSim_cube_local.py`, including:
+- Concentration solvers supported by the GFM runtime, including:
   - `topdown`
   - `network`
   - `topdown_ext`
@@ -58,7 +74,7 @@ GFM exposes the main TissueSim simulation controls through JSON:
 - Geometry-only runs.
 - Optional tissue nearest-vessel fields.
 - Cext controls through `simulation.cext`.
-- TissueSim constant overrides through `simulation.tissuesim`.
+- Legacy-compatible runtime constant overrides through `simulation.tissuesim`.
 - Infarction-style downstream blocking through `simulation.infarction`.
 
 Compute is float64 for the core simulation path. Export arrays can be written as float32 or float64, but public-svv float32 compute parity is not part of the current supported path.
@@ -119,6 +135,8 @@ gfm/
   sweep.py             Multi-target/fluid summary sweep runner.
   simple.py            Simple channel geometry backend.
   svv_adapter.py       Public-svv import boundary and compatibility hooks.
+  runtime/             Package-owned flow/concentration/tissue oxygen runtime.
+  settings/            Named runtime default sections and JSON override registry.
   _svv_*.py            Vendored compatibility modules for local-only svv behavior.
 
 examples/
@@ -139,22 +157,94 @@ docs/
 
 ## Setup
 
-On Carl's machine, use the existing `svva2` environment:
+Recommended one-command local setup:
+
+```bash
+cd /home/carl/GFM
+python setup_env.py
+```
+
+This creates `.venv`, installs public `svv==0.0.48`, installs GFM in editable mode, and verifies that `gfm` and `svv` import correctly.
+
+For GPU/Cext support, choose the CuPy package that matches the CUDA runtime. Carl's current `svva2` environment uses CUDA 13 / `cupy-cuda13x`, so `cu13` is the closest match to the original local setup:
+
+```bash
+python setup_env.py --gpu cu13
+```
+
+The CUDA 13 requirements include the matching runtime headers needed by CuPy's
+JIT-compiled CASCADE kernels. Setup verifies a compiled kernel, not only GPU
+detection, before reporting that the environment is ready.
+
+CUDA 12:
+
+```bash
+python setup_env.py --gpu cu12
+```
+
+CUDA 11:
+
+```bash
+python setup_env.py --gpu cu11
+```
+
+Useful setup variants:
+
+```bash
+python setup_env.py --dev
+python setup_env.py --recreate
+python setup_env.py --venv .venv-gpu --gpu cu12
+python setup_env.py --gpu cu13 --cuda-path /path/to/targets/x86_64-linux
+```
+
+Manual venv setup is equivalent:
+
+```bash
+cd /home/carl/GFM
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m gfm.cli --help
+```
+
+Conda equivalent:
+
+```bash
+cd /home/carl/GFM
+conda env create -f environment.yml
+conda activate gfm
+gfm --help
+```
+
+For manual GPU/Cext installs, use the CuPy requirements file that matches the CUDA runtime:
+
+```bash
+python -m pip install -r requirements-gpu-cu13.txt
+```
+
+or:
+
+```bash
+python -m pip install -r requirements-gpu-cu12.txt
+```
+
+or:
+
+```bash
+python -m pip install -r requirements-gpu-cu11.txt
+```
+
+The normal dependency file installs public `svv==0.0.48` plus the GFM scientific/runtime dependencies. Do this in a clean environment if you want to test public `svv`; running it inside Carl's `svva2` environment may replace or conflict with the locally edited `svv`.
+
+On Carl's machine, the existing `svva2` environment can still be used without reinstalling:
 
 ```bash
 cd /home/carl/GFM
 /home/carl/miniconda3/envs/svva2/bin/python -m gfm.cli --help
 ```
 
-`TissueSim_cube_local.py` is still required in the repo root. The refactor has moved orchestration, configuration, loading, caching, and export behavior into `gfm/`, but the current simulation kernels still come from that file.
-
-For a fresh environment, install public `svv` and the scientific dependencies used by the simulation/export path:
-
-```bash
-python -m pip install svv==0.0.48 numpy scipy pyvista
-```
-
-GPU/Cext acceleration requires a working CUDA/CuPy setup compatible with the machine. If CuPy/CUDA is not available, use CPU-compatible solvers/settings or avoid GPU-only Cext cases.
+`TissueSim_cube_local.py` and the old ParaView exporter can remain in the repo for validation or historical comparison, but the installable GFM package does not depend on them. The CLI imports `gfm.runtime.tissuesim` for the current numerical kernels.
 
 ## Quick Start
 
@@ -222,6 +312,22 @@ Cube domain:
 }
 ```
 
+Sphere domain:
+
+```json
+{
+  "domain": {
+    "type": "sphere",
+    "radius": 0.5,
+    "center": [0.0, 0.0, 0.0],
+    "theta_resolution": 96,
+    "phi_resolution": 96,
+    "side_length": 1.0,
+    "random_seed": 42
+  }
+}
+```
+
 Rectangular box domain:
 
 ```json
@@ -249,6 +355,38 @@ File-backed domain:
 ```
 
 Supported file-backed inputs are `.dmn` files readable by the adapter and mesh files readable by PyVista.
+
+Relative `domain.path` values are resolved relative to the settings file first. If the file is not found there, GFM also checks the repository `domains/` folder. This lets you save reusable PyVista meshes such as `domains/sphere_r0p5.vtp` and reference them from any settings file with `"path": "sphere_r0p5.vtp"`.
+
+Programmatic PyVista domains are best used with the CLI by saving the mesh to disk and using the file-backed domain form above.
+
+For arbitrary PyVista geometry, create the object in Python, run any PyVista boolean/cleaning steps you need, save the mesh into `domains/`, and then reference that file from JSON:
+
+```python
+from pathlib import Path
+import pyvista as pv
+
+domains = Path("/home/carl/GFM/domains")
+domains.mkdir(exist_ok=True)
+
+sphere = pv.Sphere(radius=0.5).triangulate().clean()
+notch = pv.Cube(center=(0.25, 0.0, 0.0), x_length=0.35, y_length=0.35, z_length=0.35).triangulate().clean()
+domain_mesh = sphere.boolean_difference(notch).clean()
+domain_mesh.save(domains / "sphere_notched.vtp")
+```
+
+Then:
+
+```json
+{
+  "domain": {
+    "type": "file",
+    "path": "sphere_notched.vtp",
+    "side_length": 1.0,
+    "random_seed": 42
+  }
+}
+```
 
 ### Network
 
@@ -453,20 +591,44 @@ Cext/hybrid FFT path:
 }
 ```
 
-TissueSim constant overrides:
+Modular runtime settings:
 
 ```json
 {
-  "simulation": {
-    "tissuesim": {
+  "settings": {
+    "kirchhoff": {
+      "solver": "tree",
+      "cg_rtol": 1e-10
+    },
+    "hematocrit": {
+      "model": "pries_secomb",
+      "flow_iterations": 2
+    },
+    "oxygen": {
       "finite_radius_o2_terms": "none",
       "lumen_wall_closure": "wellmixed",
-      "nearest_tissue_vessels": 250,
-      "window_factor": 6
+      "solute_diffusivity": 2.41e-5,
+      "vmax_mm": 0.04,
+      "km": 0.0069
+    },
+    "cext": {
+      "vess_coupling_omega_min": 0.025,
+      "vess_coupling_omega_max": 1.4
+    },
+    "tissue": {
+      "nearest_vessels": 250,
+      "window_factor": 6,
+      "gpu_chunk_points": 8192
+    },
+    "growth": {
+      "n_equal_bifurcations": 200000
     }
   }
 }
 ```
+
+The default setting pages live in `gfm/settings/`. Compatibility inputs still work:
+`simulation.cext` maps to `settings.cext`, `simulation.tissuesim` maps through the same registry, and `growth.equal_terminal` maps to `settings.growth`.
 
 Infarction-style block:
 

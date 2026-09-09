@@ -448,7 +448,7 @@ K_M_MM = 0.0069
 AXIAL_BLOOD_STEPS = 5
 OMEGA = 0.7
 
-CONCENTRATION_SOLVER = "topdown_ext_hybrid_bg"  # topdown, network, topdown_ext, topdown_ext_hybrid_bg, or topdown_ext_treecode
+CONCENTRATION_SOLVER = "network_ext"  # topdown/network, with optional direct or FFT Cext coupling
 HEMATOCRIT_MODEL = "pries_secomb"  # "uniform_tube" or "pries_secomb".
 HEMATOCRIT_FLOW_ITERATIONS = 2
 HEMATOCRIT_RELAXATION = 1.0
@@ -3676,9 +3676,9 @@ def _resolve_concentration_solver(value: str | None) -> str:
     if value is None:
         value = CONCENTRATION_SOLVER
     mode = str(value).strip().lower()
-    if mode in ("topdown", "network", "topdown_ext", "topdown_ext_hybrid_bg", "topdown_ext_treecode"):
+    if mode in ("topdown", "network", "network_ext", "topdown_ext", "topdown_ext_hybrid_bg", "network_ext_hybrid_bg", "topdown_ext_treecode"):
         return mode
-    raise ValueError("concentration solver must be 'topdown', 'network', 'topdown_ext', 'topdown_ext_hybrid_bg', or 'topdown_ext_treecode'.")
+    raise ValueError("concentration solver must be 'topdown', 'network', 'network_ext', 'topdown_ext', 'topdown_ext_hybrid_bg', 'network_ext_hybrid_bg', or 'topdown_ext_treecode'.")
 
 
 def _solve_channel_concentrations(
@@ -3728,6 +3728,31 @@ def _solve_channel_concentrations(
             km=km,
             fluid=fluid,
         )
+    if mode == "network_ext":
+        if prox_ids is None or dist_ids is None:
+            geometry = np.zeros((starts.shape[0], 6), dtype=float)
+            geometry[:, 0:3] = starts
+            geometry[:, 3:6] = ends
+            prox_ids, dist_ids, _ = _build_node_indices(geometry)
+        return _solve_channel_concentrations_topdown_ext(
+            tree,
+            flows,
+            starts,
+            ends,
+            radii,
+            lengths,
+            inlet_concentration=inlet_concentration,
+            diffusivity=diffusivity,
+            vmax=vmax,
+            km=km,
+            fluid=fluid,
+            network_topology={
+                "prox_ids": np.asarray(prox_ids, dtype=np.int64),
+                "dist_ids": np.asarray(dist_ids, dtype=np.int64),
+                "inlet_nodes": tuple(int(node) for node in inlet_nodes),
+                "outlet_nodes": None if outlet_nodes is None else tuple(int(node) for node in outlet_nodes),
+            },
+        )
     if mode == "topdown_ext_hybrid_bg":
         return _solve_channel_concentrations_topdown_ext_hybrid_bg(
             tree,
@@ -3741,6 +3766,31 @@ def _solve_channel_concentrations(
             vmax=vmax,
             km=km,
             fluid=fluid,
+        )
+    if mode == "network_ext_hybrid_bg":
+        if prox_ids is None or dist_ids is None:
+            geometry = np.zeros((starts.shape[0], 6), dtype=float)
+            geometry[:, 0:3] = starts
+            geometry[:, 3:6] = ends
+            prox_ids, dist_ids, _ = _build_node_indices(geometry)
+        return _solve_channel_concentrations_topdown_ext_hybrid_bg(
+            tree,
+            flows,
+            starts,
+            ends,
+            radii,
+            lengths,
+            inlet_concentration=inlet_concentration,
+            diffusivity=diffusivity,
+            vmax=vmax,
+            km=km,
+            fluid=fluid,
+            network_topology={
+                "prox_ids": np.asarray(prox_ids, dtype=np.int64),
+                "dist_ids": np.asarray(dist_ids, dtype=np.int64),
+                "inlet_nodes": tuple(int(node) for node in inlet_nodes),
+                "outlet_nodes": None if outlet_nodes is None else tuple(int(node) for node in outlet_nodes),
+            },
         )
     if mode == "topdown_ext_treecode":
         return _solve_channel_concentrations_topdown_ext_treecode(
@@ -6112,6 +6162,39 @@ def _build_local_exclusion_lists(
     return out_idx, out_count
 
 
+def _build_network_local_exclusion_lists(
+    prox_ids: np.ndarray,
+    dist_ids: np.ndarray,
+    *,
+    max_local: int = 32,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build the same two-hop near-field exclusions for an arbitrary graph."""
+    prox = np.asarray(prox_ids, dtype=np.int64).reshape(-1)
+    dist = np.asarray(dist_ids, dtype=np.int64).reshape(-1)
+    nseg = int(prox.size)
+    out_idx = np.full((nseg, max_local), -1, dtype=np.int32)
+    out_count = np.zeros((nseg,), dtype=np.uint8)
+    if nseg == 0:
+        return out_idx, out_count
+
+    node_edges: dict[int, list[int]] = defaultdict(list)
+    for edge_idx, (node_a, node_b) in enumerate(zip(prox, dist)):
+        node_edges[int(node_a)].append(edge_idx)
+        node_edges[int(node_b)].append(edge_idx)
+    for edge_idx in range(nseg):
+        first = set(node_edges[int(prox[edge_idx])])
+        first.update(node_edges[int(dist[edge_idx])])
+        nearby = set(first)
+        for adjacent in first:
+            nearby.update(node_edges[int(prox[adjacent])])
+            nearby.update(node_edges[int(dist[adjacent])])
+        values = sorted(nearby)[:max_local]
+        out_count[edge_idx] = np.uint8(len(values))
+        if values:
+            out_idx[edge_idx, : len(values)] = np.asarray(values, dtype=np.int32)
+    return out_idx, out_count
+
+
 def _cext_initial_chunk_targets() -> int:
     slots = max(int(CEXT_STREAMING_TARGET_CANDIDATE_SLOTS), 1)
     per_target_guess = max(int(GL_ORDER_CEXT) * 32, 1)
@@ -6497,6 +6580,85 @@ def _snapshot_cext_source_state(
     }
 
 
+def _resample_cext_source_state_for_tissue(
+    cext_state: dict,
+    order: int,
+) -> dict:
+    """Resample converged vessel fields onto an independent tissue quadrature.
+
+    Cext coupling is solved at ``GL_ORDER_CEXT``.  The final vessel-to-tissue
+    Green's integral may use ``GL_ORDER`` instead; weighted source terms are
+    reconstructed as line densities before being integrated with the new
+    Gauss–Legendre weights.
+    """
+    target_order = max(int(order), 1)
+    points = np.asarray(cext_state["gl_points_si"], dtype=np.float32)
+    if points.ndim != 3 or points.shape[1] == target_order:
+        return cext_state
+    old_order = int(points.shape[1])
+    if old_order <= 0:
+        return cext_state
+
+    old_nodes, old_weights = _get_gl_nodes_weights(old_order)
+    new_nodes, new_weights = _get_gl_nodes_weights(target_order)
+    old_t = 0.5 * (np.asarray(old_nodes, dtype=float) + 1.0)
+    new_t = 0.5 * (np.asarray(new_nodes, dtype=float) + 1.0)
+    vectors = np.asarray(
+        cext_state.get("segment_vectors", np.zeros((points.shape[0], 3))),
+        dtype=np.float32,
+    )
+
+    def interpolate_rows(values) -> np.ndarray:
+        array = np.asarray(values, dtype=np.float32)
+        if array.ndim != 2 or array.shape[1] != old_order:
+            return array
+        out = np.empty((array.shape[0], target_order), dtype=np.float32)
+        for segment_id in range(array.shape[0]):
+            out[segment_id] = np.interp(new_t, old_t, array[segment_id]).astype(
+                np.float32,
+                copy=False,
+            )
+        return out
+
+    lengths = np.linalg.norm(vectors, axis=1).astype(np.float64, copy=False)
+    old_ds = 0.5 * lengths[:, None] * np.asarray(old_weights, dtype=float)[None, :]
+    new_ds = 0.5 * lengths[:, None] * np.asarray(new_weights, dtype=float)[None, :]
+
+    def reweight(values) -> np.ndarray:
+        weighted = np.asarray(values, dtype=np.float32)
+        density = np.divide(
+            weighted,
+            old_ds,
+            out=np.zeros_like(weighted, dtype=np.float64),
+            where=old_ds > 0.0,
+        )
+        return np.asarray(interpolate_rows(density) * new_ds, dtype=np.float32)
+
+    resampled = dict(cext_state)
+    flow_start = points[:, 0, :] - np.asarray(old_t[0], dtype=np.float32) * vectors
+    resampled["gl_points_si"] = np.asarray(
+        flow_start[:, None, :] + new_t[None, :, None] * vectors[:, None, :],
+        dtype=np.float32,
+    )
+    for key in (
+        "c_iv_gl",
+        "c_bulk_gl",
+        "c_wall_gl",
+        "c_ext_gl",
+        "lambda_iv_gl",
+        "k_if_gl",
+        "q_line_gl",
+    ):
+        if key in cext_state:
+            resampled[key] = interpolate_rows(cext_state[key])
+    for key in ("q_weighted_gl", "mono2_weight_gl", "dipole2_weight_gl"):
+        if key in cext_state:
+            resampled[key] = reweight(cext_state[key])
+    resampled["tissue_gl_order"] = target_order
+    resampled["cext_gl_order"] = old_order
+    return resampled
+
+
 def _set_last_cext_source_state(
     context: dict,
     ext_state: dict,
@@ -6576,13 +6738,29 @@ def _build_cext_geometry_context(
     vmax: float,
     km: float,
     build_candidate_index: bool = True,
+    network_topology: dict | None = None,
 ) -> dict:
-    hct_context = _hematocrit_context_for_tree(tree)
-    parents = np.asarray(hct_context["parents"], dtype=np.int32)
-    left_child = np.asarray(hct_context["left_child"], dtype=np.int32)
-    right_child = np.asarray(hct_context["right_child"], dtype=np.int32)
-    order = np.asarray(hct_context["order"], dtype=np.int64)
-    level_order, level_offsets, depth = _build_topdown_level_slices(order, parents)
+    if network_topology is None:
+        hct_context = _hematocrit_context_for_tree(tree)
+        parents = np.asarray(hct_context["parents"], dtype=np.int32)
+        left_child = np.asarray(hct_context["left_child"], dtype=np.int32)
+        right_child = np.asarray(hct_context["right_child"], dtype=np.int32)
+        order = np.asarray(hct_context["order"], dtype=np.int64)
+        level_order, level_offsets, depth = _build_topdown_level_slices(order, parents)
+        exclude_idx, exclude_count = _build_local_exclusion_lists(parents, left_child, right_child)
+    else:
+        nseg = int(np.asarray(flows).size)
+        parents = np.full((nseg,), -1, dtype=np.int32)
+        left_child = np.full((nseg,), -1, dtype=np.int32)
+        right_child = np.full((nseg,), -1, dtype=np.int32)
+        order = np.arange(nseg, dtype=np.int64)
+        level_order = np.asarray(order, dtype=np.int32)
+        level_offsets = np.asarray([0, nseg], dtype=np.int32)
+        depth = np.zeros((nseg,), dtype=np.int32)
+        exclude_idx, exclude_count = _build_network_local_exclusion_lists(
+            np.asarray(network_topology["prox_ids"], dtype=np.int64),
+            np.asarray(network_topology["dist_ids"], dtype=np.int64),
+        )
 
     flow_starts = np.asarray(starts, dtype=float).copy()
     flow_ends = np.asarray(ends, dtype=float).copy()
@@ -6605,8 +6783,6 @@ def _build_cext_geometry_context(
         dtype=CEXT_FLOAT_DTYPE,
     )
     ds_gl = np.asarray(0.5 * lengths_si[:, None] * gl_weights_arr[None, :], dtype=CEXT_FLOAT_DTYPE)
-
-    exclude_idx, exclude_count = _build_local_exclusion_lists(parents, left_child, right_child)
 
     diffusivity_si = float(diffusivity * CM2_TO_M2)
     lambda_inlet = float(_lambda_if_from_civ(float(inlet_concentration), diffusivity_si, vmax, km))
@@ -6701,6 +6877,7 @@ def _build_cext_geometry_context(
         "ds_gl": ds_gl,
         "exclude_idx": exclude_idx,
         "exclude_count": exclude_count,
+        "network_topology": network_topology,
         "diffusivity_si": diffusivity_si,
         "lambda_inlet": float(lambda_inlet),
         "cell_size": float(cell_size),
@@ -7125,7 +7302,7 @@ def _compute_cext_batch_cpu(
     gl_order = int(np.asarray(context["gl_points_si"]).shape[1])
     if target_seg_ids.size == 0:
         return np.zeros((0, gl_order), dtype=np.float32)
-    if _HAVE_NUMBA:
+    if _HAVE_NUMBA and "_compute_cext_batch_numba" in globals():
         return _compute_cext_batch_numba(
             np.asarray(target_seg_ids, dtype=np.int32),
             np.asarray(row_ptr, dtype=np.int32),
@@ -12626,6 +12803,144 @@ def _cext_anderson_candidate(
     return candidate, predicted_abs, int(p), coeff_l1
 
 
+def _run_network_ext_frozen_step(
+    context: dict,
+    ext_state: dict,
+    *,
+    inlet_concentration: float,
+    vmax: float,
+    km: float,
+    chb_max: np.ndarray,
+    fluid_mode: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, str, float]:
+    """Solve graph concentrations for a fixed external field.
+
+    The FFT field iteration is topology-independent.  This replaces the
+    tree-only parent sweep with nodal oxygen mass balance while retaining the
+    same per-segment wall-exchange integration.
+    """
+    global _LAST_CEXT_FROZEN_STEP_TIMINGS
+    t_total = perf_counter()
+    if str(LUMEN_WALL_CLOSURE or "wellmixed").strip().lower() != "wellmixed":
+        raise RuntimeError("General network + FFT Cext currently supports the well-mixed lumen closure.")
+
+    topology = context.get("network_topology") or {}
+    prox = np.asarray(topology["prox_ids"], dtype=np.int64).reshape(-1)
+    dist = np.asarray(topology["dist_ids"], dtype=np.int64).reshape(-1)
+    flows_si = np.asarray(context["flows_si"], dtype=float).reshape(-1)
+    q = np.abs(flows_si)
+    up = prox.copy()
+    down = dist.copy()
+    flip = flows_si < 0.0
+    up[flip], down[flip] = dist[flip], prox[flip]
+    nseg = int(q.size)
+    nnode = int(max(up.max(), down.max()) + 1) if nseg else 0
+    inlet_nodes = {int(node) for node in topology.get("inlet_nodes", ())}
+    inlet_value = float(inlet_concentration)
+    gl_t = np.asarray(context["gl_t"], dtype=float)
+    c_ext_gl = np.asarray(ext_state["c_ext_gl"], dtype=float)
+    radii_si = np.asarray(context["radii_si"], dtype=float)
+    lengths_si = np.asarray(context["lengths_si"], dtype=float)
+    diffusivity_si = float(context["diffusivity_si"])
+    chb = np.asarray(chb_max, dtype=float)
+    valid = q > 1e-30
+
+    incoming: list[list[int]] = [[] for _ in range(nnode)]
+    sum_out = np.zeros((nnode,), dtype=float)
+    sum_in = np.zeros((nnode,), dtype=float)
+    for edge_idx in range(nseg):
+        if not valid[edge_idx]:
+            continue
+        incoming[int(down[edge_idx])].append(edge_idx)
+        sum_out[int(up[edge_idx])] += q[edge_idx]
+        sum_in[int(down[edge_idx])] += q[edge_idx]
+
+    def propagate(node_conc: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        cin = np.maximum(node_conc[up], VESS_CONC_FLOOR).astype(np.float32)
+        cout = np.asarray(cin, dtype=np.float32).copy()
+        civ = np.repeat(cin[:, None], int(gl_t.size), axis=1).astype(np.float32)
+        for edge_idx in range(nseg):
+            if not valid[edge_idx]:
+                continue
+            c_running = float(cin[edge_idx])
+            previous_s = 0.0
+            flow_mag = max(float(q[edge_idx]), 1e-30)
+            for node_idx, t_value in enumerate(gl_t):
+                target_s = float(t_value) * float(lengths_si[edge_idx])
+                step = max(target_s - previous_s, 0.0)
+                c_external = max(float(c_ext_gl[edge_idx, node_idx]), 0.0)
+                lambda_if = float(_lambda_if_from_civ(c_running, diffusivity_si, vmax, km))
+                k_if = float(_interfacial_transfer_coefficient(radii_si[edge_idx], lambda_if, diffusivity_si))
+                beta = k_if / flow_mag
+                if fluid_mode == "blood":
+                    buffer = 1.0 + max(float(chb[edge_idx]), 0.0) * severinghaus_dSdP(c_running / ALPHA_MMHG) / ALPHA_MMHG
+                    beta /= max(float(buffer), 1e-30)
+                c_running = max(
+                    c_external + (c_running - c_external) * float(np.exp(np.clip(-beta * step, -150.0, 50.0))),
+                    VESS_CONC_FLOOR,
+                )
+                civ[edge_idx, node_idx] = np.float32(c_running)
+                previous_s = target_s
+            tail_step = max(float(lengths_si[edge_idx]) - previous_s, 0.0)
+            c_external = max(float(c_ext_gl[edge_idx, -1]), 0.0) if gl_t.size else 0.0
+            lambda_if = float(_lambda_if_from_civ(c_running, diffusivity_si, vmax, km))
+            k_if = float(_interfacial_transfer_coefficient(radii_si[edge_idx], lambda_if, diffusivity_si))
+            beta = k_if / flow_mag
+            if fluid_mode == "blood":
+                buffer = 1.0 + max(float(chb[edge_idx]), 0.0) * severinghaus_dSdP(c_running / ALPHA_MMHG) / ALPHA_MMHG
+                beta /= max(float(buffer), 1e-30)
+            cout[edge_idx] = np.float32(max(
+                c_external + (c_running - c_external) * float(np.exp(np.clip(-beta * tail_step, -150.0, 50.0))),
+                VESS_CONC_FLOOR,
+            ))
+        return cin, cout, civ
+
+    node_conc = np.full((nnode,), inlet_value, dtype=float)
+    cached_cin = np.asarray(ext_state.get("cin_seg", ()), dtype=float).reshape(-1)
+    if cached_cin.size == nseg:
+        for edge_idx in range(nseg):
+            if valid[edge_idx] and int(up[edge_idx]) not in inlet_nodes:
+                node_conc[int(up[edge_idx])] = max(float(cached_cin[edge_idx]), VESS_CONC_FLOOR)
+    for inlet in inlet_nodes:
+        if 0 <= inlet < nnode:
+            node_conc[inlet] = inlet_value
+
+    iterations = 0
+    for iterations in range(1, 101):
+        _, cout, _ = propagate(node_conc)
+        updated = node_conc.copy()
+        for node in range(nnode):
+            if node in inlet_nodes or not incoming[node]:
+                continue
+            denominator = sum_out[node] if sum_out[node] > 1e-30 else sum_in[node]
+            if denominator > 1e-30:
+                updated[node] = sum(q[edge] * float(cout[edge]) for edge in incoming[node]) / denominator
+        delta = float(np.max(np.abs(updated - node_conc))) if nnode else 0.0
+        node_conc += float(OMEGA) * (updated - node_conc)
+        for inlet in inlet_nodes:
+            if 0 <= inlet < nnode:
+                node_conc[inlet] = inlet_value
+        if delta < 1e-6:
+            break
+
+    cin, cout, civ = propagate(node_conc)
+    elapsed = perf_counter() - t_total
+    _LAST_CEXT_FROZEN_STEP_TIMINGS = {
+        "backend": "cpu-network",
+        "lumen_wall_closure": "wellmixed",
+        "upload_s": 0.0,
+        "kernel_s": float(elapsed),
+        "download_s": 0.0,
+        "transfer_s": 0.0,
+        "total_s": float(elapsed),
+        "network_iterations": int(iterations),
+    }
+    ext_state["c_iv_gl"] = civ
+    ext_state["c_bulk_gl"] = civ
+    ext_state["c_wall_gl"] = civ
+    return cin, cout, civ, "cpu-network", 0.0
+
+
 def _run_topdown_ext_frozen_step(
     context: dict,
     ext_state: dict,
@@ -12637,6 +12952,16 @@ def _run_topdown_ext_frozen_step(
     fluid_mode: str,
     frozen_backend: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, str, float]:
+    if context.get("network_topology") is not None:
+        return _run_network_ext_frozen_step(
+            context,
+            ext_state,
+            inlet_concentration=inlet_concentration,
+            vmax=vmax,
+            km=km,
+            chb_max=chb_max,
+            fluid_mode=fluid_mode,
+        )
     global _LAST_CEXT_FROZEN_STEP_TIMINGS
     t_step_total = perf_counter()
     frozen_transfer = 0.0
@@ -12894,9 +13219,30 @@ def _solve_channel_concentrations_topdown_ext(
     vmax: float,
     km: float,
     fluid: str,
+    network_topology: dict | None = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     global _LAST_CONCENTRATION_TIMINGS
+    solver_name = "network_ext" if network_topology is not None else "topdown_ext"
     if float(CEXT_WINDOW_FACTOR) <= 0.0:
+        if network_topology is not None:
+            cin, cout, _, _ = solve_network_concentrations(
+                starts,
+                ends,
+                radii,
+                lengths,
+                flows,
+                network_topology["inlet_nodes"],
+                network_topology.get("outlet_nodes"),
+                inlet_concentration,
+                fluid=fluid,
+                prox_ids=network_topology["prox_ids"],
+                dist_ids=network_topology["dist_ids"],
+                diffusivity=diffusivity,
+                vmax=vmax,
+                km=km,
+            )
+            _LAST_CONCENTRATION_TIMINGS = _default_cext_timing_details(backend="disabled")
+            return cin, cout
         cin, cout = _solve_channel_concentrations_topdown(
             tree,
             flows,
@@ -12909,7 +13255,7 @@ def _solve_channel_concentrations_topdown_ext(
         _LAST_CONCENTRATION_TIMINGS = _default_cext_timing_details(backend="disabled")
         return cin, cout
 
-    nseg = int(getattr(tree, "segment_count", 0))
+    nseg = int(np.asarray(flows).size) if network_topology is not None else int(getattr(tree, "segment_count", 0))
     if nseg <= 0:
         empty = np.empty((0,), dtype=float)
         return empty, empty
@@ -12917,38 +13263,42 @@ def _solve_channel_concentrations_topdown_ext(
     t_total = perf_counter()
     t_stage = perf_counter()
     fluid_mode = (fluid or getattr(getattr(tree, "parameters", None), "fluid", None) or ACTIVE_FLUID).lower()
-    hct_context = _hematocrit_context_for_tree(tree)
-    radii_arr = np.asarray(hct_context["radii"], dtype=float)
+    hct_context = None if network_topology is not None else _hematocrit_context_for_tree(tree)
+    radii_arr = np.asarray(radii, dtype=float) if network_topology is not None else np.asarray(hct_context["radii"], dtype=float)
     flows_arr = np.asarray(flows, dtype=float)
     chb_max = np.zeros_like(radii_arr)
     hct_source = "none"
     if fluid_mode == "blood":
-        cached_hct = _get_tree_hematocrit_cache(
-            tree,
-            nseg,
-            model=HEMATOCRIT_MODEL,
-            flows=flows_arr,
-        )
-        if cached_hct is not None:
-            HD, HT = cached_hct
-            hct_source = "cache"
+        if network_topology is not None:
+            HT = np.asarray([tube_hematocrit(radius, hd=HD_DISCHARGE) for radius in radii_arr], dtype=float)
+            hct_source = "network-radius"
         else:
-            HD, HT = compute_tree_hematocrit(
+            cached_hct = _get_tree_hematocrit_cache(
                 tree,
-                hd_root=HD_DISCHARGE,
-                flows=flows_arr,
-                model=HEMATOCRIT_MODEL,
-                order=np.asarray(hct_context["order"], dtype=np.int64),
-            )
-            _store_tree_hematocrit_cache(
-                tree,
-                HD,
-                HT,
+                nseg,
                 model=HEMATOCRIT_MODEL,
                 flows=flows_arr,
-                fixed_flow_bc=False,
             )
-            hct_source = "computed"
+            if cached_hct is not None:
+                HD, HT = cached_hct
+                hct_source = "cache"
+            else:
+                HD, HT = compute_tree_hematocrit(
+                    tree,
+                    hd_root=HD_DISCHARGE,
+                    flows=flows_arr,
+                    model=HEMATOCRIT_MODEL,
+                    order=np.asarray(hct_context["order"], dtype=np.int64),
+                )
+                _store_tree_hematocrit_cache(
+                    tree,
+                    HD,
+                    HT,
+                    model=HEMATOCRIT_MODEL,
+                    flows=flows_arr,
+                    fixed_flow_bc=False,
+                )
+                hct_source = "computed"
         chb_max = np.asarray(HT, dtype=float) * float(O2_CAP_PER_HCT)
     hct_setup_s = perf_counter() - t_stage
 
@@ -12964,6 +13314,7 @@ def _solve_channel_concentrations_topdown_ext(
         diffusivity=diffusivity,
         vmax=vmax,
         km=km,
+        network_topology=network_topology,
     )
     ext_state = {
         "c_ext_gl": np.zeros((nseg, int(GL_ORDER_CEXT)), dtype=np.float32),
@@ -13056,7 +13407,7 @@ def _solve_channel_concentrations_topdown_ext(
 
     if SOLVER_TIMING_DETAILS:
         print(
-            "  Concentration topdown_ext: "
+            f"  Concentration {solver_name}: "
             f"nseg={nseg} fluid={fluid_mode} backend={backend} frozen={frozen_backend} gl_order={GL_ORDER_CEXT} "
             f"hct={hct_source} accel={accel_mode} active_set={'on' if active_set_enabled else 'off'} "
             f"wall={LUMEN_WALL_CLOSURE} o2_terms={FINITE_RADIUS_O2_TERMS} "
@@ -13097,10 +13448,10 @@ def _solve_channel_concentrations_topdown_ext(
                 "    Cext init predictor: "
                 f"max_cext={float(np.nanmax(np.asarray(ext_state['c_ext_gl'], dtype=float))) if ext_state['c_ext_gl'].size else 0.0:.3e}"
             )
-        _maybe_trace_cext_iteration(0, ext_state, solver="topdown_ext_image", context=context, backend=backend)
+        _maybe_trace_cext_iteration(0, ext_state, solver=solver_name, context=context, backend=backend)
 
     if not init_performed:
-        _maybe_trace_cext_iteration(0, ext_state, solver="topdown_ext_image", context=context, backend=backend)
+        _maybe_trace_cext_iteration(0, ext_state, solver=solver_name, context=context, backend=backend)
 
     for iter_idx in range(1, int(CEXT_VESS_COUPLING_MAX_ITER) + 1):
         cin_seg, cout_seg, c_iv_gl, frozen_backend, frozen_transfer = _run_topdown_ext_frozen_step(
@@ -13426,7 +13777,7 @@ def _solve_channel_concentrations_topdown_ext(
         _maybe_trace_cext_iteration(
             iter_idx,
             ext_state,
-            solver="topdown_ext_image",
+            solver=solver_name,
             context=context,
             backend=backend,
             max_delta=max_delta_last,
@@ -13457,7 +13808,7 @@ def _solve_channel_concentrations_topdown_ext(
     _set_last_cext_source_state(
         context,
         ext_state,
-        solver="topdown_ext",
+        solver=solver_name,
         backend=backend,
     )
 
@@ -13959,9 +14310,30 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
     vmax: float,
     km: float,
     fluid: str,
+    network_topology: dict | None = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     global _LAST_CONCENTRATION_TIMINGS
+    solver_name = "network_ext_hybrid_bg" if network_topology is not None else "topdown_ext_hybrid_bg"
     if float(CEXT_WINDOW_FACTOR) <= 0.0:
+        if network_topology is not None:
+            cin, cout, _, _ = solve_network_concentrations(
+                starts,
+                ends,
+                radii,
+                lengths,
+                flows,
+                network_topology["inlet_nodes"],
+                network_topology.get("outlet_nodes"),
+                inlet_concentration,
+                fluid=fluid,
+                prox_ids=network_topology["prox_ids"],
+                dist_ids=network_topology["dist_ids"],
+                diffusivity=diffusivity,
+                vmax=vmax,
+                km=km,
+            )
+            _LAST_CONCENTRATION_TIMINGS = _default_cext_timing_details(backend="disabled")
+            return cin, cout
         cin, cout = _solve_channel_concentrations_topdown(
             tree,
             flows,
@@ -13974,12 +14346,14 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
         _LAST_CONCENTRATION_TIMINGS = _default_cext_timing_details(backend="disabled")
         return cin, cout
 
-    nseg = int(getattr(tree, "segment_count", 0))
+    nseg = int(np.asarray(flows).size) if network_topology is not None else int(getattr(tree, "segment_count", 0))
     if nseg <= 0:
         empty = np.empty((0,), dtype=float)
         return empty, empty
 
     if _cp is None:
+        if network_topology is not None:
+            raise RuntimeError("General network + FFT Cext requires a compatible CuPy/CUDA installation.")
         return _solve_channel_concentrations_topdown_ext(
             tree,
             flows,
@@ -13997,38 +14371,42 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
     t_total = perf_counter()
     t_stage = t_total
     fluid_mode = (fluid or getattr(getattr(tree, "parameters", None), "fluid", None) or ACTIVE_FLUID).lower()
-    hct_context = _hematocrit_context_for_tree(tree)
-    radii_arr = np.asarray(hct_context["radii"], dtype=float)
+    hct_context = None if network_topology is not None else _hematocrit_context_for_tree(tree)
+    radii_arr = np.asarray(radii, dtype=float) if network_topology is not None else np.asarray(hct_context["radii"], dtype=float)
     flows_arr = np.asarray(flows, dtype=float)
     chb_max = np.zeros_like(radii_arr)
     hct_source = "none"
     if fluid_mode == "blood":
-        cached_hct = _get_tree_hematocrit_cache(
-            tree,
-            nseg,
-            model=HEMATOCRIT_MODEL,
-            flows=flows_arr,
-        )
-        if cached_hct is not None:
-            HD, HT = cached_hct
-            hct_source = "cache"
+        if network_topology is not None:
+            HT = np.asarray([tube_hematocrit(radius, hd=HD_DISCHARGE) for radius in radii_arr], dtype=float)
+            hct_source = "network-radius"
         else:
-            HD, HT = compute_tree_hematocrit(
+            cached_hct = _get_tree_hematocrit_cache(
                 tree,
-                hd_root=HD_DISCHARGE,
-                flows=flows_arr,
-                model=HEMATOCRIT_MODEL,
-                order=np.asarray(hct_context["order"], dtype=np.int64),
-            )
-            _store_tree_hematocrit_cache(
-                tree,
-                HD,
-                HT,
+                nseg,
                 model=HEMATOCRIT_MODEL,
                 flows=flows_arr,
-                fixed_flow_bc=False,
             )
-            hct_source = "computed"
+            if cached_hct is not None:
+                HD, HT = cached_hct
+                hct_source = "cache"
+            else:
+                HD, HT = compute_tree_hematocrit(
+                    tree,
+                    hd_root=HD_DISCHARGE,
+                    flows=flows_arr,
+                    model=HEMATOCRIT_MODEL,
+                    order=np.asarray(hct_context["order"], dtype=np.int64),
+                )
+                _store_tree_hematocrit_cache(
+                    tree,
+                    HD,
+                    HT,
+                    model=HEMATOCRIT_MODEL,
+                    flows=flows_arr,
+                    fixed_flow_bc=False,
+                )
+                hct_source = "computed"
         chb_max = np.asarray(HT, dtype=float) * float(O2_CAP_PER_HCT)
     hct_setup_s = perf_counter() - t_stage
 
@@ -14045,6 +14423,7 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
         vmax=vmax,
         km=km,
         build_candidate_index=False,
+        network_topology=network_topology,
     )
     context_build_s = perf_counter() - t_stage
 
@@ -14052,6 +14431,8 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
     backend = _resolve_cext_accel_mode()
     frozen_backend = _resolve_cext_frozen_accel_mode()
     if backend != "gpu":
+        if network_topology is not None:
+            raise RuntimeError("General network + FFT Cext requires the GPU Cext backend.")
         return _solve_channel_concentrations_topdown_ext(
             tree,
             flows,
@@ -14195,7 +14576,7 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
 
     if SOLVER_TIMING_DETAILS:
         print(
-            "  Concentration topdown_ext_hybrid_bg: "
+            f"  Concentration {'network_ext_hybrid_bg' if network_topology is not None else 'topdown_ext_hybrid_bg'}: "
             f"nseg={nseg} fluid={fluid_mode} backend={backend} frozen={frozen_backend} gl_order={GL_ORDER_CEXT} "
             f"hct={hct_source} accel={accel_mode} active_set={'on' if active_set_enabled else 'off'} "
             f"wall={LUMEN_WALL_CLOSURE} o2_terms={FINITE_RADIUS_O2_TERMS} "
@@ -14263,10 +14644,10 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
                 "    Cext init predictor: "
                 f"max_cext={float(np.nanmax(np.asarray(ext_state['c_ext_gl'], dtype=float))) if ext_state['c_ext_gl'].size else 0.0:.3e}"
             )
-        _maybe_trace_cext_iteration(0, ext_state, solver="topdown_ext_hybrid_bg", context=context, backend=backend)
+        _maybe_trace_cext_iteration(0, ext_state, solver=solver_name, context=context, backend=backend)
 
     if not init_performed:
-        _maybe_trace_cext_iteration(0, ext_state, solver="topdown_ext_hybrid_bg", context=context, backend=backend)
+        _maybe_trace_cext_iteration(0, ext_state, solver=solver_name, context=context, backend=backend)
 
     for iter_idx in range(1, int(CEXT_VESS_COUPLING_MAX_ITER) + 1):
         cin_seg, cout_seg, c_iv_gl, frozen_backend, frozen_transfer = _run_topdown_ext_frozen_step(
@@ -14711,7 +15092,7 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
         _maybe_trace_cext_iteration(
             iter_idx,
             ext_state,
-            solver="topdown_ext_hybrid_bg",
+            solver=solver_name,
             context=context,
             backend=backend,
             max_delta=max_delta_last,
@@ -14760,7 +15141,7 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
     _set_last_cext_source_state(
         context,
         ext_state,
-        solver="topdown_ext_hybrid_bg",
+        solver=solver_name,
         backend=backend,
     )
     final_source_state_total = perf_counter() - t_source_state
@@ -16388,6 +16769,8 @@ def compute_tissue_samples_greens_from_cext_state(
 
     t_total = perf_counter()
     t0 = perf_counter()
+    validation = validate_cext_tissue_flux_consistency(cext_state)
+    cext_state = _resample_cext_source_state_for_tissue(cext_state, GL_ORDER)
     gl_points_si = np.asarray(cext_state["gl_points_si"], dtype=np.float32)
     lambda_iv_gl = np.asarray(cext_state["lambda_iv_gl"], dtype=np.float32)
     q_weighted_gl = np.asarray(cext_state["q_weighted_gl"], dtype=np.float32)
@@ -16402,7 +16785,6 @@ def compute_tissue_samples_greens_from_cext_state(
     window_factor = float(cext_state.get("window_factor", CEXT_WINDOW_FACTOR))
     max_nearby = min(NEAREST_TISSUE_VESSELS, len(starts))
     result = np.zeros(points.shape[0], dtype=float)
-    validation = validate_cext_tissue_flux_consistency(cext_state)
 
     if _resolve_tissue_accel_mode() == "gpu" and _cp is not None:
         keep_mask, gpu_result = _compute_tissue_samples_greens_from_cext_state_gpu(
@@ -16547,7 +16929,8 @@ def compute_tissue_samples_greens_from_cext_state(
             f"solver={cext_state.get('solver', 'unknown')} points={points.shape[0]} "
             f"cache={cache_mode} active_points={int(np.count_nonzero(keep_mask))} keep_k={keep_k} "
             f"candidate_slots={candidate_slots} "
-            f"gl_order_cext={gl_points_si.shape[1] if gl_points_si.ndim >= 3 else 0} "
+            f"gl_order_tissue={gl_points_si.shape[1] if gl_points_si.ndim >= 3 else 0} "
+            f"gl_order_cext={int(cext_state.get('cext_gl_order', gl_points_si.shape[1] if gl_points_si.ndim >= 3 else 0))} "
             f"setup={_fmt_seconds(t_setup)} kernel={_fmt_seconds(t_kernel)} "
             f"total={_fmt_seconds(perf_counter() - t_total)}"
         )
@@ -18678,6 +19061,7 @@ def summarize_tree(
     side_length: Optional[float] = None,
     fluid: Optional[str] = None,
     inlet_flow_cm3_s: Optional[float] = None,
+    inlet_concentration_override: Optional[float] = None,
     tissue_cache: dict | None = None,
     concentration_solver: str | None = None,
     return_details: bool = False,
@@ -18713,7 +19097,12 @@ def summarize_tree(
         flow_inlet = float(QIN_TARGET) * 1e-3 / 60.0 * q_scale
 
     analysis_fluid = fluid or ACTIVE_FLUID
-    inlet_concentration = get_concentration_inlet(analysis_fluid)
+    inlet_concentration = (
+        float(inlet_concentration_override)
+        if inlet_concentration_override is not None
+        and np.isfinite(float(inlet_concentration_override))
+        else get_concentration_inlet(analysis_fluid)
+    )
     concentration_solver_mode = _resolve_concentration_solver(concentration_solver)
     t_assemble = perf_counter()
     (
@@ -18962,7 +19351,13 @@ def summarize_tree(
     c_lq = float(np.percentile(finite, 25.0)) if finite.size else float("nan")
 
     t_tissue = perf_counter()
-    cext_source_state = _LAST_CEXT_SOURCE_STATE if concentration_solver_mode.startswith("topdown_ext") else None
+    cext_source_state = _LAST_CEXT_SOURCE_STATE if concentration_solver_mode in {
+        "network_ext",
+        "topdown_ext",
+        "topdown_ext_hybrid_bg",
+        "network_ext_hybrid_bg",
+        "topdown_ext_treecode",
+    } else None
     if isinstance(cext_source_state, dict):
         mask, tissue_conc = compute_tissue_samples_greens_from_cext_state(
             sample_points,
@@ -19076,6 +19471,8 @@ def summarize_tree(
         "cube_side_length": _characteristic_length(tree, fallback_side_length=side_length),
         "distance_sample_count": int(DISTANCE_SAMPLE_COUNT),
         "concentration_solver": concentration_solver_mode,
+        "tissue_quadrature_order": int(GL_ORDER),
+        "external_field_quadrature_order": int(GL_ORDER_CEXT),
         "finite_radius_o2_terms": str(FINITE_RADIUS_O2_TERMS),
         "lumen_wall_closure": str(LUMEN_WALL_CLOSURE),
         "graetz_n_radial": int(GRAETZ_N_RADIAL),
@@ -19177,6 +19574,17 @@ def summarize_tree(
         "concentration_inlet": inlet_concentration,
         **fractions,
     }
+    vessel_quadrature = None
+    if isinstance(cext_source_state, dict):
+        vessel_quadrature = {
+            "solver": str(cext_source_state.get("solver", concentration_solver_mode)),
+            "gl_points_si": np.asarray(cext_source_state["gl_points_si"], dtype=np.float32),
+        }
+        for key in ("c_iv_gl", "c_bulk_gl", "c_wall_gl", "c_ext_gl"):
+            if key in cext_source_state:
+                vessel_quadrature[key] = np.asarray(
+                    cext_source_state[key], dtype=np.float32
+                )
     cext_source_state = None
     _clear_cext_runtime_state(tree)
     if not return_details:
@@ -19198,6 +19606,7 @@ def summarize_tree(
         "tissue_values": tissue_vals,
         "inlet_concentration": inlet_concentration,
         "cext_source_state": cext_source_state,
+        "vessel_quadrature": vessel_quadrature,
     }
     HD_detail = np.asarray(getattr(tree, "discharge_hematocrit", np.empty((0,), dtype=float)), dtype=float)
     HT_detail = np.asarray(getattr(tree, "tube_hematocrit", np.empty((0,), dtype=float)), dtype=float)
@@ -19630,8 +20039,8 @@ def parse_args() -> argparse.Namespace:
         "--concentration-solver",
         type=str,
         default=CONCENTRATION_SOLVER,
-        choices=("topdown", "network", "topdown_ext", "topdown_ext_hybrid_bg", "topdown_ext_treecode"),
-        help="Channel concentration solver: topdown, network, topdown_ext, topdown_ext_hybrid_bg, or topdown_ext_treecode.",
+        choices=("network_ext", "network_ext_hybrid_bg", "topdown_ext", "topdown_ext_hybrid_bg", "network", "topdown", "topdown_ext_treecode"),
+        help="Channel concentration solver: network/top-down with direct, FFT/hybrid, or uncoupled oxygen transport.",
     )
     parser.add_argument(
         "--cext-accel",
@@ -21189,7 +21598,13 @@ def main() -> None:
                                             f"conc={_fmt_seconds(metrics[fluid].get('t_concentration_s'))} "
                                             f"tissue_greens={_fmt_seconds(metrics[fluid].get('t_tissue_s'))}"
                                         )
-                                        if str(metrics[fluid].get("concentration_solver", "")).startswith("topdown_ext"):
+                                        if str(metrics[fluid].get("concentration_solver", "")) in {
+                                            "network_ext",
+                                            "topdown_ext",
+                                            "topdown_ext_hybrid_bg",
+                                            "network_ext_hybrid_bg",
+                                            "topdown_ext_treecode",
+                                        }:
                                             print(
                                                 f"    cext timing ({metrics[fluid].get('concentration_solver')} / "
                                                 f"{metrics[fluid].get('t_cext_backend', metrics[fluid].get('concentration_solver'))}): "

@@ -1,5 +1,9 @@
 __pycache__/
 *.pyc
+*.egg-info/
+build/
+dist/
+.gfm_cuda_path
 .ipynb_checkpoints/
 
 # environments
@@ -33,3 +37,5 @@ gfm_run*/
 *.npz
 *.csv
 *.pkl
+.gfm_gui/
+CASCADE_Project/

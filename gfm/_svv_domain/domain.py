@@ -638,7 +638,53 @@ class Domain(object):
             self.area = _mesh.area
             self.volume = 0.0
         elif self.points.shape[1] == 3:
-            _mesh, nodes, vertices = tetrahedralize(self.boundary, order=1, nobisect=True, verbose=verbose, **kwargs)
+            try:
+                _mesh, nodes, vertices = tetrahedralize(
+                    self.boundary,
+                    order=1,
+                    nobisect=True,
+                    verbose=verbose,
+                    **kwargs,
+                )
+                self.surface_repaired_for_tetgen = False
+            except RuntimeError as strict_error:
+                # Some closed, manifold STL surfaces still contain local defects
+                # that TetGen reports only as "Unknown exception".  MeshFix is a
+                # conservative fallback: it repairs the surface passed to the
+                # volume mesher without altering the user's source file.
+                try:
+                    import pymeshfix
+
+                    fixer = pymeshfix.MeshFix(
+                        self.boundary.extract_surface().triangulate().clean()
+                    )
+                    fixer.repair(
+                        verbose=bool(verbose),
+                        joincomp=True,
+                        remove_smallest_components=False,
+                    )
+                    repaired = fixer.mesh.extract_surface().triangulate().clean()
+                    _mesh, nodes, vertices = tetrahedralize(
+                        repaired,
+                        order=1,
+                        nobisect=False,
+                        verbose=verbose,
+                        **kwargs,
+                    )
+                    self.boundary = repaired
+                    self.surface_repaired_for_tetgen = True
+                    print(
+                        "Domain meshing: repaired the uploaded surface before tetrahedralization.",
+                        flush=True,
+                    )
+                except Exception as repair_error:
+                    raise RuntimeError(
+                        "Uploaded-domain meshing failed. The surface could not be "
+                        "tetrahedralized, even after automatic manifold repair. "
+                        "Inspect the STL for self-intersections or overlapping shells.\n"
+                        f"Strict TetGen error: {strict_error}\n"
+                        f"Repair retry error: {repair_error}"
+                    ) from repair_error
             _mesh = _mesh.compute_cell_sizes()
             _mesh.cell_data['Normalized_Volume'] = (_mesh.cell_data['Volume'] / sum(_mesh.cell_data['Volume']))
             self.all_mesh_cells = np.arange(_mesh.n_cells, dtype=np.int64)

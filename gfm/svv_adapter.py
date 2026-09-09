@@ -49,7 +49,7 @@ class Tree(TreeCompatibilityMixin, _BaseTree):
         unit_system: Optional[UnitSystem] = None,
         data_dtype: Optional[object] = None,
         index_dtype: Optional[object] = None,
-        preallocation_step: int = DEFAULT_TREE_PREALLOCATION_STEP,
+        preallocation_step: Optional[int] = None,
     ):
         requested_data_dtype = data_dtype
         if requested_data_dtype is None:
@@ -60,6 +60,14 @@ class Tree(TreeCompatibilityMixin, _BaseTree):
 
         resolved_data_dtype = _resolve_tree_data_dtype(requested_data_dtype)
         resolved_index_dtype = _normalize_int_dtype(requested_index_dtype, np.int64)
+
+        if preallocation_step is None:
+            preallocation_step = int(
+                os.environ.get(
+                    "SVV_TREE_PREALLOCATION_STEP",
+                    str(DEFAULT_TREE_PREALLOCATION_STEP),
+                )
+            )
 
         super().__init__(
             parameters=parameters,

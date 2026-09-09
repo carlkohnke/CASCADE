@@ -11,7 +11,13 @@ import numpy as np
 from .config import RunConfig
 from .connectivity import collect_downstream_segment_ids
 from .grid import sample_grid_points
-from .growth import flow_for_tree, load_tissuesim_module, terminal_flow_for_target
+from .growth import (
+    flow_for_tree,
+    inlet_concentration_for_tree,
+    load_runtime_module,
+    sync_tree_parameters_for_run,
+    terminal_flow_for_target,
+)
 from .simple import simple_details
 
 
@@ -32,6 +38,7 @@ class SimulationResult:
     segment_rows: list[dict[str, Any]]
     point_rows: list[dict[str, Any]]
     sample_points: np.ndarray
+    point_data: dict[str, np.ndarray] = field(default_factory=dict)
     sample_meta: dict[str, Any] = field(default_factory=dict)
     timings: dict[str, float] = field(default_factory=dict)
 
@@ -54,7 +61,7 @@ def run_simulation(
     *,
     sample_points: np.ndarray | None = None,
 ) -> SimulationResult:
-    ts = load_tissuesim_module()
+    ts = load_runtime_module()
     timings: dict[str, float] = {}
 
     t0 = perf_counter()
@@ -65,7 +72,7 @@ def run_simulation(
     summary_rows: list[dict[str, Any]] = []
     segment_rows: list[dict[str, Any]] = []
     global_segment_id = 0
-    want_point_rows = (
+    want_point_data = (
         (bool(config.outputs.write_points_csv) or bool(config.outputs.write_paraview))
         and not bool(config.simulation.geometry_only)
         and not bool(config.simulation.skip_tissue_oxygen)
@@ -73,7 +80,7 @@ def run_simulation(
     want_segment_rows = (
         bool(config.outputs.write_segments_csv)
         or bool(config.outputs.write_paraview)
-        or (want_point_rows and bool(config.outputs.include_tissue_nearest_fields))
+        or (want_point_data and bool(config.outputs.include_tissue_nearest_fields))
     )
 
     for tree_id, (tree, target_count) in enumerate(zip(trees, target_counts)):
@@ -102,11 +109,7 @@ def run_simulation(
         qin_cm3_s = _inlet_flow_for_tree(config, tree, tree_id, trees)
         terminal_flow = terminal_flow_for_target(config, qin_cm3_s, int(target_count))
         if hasattr(ts, "_sync_loaded_tree_params"):
-            ts._sync_loaded_tree_params(
-                tree,
-                side_length=float(config.domain.side_length),
-                terminal_flow_override=terminal_flow,
-            )
+            sync_tree_parameters_for_run(ts, tree, config, tree_id, terminal_flow)
         with _infarction_override(config, tree, tree_id, global_segment_id) as infarction:
             if config.simulation.geometry_only:
                 summary, details = _geometry_only_result(ts, tree, target_count, config, qin_cm3_s)
@@ -123,6 +126,9 @@ def run_simulation(
                     side_length=float(config.domain.side_length),
                     fluid=config.simulation.fluid,
                     inlet_flow_cm3_s=qin_cm3_s,
+                    inlet_concentration_override=inlet_concentration_for_tree(
+                        config, tree_id
+                    ),
                     tissue_cache=tissue_cache,
                     concentration_solver=config.simulation.concentration_solver,
                     return_details=True,
@@ -150,13 +156,15 @@ def run_simulation(
         )
 
     t0 = perf_counter()
-    point_rows = _point_rows(ts, tree_results, segment_rows, sample_points, config) if want_point_rows else []
+    point_data = _point_data(ts, tree_results, segment_rows, sample_points, config) if want_point_data else {}
+    point_rows = _point_rows_from_data(point_data) if config.outputs.write_points_csv else []
     timings["points_s"] = perf_counter() - t0
     return SimulationResult(
         tree_results=tree_results,
         summary_rows=summary_rows,
         segment_rows=segment_rows,
         point_rows=point_rows,
+        point_data=point_data,
         sample_points=sample_points,
         sample_meta=_sample_meta_for_config(config, sample_points),
         timings=timings,
@@ -382,6 +390,7 @@ def _segment_rows(
     radii = np.asarray(details.get("radii", np.empty((0,))), dtype=float)
     lengths = np.asarray(details.get("lengths", np.empty((0,))), dtype=float)
     flows = np.asarray(details.get("flows", np.full(starts.shape[0], np.nan)), dtype=float)
+    pressures = np.asarray(details.get("pressures", np.full(starts.shape[0], np.nan)), dtype=float)
     cin = np.asarray(details.get("cin", np.full(starts.shape[0], np.nan)), dtype=float)
     cout = np.asarray(details.get("cout", np.full(starts.shape[0], np.nan)), dtype=float)
     hd = np.asarray(details.get("discharge_hematocrit", np.empty((0,))), dtype=float)
@@ -403,6 +412,7 @@ def _segment_rows(
             "length_cm": float(lengths[local_id]) if local_id < lengths.size else math.nan,
             "flow_cm3_s": float(flows[local_id]) if local_id < flows.size else math.nan,
             "flow_ul_min": float(flows[local_id] * 60000.0) if local_id < flows.size else math.nan,
+            "pressure_pa": float(pressures[local_id]) if local_id < pressures.size else math.nan,
             "cin": float(cin[local_id]) if local_id < cin.size else math.nan,
             "cout": float(cout[local_id]) if local_id < cout.size else math.nan,
             "pressure_in_root": summary_row.get("pressure_in_root", math.nan),
@@ -416,48 +426,66 @@ def _segment_rows(
     return rows, start_global_id + starts.shape[0]
 
 
-def _point_rows(
+def _point_data(
     ts,
     tree_results: list[TreeSimulation],
     segment_rows: list[dict[str, Any]],
     sample_points: np.ndarray,
     config: RunConfig,
-) -> list[dict[str, Any]]:
+) -> dict[str, np.ndarray]:
     if config.simulation.geometry_only or config.simulation.skip_tissue_oxygen:
-        return []
+        return {}
     if len(tree_results) == 1:
         pts = np.asarray(tree_results[0].details.get("tissue_points", np.empty((0, 3))), dtype=float)
         vals = np.asarray(tree_results[0].details.get("tissue_values", np.empty((0,))), dtype=float)
     else:
         pts, vals = _combined_tissue_points(ts, tree_results, sample_points)
-    rows = []
+    n_points = min(int(pts.shape[0]), int(vals.shape[0]))
+    if n_points <= 0:
+        return {}
+    pts = pts[:n_points]
+    vals = vals[:n_points]
     conc_max = float(getattr(ts, "CONC_MAX_FOR_NORMALIZATION", np.nan))
+    viability_threshold = config.simulation.viability_threshold
+    if viability_threshold is None:
+        viability_threshold = 0.01 * conc_max if np.isfinite(conc_max) else math.nan
     nearest = None
     nearest_fields: dict[str, np.ndarray] = {}
     if config.outputs.include_tissue_nearest_fields and pts.size and segment_rows:
         starts, ends, radii = _segment_geometry_from_rows(segment_rows)
         nearest = ts.compute_distance_to_nearest_channel(pts, starts, ends, radii)
         nearest_fields = _nearest_segment_fields(ts, pts, starts, ends, radii, segment_rows)
-    for i in range(pts.shape[0]):
-        c = float(vals[i]) if i < vals.size else math.nan
-        row = {
-            "point_id": int(i),
-            "x": float(pts[i, 0]),
-            "y": float(pts[i, 1]),
-            "z": float(pts[i, 2]),
-            "inside_tissue": 1,
-            "local_concentration": c,
-            "local_concentration_raw": c,
-            "local_concentration_norm": c / conc_max if np.isfinite(c) and np.isfinite(conc_max) and conc_max else math.nan,
-            "viability": int(c >= 0.01 * conc_max) if np.isfinite(c) and np.isfinite(conc_max) and conc_max else 0,
-        }
-        if nearest is not None:
-            row["dnc_cm"] = float(nearest[i])
-        for key, values in nearest_fields.items():
-            if i < values.size:
-                value = values[i]
-                row[key] = int(value) if key.endswith("_id") else float(value)
-        rows.append(row)
+    finite_concentration = np.isfinite(vals)
+    normalized = np.full(n_points, np.nan, dtype=float)
+    if np.isfinite(conc_max) and conc_max:
+        normalized[finite_concentration] = vals[finite_concentration] / conc_max
+    viable = np.zeros(n_points, dtype=np.int32)
+    if np.isfinite(viability_threshold):
+        viable[finite_concentration] = (vals[finite_concentration] >= viability_threshold).astype(np.int32)
+    data = {
+        "point_id": np.arange(n_points, dtype=np.int32),
+        "x": np.asarray(pts[:, 0], dtype=float),
+        "y": np.asarray(pts[:, 1], dtype=float),
+        "z": np.asarray(pts[:, 2], dtype=float),
+        "local_concentration": np.asarray(vals, dtype=float),
+        "viability": viable,
+    }
+    if nearest is not None:
+        data["dnc_cm"] = np.asarray(nearest[:n_points], dtype=float)
+    for key, values in nearest_fields.items():
+        values = np.asarray(values)[:n_points]
+        data[key] = values.astype(np.int32 if key.endswith("_id") else float, copy=False)
+    return data
+
+
+def _point_rows_from_data(data: dict[str, np.ndarray]) -> list[dict[str, Any]]:
+    """Materialize CSV dictionaries only when the user explicitly requests CSV."""
+    if not data:
+        return []
+    count = min(len(values) for values in data.values())
+    rows: list[dict[str, Any]] = []
+    for index in range(count):
+        rows.append({key: values[index].item() for key, values in data.items()})
     return rows
 
 

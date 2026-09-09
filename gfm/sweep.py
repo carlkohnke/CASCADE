@@ -16,9 +16,9 @@ from .growth import (
     _extend_trees_to_targets,
     _make_forest,
     _pre_sample_points,
-    apply_tissuesim_settings,
+    apply_runtime_settings,
     build_domain,
-    load_tissuesim_module,
+    load_runtime_module,
     resolve_path,
     save_network_if_requested,
 )
@@ -77,8 +77,8 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         base_raw.setdefault("outputs", {})["save_network"] = bool(write_network)
 
         build_config = _config_for(path, base_raw, target=targets[0], fluid=fluids[0], qin=qin_values[0])
-        ts = load_tissuesim_module()
-        apply_tissuesim_settings(ts, build_config)
+        ts = load_runtime_module()
+        apply_runtime_settings(ts, build_config)
 
         t0 = perf_counter()
         domain = build_domain(build_config, ts=ts)
@@ -101,7 +101,7 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
             target_raw_config["network"].pop("target_counts", None)
 
             grow_config = _config_for(path, target_raw_config, target=target, fluid=fluids[0], qin=qin_values[0])
-            apply_tissuesim_settings(ts, grow_config)
+            apply_runtime_settings(ts, grow_config)
             grow_config.simulation.distance_sample_count = int(max(distance_counts) if distance_counts else 0)
             grow_config.outputs.out_dir = str(work_dir / f"side_{_label(side_len)}" / f"target_{target:08d}")
 
@@ -149,7 +149,7 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                         run_raw["outputs"]["save_network"] = bool(write_network)
                         config = _config_for(path, run_raw, target=target, fluid=fluid, qin=qin)
                         config.simulation.distance_sample_count = int(sample_count)
-                        apply_tissuesim_settings(ts, config)
+                        apply_runtime_settings(ts, config)
 
                         t0 = perf_counter()
                         result = run_simulation(domain, trees, target_counts, config, sample_points=points)

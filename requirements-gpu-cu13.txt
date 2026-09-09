@@ -1,0 +1,7 @@
+# CUDA 13.x GPU/Cext install.
+# Use this only on machines with a compatible NVIDIA driver/CUDA runtime.
+-r requirements.txt
+cupy-cuda13x>=13
+# CuPy 13 needs CUDA runtime headers for its JIT-compiled kernels. Keep these
+# aligned with the NVRTC 13.2 runtime bundled by the current CuPy CUDA-13 wheel.
+nvidia-cuda-runtime==13.2.*

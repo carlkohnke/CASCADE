@@ -8,6 +8,7 @@ from time import perf_counter
 
 from .config import example_config, load_config
 from .export import export_run
+from .gpu import require_gpu_runtime
 from .growth import build_or_load_network
 from .simulation import run_simulation
 from .sweep import run_sweep
@@ -52,6 +53,9 @@ def _run(args: argparse.Namespace) -> int:
     t0 = perf_counter()
     config = load_config(args.settings)
     print(f"Loaded settings: {config.settings_path}", flush=True)
+    gpu = require_gpu_runtime(config)
+    if gpu is not None:
+        print(f"GPU preflight passed: {gpu.summary}", flush=True)
     build = build_or_load_network(config)
     print(
         f"Network ready: mode={config.network_mode} trees={len(build.trees)} "

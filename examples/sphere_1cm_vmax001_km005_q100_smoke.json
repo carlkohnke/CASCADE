@@ -1,0 +1,73 @@
+{
+  "domain": {
+    "type": "sphere",
+    "radius": 0.5,
+    "center": [0.0, 0.0, 0.0],
+    "theta_resolution": 16,
+    "phi_resolution": 16,
+    "side_length": 1.0,
+    "random_seed": 42
+  },
+  "network": {
+    "mode": "tree",
+    "target_terminal_count": 25,
+    "root": {
+      "start": [0.0, 0.0, 0.49],
+      "direction": [0.0, 0.0, -1.0]
+    }
+  },
+  "growth": {
+    "enabled": true,
+    "n_closest_vessels": 2,
+    "n_points": 50,
+    "weighted_sampling": false,
+    "ignore_collisions": true,
+    "allow_inside_vessels": true,
+    "n_equal_bifurcations": null
+  },
+  "simulation": {
+    "fluid": "blood",
+    "build_fluid": "blood",
+    "qin_target_ul_min": 100.0,
+    "concentration_solver": "topdown",
+    "sample_mode": "grid",
+    "tissue_grid": {
+      "nx": 16,
+      "ny": 16,
+      "nz": 16,
+      "boundary_resolution": 16
+    },
+    "geometry_only": false
+  },
+  "settings": {
+    "oxygen": {
+      "vmax_mm": 0.001,
+      "km": 0.005,
+      "gl_order": 5,
+      "lumen_wall_closure": "graetz"
+    },
+    "kirchhoff": {
+      "solver": "tree",
+      "bc_mode": "terminal_pressure"
+    },
+    "hematocrit": {
+      "model": "pries_secomb",
+      "flow_iterations": 2
+    },
+    "tissue": {
+      "accel_mode": "gpu",
+      "nearest_vessels": 250,
+      "window_factor": 6
+    }
+  },
+  "outputs": {
+    "out_dir": "runs/sphere_1cm_vmax001_km005_q100_smoke",
+    "prefix": "sphere_1cm_q100",
+    "write_paraview": true,
+    "write_summary_csv": true,
+    "write_segments_csv": false,
+    "write_points_csv": false,
+    "save_network": true,
+    "use_cache": true
+  }
+}

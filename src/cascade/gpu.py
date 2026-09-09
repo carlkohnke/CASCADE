@@ -17,13 +17,18 @@ device_count = int(cp.cuda.runtime.getDeviceCount())
 if device_count < 1:
     raise RuntimeError("CuPy did not find an NVIDIA CUDA device")
 
-# This intentionally uses an elementwise operation. A device-count check or
-# cp.arange alone can succeed even when the CUDA headers needed by NVRTC are
-# missing; CASCADE's production kernels would then fail much later.
+# A device-count check or cp.arange alone can succeed even when CUDA component
+# libraries needed by CASCADE are missing. Exercise both an elementwise kernel
+# and cuFFT, which is used by the production heart Cext path.
 values = cp.full((4, 4), cp.int32(-1), dtype=cp.int32)
 total = int(cp.sum(values).get())
 if total != -16:
     raise RuntimeError(f"CUDA test kernel returned {total}, expected -16")
+
+spectrum = cp.fft.fftn(cp.ones((4, 4), dtype=cp.float32))
+fft_total = float(cp.abs(spectrum).sum().get())
+if abs(fft_total - 16.0) > 1.0e-4:
+    raise RuntimeError(f"cuFFT test returned {fft_total}, expected 16")
 
 name = cp.cuda.runtime.getDeviceProperties(0)["name"]
 if isinstance(name, bytes):
@@ -135,9 +140,9 @@ def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
         return result
     raise RuntimeError(
         "GPU preflight failed before vessel generation. This simulation requests a "
-        "CUDA backend, but CuPy could not compile a test kernel.\n\n"
+        "CUDA backend, but CuPy could not run CASCADE's kernel/FFT preflight.\n\n"
         "For this project's CUDA 13 environment, run:\n"
-        f"  {sys.executable} -m pip install 'nvidia-cuda-runtime==13.2.*'\n\n"
+        f"  {sys.executable} -m pip install 'cascade-vascular[gpu-cu13]'\n\n"
         "Then relaunch CASCADE Studio. Alternatively, choose CPU-compatible solver "
         "settings in Advanced solver settings.\n\n"
         f"Technical detail:\n{result.detail}"

@@ -57,7 +57,7 @@ source .venv/bin/activate
 cascade doctor --require-gpu
 ```
 
-The GPU extra installs CuPy and the matching CUDA user-space runtime. A compatible host NVIDIA driver is still required.
+The GPU extra installs CuPy plus the matching CUDA runtime, cuFFT, and nvJitLink component wheels. A compatible host NVIDIA driver is still required.
 
 Normal package installation is also supported:
 

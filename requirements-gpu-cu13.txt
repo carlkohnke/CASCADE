@@ -5,3 +5,7 @@ cupy-cuda13x>=13
 # CuPy 13 needs CUDA runtime headers for its JIT-compiled kernels. Keep these
 # aligned with the NVRTC 13.2 runtime bundled by the current CuPy CUDA-13 wheel.
 nvidia-cuda-runtime==13.2.*
+# CASCADE's FFT Cext path calls cupy.fft and therefore also needs the cuFFT
+# component wheel. nvJitLink is pinned to the same CUDA 13.2 component release.
+nvidia-cufft==12.3.0.29
+nvidia-nvjitlink==13.2.86

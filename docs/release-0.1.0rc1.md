@@ -20,7 +20,7 @@ Validated platform:
 - 100 pytest tests passed against the clean public-`svv` environment.
 - The CPU wheel smoke install passed from a temporary virtual environment.
 - The CUDA 13 wheel smoke install passed from a separate temporary virtual environment.
-- `cascade doctor --require-gpu` compiled and executed a CuPy kernel from the wheel-only environment with no source checkout on `sys.path`.
+- `cascade doctor --require-gpu` compiled and executed a CuPy kernel and cuFFT transform from the wheel-only environment with no source checkout on `sys.path`.
 - The wheel-only smoke tests created, solved, and exported a vascular tree and a custom CSV Y-channel network.
 - Tree, two-tree forest, nearest-tree forest, lattice, built-in channel, and custom-geometry examples executed through `cascade run`.
 - `cascade export-heart` loaded a CASCADE `.forest.simcache` through public `svv`, ran geometry-only and CPU tissue solves, and wrote ParaView outputs.

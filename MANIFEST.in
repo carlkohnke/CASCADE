@@ -10,4 +10,7 @@ recursive-include scripts *.py
 recursive-include tests *.py
 recursive-include src/cascade/gui/assets *.svg
 prune backups
+prune examples/.cascade_gui_test
+prune examples/cascade_run_*
+prune examples/runs
 global-exclude *.py[cod] __pycache__

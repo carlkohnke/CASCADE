@@ -9,10 +9,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import gfm.growth as growth_module
-from gfm.config import parse_config
-from gfm.gpu import gpu_requested
-from gfm.gui.model import (
+import cascade.growth as growth_module
+from cascade.config import parse_config
+from cascade.gpu import gpu_requested
+from cascade.gui.model import (
     HardwareInfo,
     JobRecord,
     QueueStore,
@@ -28,12 +28,12 @@ from gfm.gui.model import (
     pressure_to_pa,
     validate_project,
 )
-from gfm.gui.sweep_csv import rebuild_combined_sweep_csv
-from gfm.lattice import channel_count, generate_lattice
-from gfm.export import _segment_polydata
-from gfm.gui.preview import _polyline_data
-from gfm.growth import apply_runtime_settings
-from gfm.runtime import tissuesim as ts
+from cascade.gui.sweep_csv import rebuild_combined_sweep_csv
+from cascade.lattice import channel_count, generate_lattice
+from cascade.export import _segment_polydata
+from cascade.gui.preview import _polyline_data
+from cascade.growth import apply_runtime_settings
+from cascade.runtime import tissuesim as ts
 
 
 def test_vtk_vessels_retain_computed_external_field_quadrature_nodes():
@@ -299,7 +299,7 @@ def test_jobs_freeze_settings_and_queue_round_trip(tmp_path):
     records = create_jobs(config, tmp_path)
     assert len(records) == 1
     assert records[0].output_dir.startswith(str(tmp_path / "chosen-results"))
-    assert (tmp_path / ".gfm_gui" / "jobs" / records[0].id / "settings.json").exists()
+    assert (tmp_path / ".cascade_gui" / "jobs" / records[0].id / "settings.json").exists()
     store = QueueStore(tmp_path)
     store.save(records)
     assert store.load()[0].id == records[0].id

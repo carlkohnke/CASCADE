@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Create a local GFM virtual environment and install dependencies."
+        description="Create a local CASCADE virtual environment and install dependencies."
     )
     parser.add_argument(
         "--venv",
@@ -50,6 +50,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Install the native CASCADE Studio GUI and external 3D viewer.",
     )
     parser.add_argument(
+        "--constraints",
+        default=None,
+        help=(
+            "Optional fully resolved pip constraints file. Use the validated "
+            "release lock for a reproducible production environment."
+        ),
+    )
+    parser.add_argument(
         "--recreate",
         action="store_true",
         help="Delete the target venv before creating it.",
@@ -66,6 +74,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    constraints = None
+    if args.constraints:
+        constraints = Path(args.constraints).expanduser()
+        if not constraints.is_absolute():
+            constraints = ROOT / constraints
+        if not constraints.is_file() and not args.dry_run:
+            raise FileNotFoundError(f"Constraints file not found: {constraints}")
+
     venv_dir = Path(args.venv).expanduser()
     if not venv_dir.is_absolute():
         venv_dir = ROOT / venv_dir
@@ -78,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if not venv_python.exists():
         _run([args.python, "-m", "venv", str(venv_dir)], args.dry_run)
+
+    _write_python_path(venv_python, args.dry_run)
 
     _run(
         [
@@ -94,10 +112,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     for requirements in _requirements(args.gpu, args.dev, args.gui):
-        _run(
-            [str(venv_python), "-m", "pip", "install", "-r", str(requirements)],
-            args.dry_run,
-        )
+        command = [str(venv_python), "-m", "pip", "install"]
+        if constraints is not None:
+            command.extend(["-c", str(constraints)])
+        command.extend(["-r", str(requirements)])
+        _run(command, args.dry_run)
 
     cuda_path = _resolve_cuda_path(args.cuda_path) if args.gpu != "none" else None
     if cuda_path is not None:
@@ -115,9 +134,9 @@ def main(argv: list[str] | None = None) -> int:
                 str(venv_python),
                 "-c",
                 (
-                    "import svv, gfm; "
+                    "import svv, cascade; "
                     "print('svv', getattr(svv, '__version__', None), svv.__file__); "
-                    "print('gfm', gfm.__file__)"
+                    "print('cascade', cascade.__file__)"
                 ),
             ],
             args.dry_run,
@@ -139,13 +158,13 @@ def main(argv: list[str] | None = None) -> int:
                 args.dry_run,
                 env=verify_env,
             )
-        _run([str(venv_python), "-m", "gfm.cli", "--help"], args.dry_run)
+        _run([str(venv_python), "-m", "cascade.cli", "--help"], args.dry_run)
         if args.gui:
             _run(
                 [
                     str(venv_python),
                     "-c",
-                    "import PySide6, gfm.gui; print('CASCADE Studio GUI ready')",
+                    "import PySide6, cascade.gui; print('CASCADE Studio GUI ready')",
                 ],
                 args.dry_run,
                 env=verify_env,
@@ -163,11 +182,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {venv_dir}\\Scripts\\Activate.ps1")
     else:
         print(f"  source {venv_dir}/bin/activate")
-    print("Run GFM with:")
-    print(f"  {venv_python} -m gfm.cli run --settings runs/sphere/settings.txt")
+    print("Run CASCADE with:")
+    print(f"  {venv_python} -m cascade.cli run --settings examples/cube_tree_smoke.json")
     if args.gui:
         print("Launch CASCADE Studio with:")
-        print(f"  {venv_python} -m gfm.gui")
+        print(f"  {venv_python} -m cascade.gui")
     return 0
 
 
@@ -233,11 +252,19 @@ def _is_cuda_root(path: Path) -> bool:
 
 
 def _write_cuda_path(cuda_path: Path, dry_run: bool) -> None:
-    path_file = ROOT / ".gfm_cuda_path"
+    path_file = ROOT / ".cascade_cuda_path"
     print(f"+ write {path_file} = {cuda_path}")
     if dry_run:
         return
     path_file.write_text(str(cuda_path) + "\n", encoding="utf-8")
+
+
+def _write_python_path(venv_python: Path, dry_run: bool) -> None:
+    path_file = ROOT / ".cascade_python"
+    print(f"+ write {path_file} = {venv_python}")
+    if dry_run:
+        return
+    path_file.write_text(str(venv_python) + "\n", encoding="utf-8")
 
 
 def _run(

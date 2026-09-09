@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QDialog,
 )
 
-from gfm.gui.main import (
+from cascade.gui.main import (
     AnalysisPage,
     APP_STYLE,
     DomainPage,
@@ -36,13 +36,13 @@ from gfm.gui.main import (
     VesselsPage,
     QMessageBox as CascadeMessageBox,
 )
-from gfm.gui.widgets import InfoTip, NumberInput, labeled, row_of
-from gfm.config import parse_config
-from gfm.growth import flow_for_tree, pressures_for_tree
-from gfm.gui.model import JobRecord, create_jobs, default_project, oxygen_to_concentration
-from gfm.gui.runner import JobRunner
-import gfm.gui.widgets as gui_widgets
-from gfm.gui.preview import (
+from cascade.gui.widgets import InfoTip, NumberInput, labeled, row_of
+from cascade.config import parse_config
+from cascade.growth import flow_for_tree, pressures_for_tree
+from cascade.gui.model import JobRecord, create_jobs, default_project, oxygen_to_concentration
+from cascade.gui.runner import JobRunner
+import cascade.gui.widgets as gui_widgets
+from cascade.gui.preview import (
     CasePreview,
     GeometryCanvas,
     _count_status,
@@ -58,12 +58,12 @@ from gfm.gui.preview import (
     preview_tissue_geometry,
     select_tissue_points,
 )
-from gfm.gui.preview_worker import (
+from cascade.gui.preview_worker import (
     _fast_file_preview_domain,
     main as preview_worker_main,
 )
-from gfm.gui.widgets import ChoiceComboBox, FocusPlainTextEdit, IconButton, PathPicker, StatusPill
-from gfm.lattice import channel_count, generate_lattice
+from cascade.gui.widgets import ChoiceComboBox, FocusPlainTextEdit, IconButton, PathPicker, StatusPill
+from cascade.lattice import channel_count, generate_lattice
 
 
 @pytest.fixture(scope="module")
@@ -817,7 +817,7 @@ def test_settings_inspector_is_wide_and_splitter_remains_draggable(app):
     assert window.windowFlags() & Qt.FramelessWindowHint
     assert not hasattr(window.title_bar, "title")
     visible_labels = [label.text() for label in window.findChildren(QLabel)]
-    assert "GFM / CASCADE" not in visible_labels
+    assert "CASCADE / CASCADE" not in visible_labels
     assert "CASCADE O₂ Simulation Studio" not in visible_labels
     assert not any(text.lower().startswith("estimated host") for text in visible_labels)
     assert [action.text() for action in window.app_menu.actions()] == ["File", "Run"]

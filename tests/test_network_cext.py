@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from gfm.runtime import tissuesim as ts
+from cascade.runtime import tissuesim as ts
 
 
 def test_cext_sources_are_reweighted_for_independent_tissue_quadrature():

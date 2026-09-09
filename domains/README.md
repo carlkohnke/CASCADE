@@ -1,6 +1,6 @@
 # Domain Mesh Library
 
-Use this folder for local PyVista-generated domain meshes that you want to reference from GFM JSON settings.
+Use this folder for local PyVista-generated domain meshes that you want to reference from CASCADE JSON settings.
 
 Example:
 
@@ -27,6 +27,6 @@ Then reference it from any settings file:
 }
 ```
 
-When `domain.path` is relative, GFM first looks relative to the settings file. If the file is not there, it falls back to this `domains/` folder.
+When `domain.path` is relative, CASCADE first looks relative to the settings file. If the file is not there, it falls back to this `domains/` folder.
 
 Large mesh files are intentionally ignored by git through the repository `.gitignore`.

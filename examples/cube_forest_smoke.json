@@ -35,7 +35,7 @@
     "geometry_only": false
   },
   "outputs": {
-    "out_dir": "gfm_run_forest_smoke",
+    "out_dir": "cascade_run_forest_smoke",
     "prefix": "cube_forest",
     "write_paraview": true,
     "save_network": true

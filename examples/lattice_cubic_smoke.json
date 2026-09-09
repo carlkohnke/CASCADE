@@ -40,7 +40,7 @@
     }
   },
   "outputs": {
-    "out_dir": ".gfm_gui_test/lattice_cubic_smoke",
+    "out_dir": ".cascade_gui_test/lattice_cubic_smoke",
     "prefix": "lattice_cubic_smoke",
     "write_summary_csv": true,
     "write_segments_csv": false,

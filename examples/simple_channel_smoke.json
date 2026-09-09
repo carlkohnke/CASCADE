@@ -33,7 +33,7 @@
     }
   },
   "outputs": {
-    "out_dir": "gfm_run_simple_channel_smoke",
+    "out_dir": "cascade_run_simple_channel_smoke",
     "prefix": "simple_channel",
     "write_paraview": true,
     "save_network": true

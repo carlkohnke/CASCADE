@@ -34,7 +34,7 @@
     "geometry_only": true
   },
   "outputs": {
-    "out_dir": "gfm_run_tree_equal_smoke",
+    "out_dir": "cascade_run_tree_equal_smoke",
     "prefix": "cube_tree_equal",
     "write_paraview": true,
     "save_network": true

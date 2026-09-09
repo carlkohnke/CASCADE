@@ -3,6 +3,8 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.cascade_cuda_path
+.cascade_python
 .gfm_cuda_path
 .ipynb_checkpoints/
 
@@ -19,9 +21,12 @@ figures/
 logs/
 *.log
 
-# GFM generated runs, audits, and local benchmark caches
+# CASCADE generated runs, audits, and local benchmark caches
 runs/
+cascade_run*/
 gfm_run*/
+.cascade_audit_runs*/
+.cascade_benchmark_cache/
 .gfm_audit_runs*/
 .gfm_benchmark_cache/
 
@@ -37,5 +42,13 @@ gfm_run*/
 *.npz
 *.csv
 *.pkl
+.cascade_gui/
 .gfm_gui/
+examples/.cascade_gui_test/
+*.forest
+*.dmn
+*.node
+*.face
+*.bak
 CASCADE_Project/
+backups/

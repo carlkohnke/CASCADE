@@ -3,11 +3,11 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gfm"
-version = "0.1.0"
-description = "GFM vascular growth, simulation, and export workflows built around public svv."
+name = "cascade-vascular"
+version = "0.1.0rc1"
+description = "CASCADE vascular growth, simulation, and tissue oxygen workflows built around public svVascularize."
 readme = "README.md"
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.9,<3.10"
 dependencies = [
     "svv==0.0.48",
     "numpy>=1.26,<3",
@@ -29,16 +29,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gpu-cu13 = ["cupy-cuda13x>=13"]
+gpu-cu13 = ["cupy-cuda13x>=13", "nvidia-cuda-runtime==13.2.*"]
 gpu-cu12 = ["cupy-cuda12x>=13"]
 gpu-cu11 = ["cupy-cuda11x>=13"]
 gui = ["PySide6>=6.6", "psutil>=5.9"]
 dev = ["pytest>=8"]
 
 [project.scripts]
-gfm = "gfm.cli:main"
-gfm-gui = "gfm.gui.main:main"
-gfm-viewer = "gfm.gui.viewer:main"
+cascade = "cascade.cli:main"
+cascade-gui = "cascade.gui.main:main"
+cascade-viewer = "cascade.gui.viewer:main"
+cascade-export-heart = "cascade.heart_export:main"
+cascade-doctor = "cascade.doctor:main"
 
 [tool.setuptools.packages.find]
-include = ["gfm*"]
+where = ["src"]
+include = ["cascade*"]
+
+[tool.setuptools.package-data]
+cascade = ["gui/assets/*.svg"]

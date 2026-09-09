@@ -1,4 +1,4 @@
-name: gfm
+name: cascade
 channels:
   - conda-forge
 dependencies:

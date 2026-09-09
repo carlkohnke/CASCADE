@@ -1,0 +1,5 @@
+# CUDA 13 release constraints validated on an RTX 3080 Laptop GPU.
+-c requirements-py39-common.txt
+cupy-cuda13x==13.6.0
+fastrlock==0.8.3
+nvidia-cuda-runtime==13.2.86

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "domain": {
+    "type": "box",
+    "dimensions": [1.0, 1.0, 1.0],
+    "random_seed": 42
+  },
+  "network": {
+    "mode": "simple",
+    "simple": {
+      "mode": "custom",
+      "path": "custom_y_channel.csv",
+      "flow_ul_min": 24.0,
+      "concentration_inlet": 0.22471
+    }
+  },
+  "growth": {"enabled": false},
+  "simulation": {
+    "fluid": "water",
+    "build_fluid": "water",
+    "qin_target_ul_min": 24.0,
+    "concentration_solver": "network",
+    "distance_sample_count": 64,
+    "tissue_accel": "cpu"
+  },
+  "outputs": {
+    "out_dir": "cascade_run_custom_geometry_smoke",
+    "prefix": "custom_y_channel",
+    "write_paraview": true,
+    "save_network": true
+  }
+}

@@ -87,7 +87,7 @@ def _configure_cupy_cuda_path() -> None:
     if os.environ.get("CUDA_PATH"):
         return
     candidates = [Path(sys.prefix) / "targets" / "x86_64-linux"]
-    local_cuda_path = Path(__file__).with_name(".gfm_cuda_path")
+    local_cuda_path = Path(__file__).with_name(".cascade_cuda_path")
     if local_cuda_path.exists():
         try:
             configured = Path(local_cuda_path.read_text(encoding="utf-8").strip()).expanduser()
@@ -111,7 +111,7 @@ except Exception:  # pragma: no cover
     _HAVE_CUPY = False
 
 try:
-    from gfm.svv_adapter import Domain, Tree
+    from cascade.svv_adapter import Domain, Tree
 except ModuleNotFoundError as exc:  # pragma: no cover
     _IMPORT_ERROR = exc
     Domain = None  # type: ignore[assignment]

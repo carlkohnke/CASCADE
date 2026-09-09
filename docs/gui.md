@@ -1,17 +1,17 @@
 # CASCADE Studio GUI
 
-CASCADE Studio is the native graphical interface for GFM. It is designed for experimentalists and keeps the numerical worker separate from the interface so the simulation can use nearly all available host and GPU memory.
+CASCADE Studio is the native graphical interface for CASCADE. It is designed for experimentalists and keeps the numerical worker separate from the interface so the simulation can use nearly all available host and GPU memory.
 
 ## Install and launch
 
-From `/home/carl/svv_sweeps/GFM`:
+From the repository root:
 
 ```bash
 python setup_env.py --gui --gpu cu13
-.venv/bin/python -m gfm.gui
+.venv/bin/python -m cascade.gui
 ```
 
-Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `--gpu` for CPU-only work). After an editable install, `gfm-gui` is equivalent. On Carl's current WSL installation, double-click `launch_gui_windows.vbs` for a console-free launch; `launch_gui_windows.bat` is the visible diagnostic fallback. Forwarding launchers remain under `/home/carl/GFM` so existing Windows shortcuts continue to work. Linux and macOS users can run `./launch_gui.sh` after making it executable.
+Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `--gpu` for CPU-only work). After an editable install, `cascade-gui` is equivalent. On WSL, double-click `launch_gui_windows.vbs` for a console-free launch; `launch_gui_windows.bat` is the visible diagnostic fallback. Both Windows launchers resolve the checkout containing them, so they do not depend on a user-specific path. Linux and macOS users can run `./launch_gui.sh` after making it executable.
 
 ## Guided workflow
 
@@ -28,7 +28,7 @@ The viewport remains the primary workspace through setup and analysis. Drag to r
 
 For generated SVV trees, a lightweight branching cue appears immediately and is replaced automatically by the exact reusable seed. The inlet is placed on the primitive-domain boundary by default. Segment radii are hydraulically sized from total inlet flow and the inlet–outlet pressure drop; changing either value rebuilds the preview seed and updates the reported inlet radius. Disable automatic inlet placement to enter one or more explicit root locations and directions.
 
-Project files are ordinary GFM JSON. GUI-only state is stored under the versioned top-level `gui` key, which the command-line parser safely ignores. Queue state and frozen job settings live in `<project>/.gfm_gui/`; results live in `<project>/results/`.
+Project files are ordinary CASCADE JSON. GUI-only state is stored under the versioned top-level `gui` key, which the command-line parser safely ignores. Queue state and frozen job settings live in `<project>/.cascade_gui/`; results live in `<project>/results/`.
 
 ## Lattices
 
@@ -55,15 +55,13 @@ The estimate is intentionally conservative, not a guarantee. FFT workspaces, spa
 
 ## Interface and accessibility
 
-CASCADE uses centralized visual tokens in `gfm/gui/theme.py` and reusable form primitives in `gfm/gui/widgets.py`. Neutral graphite surfaces carry the interface; plasma/inferno accents indicate selection, transport, progress, and primary actions. The subtle perimeter flow only runs during active computation. Set `CASCADE_REDUCED_MOTION=1` before launch to disable it completely. All primary controls retain keyboard focus styling, state labels accompany color, and scientific values use a monospaced font.
-
-The preserved pre-instrument-redesign GUI is stored at `/home/carl/svv_sweeps/GFM/backups/cascade_gui_pre_instrument_redesign_20260908.tar.gz`.
+CASCADE uses centralized visual tokens in `cascade/gui/theme.py` and reusable form primitives in `cascade/gui/widgets.py`. Neutral graphite surfaces carry the interface; plasma/inferno accents indicate selection, transport, progress, and primary actions. The subtle perimeter flow only runs during active computation. Set `CASCADE_REDUCED_MOTION=1` before launch to disable it completely. All primary controls retain keyboard focus styling, state labels accompany color, and scientific values use a monospaced font.
 
 ## Current scientific boundaries
 
-- Pressure-only (inlet pressure plus outlet pressure) flow boundary conditions are shown but blocked because the current GFM solve path requires inlet flow plus a pressure reference.
+- Pressure-only (inlet pressure plus outlet pressure) flow boundary conditions are shown but blocked because the current CASCADE solve path requires inlet flow plus a pressure reference.
 - A custom `q = κ(C-Cext)` law is displayed but disabled until the runtime exposes a reproducible user-law interface.
-- Primitive CSG combinations and arbitrary uploaded graph CSV/NPZ schemas are not yet part of the backend. Uploaded svVascularize tree/forest objects are supported.
+- Primitive CSG combinations are not yet part of the backend. Explicit segment graphs can be loaded from CASCADE's documented CSV/NPZ schema, and uploaded svVascularize tree/forest objects are supported.
 - Lattice flow and intravascular oxygen are supported through the general graph solver; the existing top-down external-concentration solvers remain tree-specific.
 - Detailed 3D visualization requires VTK output to have been enabled before the run.
 - The current segment exporter provides geometry, radius, flow, hematocrit, and centerline oxygen. Per-segment pressure, wall oxygen, and retained Cext fields need a future runtime/export extension before those scalar choices can appear in the viewer.

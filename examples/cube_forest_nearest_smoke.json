@@ -41,7 +41,7 @@
     "geometry_only": false
   },
   "outputs": {
-    "out_dir": "gfm_run_forest_nearest_smoke",
+    "out_dir": "cascade_run_forest_nearest_smoke",
     "prefix": "cube_forest_nearest",
     "write_paraview": true,
     "save_network": true

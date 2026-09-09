@@ -1,0 +1,13 @@
+include README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md
+include pyproject.toml setup_env.py environment.yml
+include requirements*.txt
+include launch_gui.py launch_gui.sh launch_gui_windows.bat launch_gui_windows.vbs
+recursive-include docs *.md *.txt
+recursive-include domains *.md
+recursive-include examples *.json *.csv
+recursive-include locks *.txt
+recursive-include scripts *.py
+recursive-include tests *.py
+recursive-include src/cascade/gui/assets *.svg
+prune backups
+global-exclude *.py[cod] __pycache__

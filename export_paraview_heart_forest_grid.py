@@ -14,7 +14,7 @@ import numpy as np
 import pyvista as pv
 from tqdm import tqdm
 
-from gfm.svv_adapter import Domain, Forest
+from cascade.svv_adapter import Domain, Forest
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent

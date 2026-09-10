@@ -13,4 +13,4 @@ Run these gates from a clean checkout on the release commit.
 9. Run `scripts/release_smoke.py` against the wheel from outside the checkout.
 10. Record artifact SHA-256 hashes, Git commit, lock files, hardware, driver, commands, results, and known limitations in the release report.
 
-The `0.1.0rc1` Step 1 gate establishes installation and basic operational readiness. Full legacy numerical equivalence and performance parity are explicitly separate Step 2 acceptance gates.
+The `0.1.0rc2` local qualification completes the selected existing-tree M2 numerical and M3 performance gates in addition to Step 1 installation readiness. Growth qualification, publication, license selection, GitHub remote setup, and observed remote CI remain separate gates.

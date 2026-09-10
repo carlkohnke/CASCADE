@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0rc2
+
 - Avoid inflating and unpickling legacy growth payloads when loading `.tree.npz` files for simulation-only analysis; this preserves the compact data table while eliminating the dominant large-tree load/memory overhead.
 - Reject invalid tissue-grid dimensions and controls instead of silently coercing them to a different simulation.
 - Fixed heart export to construct the requested STL/VTP domain through the packaged mesh adapter and to retain complete Cext wall/flux state for tissue validation.
@@ -11,6 +13,9 @@
 - Fixed explicit-network sweeps to load and reuse the requested cached structure instead of entering growth, and reject attempts to relabel one structure as another target size.
 - Added content- and public-`svv`-version-keyed user caching for file-backed heart domains so repeated isolated exports do not tetrahedralize the same STL again.
 - Kept temporary infarction radius overrides out of anatomical VTP/tissue geometry while retaining their effective solve values in metadata.
+- Preserved exact int32 topology and node identifiers when large float64 SVV simulation caches are loaded into float32 working arrays, preventing identifier rounding above `2**24`.
+- Vectorized the production GL1-to-GL5 tissue-source transition, removing a per-segment Python loop at HEART-L scale.
+- Added GPU-only HEART-S/HEART-L validation with distributional handling for vanishing spatial-cell boundary differences while keeping identity, finite-mask, and viability rules explicit.
 
 - Added the packaged bivent3 heart surface as a portable CASCADE Studio domain option.
 - Normalized default heart/Cext controls to float32 accelerator arrays, grid 256, Cext quadrature 1, tissue quadrature 5, one coupling iteration, and window factor 6.

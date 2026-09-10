@@ -17,9 +17,9 @@ This repository targets the public `svv==0.0.48` API. CASCADE-owned compatibilit
 
 ## Status
 
-The current version is `0.1.0rc1`. It is a release candidate while full numerical and performance parity against the legacy TissueSim workflows is being audited.
+The current version is `0.1.0rc2`. It is the locally qualified release candidate after numerical and performance certification against the selected legacy TissueSim workflows.
 
-The completed installation and operational gates are recorded in [the rc1 release report](docs/release-0.1.0rc1.md). Full legacy parity and speed acceptance remain a separate validation step.
+The completed installation, numerical, and performance gates are recorded in [the rc2 release report](docs/release-0.1.0rc2.md). Repository publication, licensing, and remote CI are separate M4 gates and are not claimed here.
 
 The living internal production tracker, test plan, work log, decisions, and evidence map begin at [docs/internal/README.md](docs/internal/README.md). These records are maintained throughout the release and testing process but excluded from published package artifacts.
 

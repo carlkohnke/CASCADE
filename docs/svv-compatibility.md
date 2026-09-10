@@ -17,7 +17,7 @@ Several capabilities used by the research workflows are not yet exposed by the p
 
 ## Optimizer note
 
-The internal bifurcation implementation calls SciPy's L-BFGS-B method with bounds. SciPy does not enforce general inequality constraints for L-BFGS-B, so the existing `a[0] + a[1] <= 1` constraint is not handled by the optimizer itself. CASCADE retains this behavior for legacy parity in `0.1.0rc1`, records the warning in validation, and must not claim mathematical equivalence to constrained SLSQP until a constrained reparameterization or penalty formulation is validated.
+The internal bifurcation implementation calls SciPy's L-BFGS-B method with bounds. SciPy does not enforce general inequality constraints for L-BFGS-B, so the existing `a[0] + a[1] <= 1` constraint is not handled by the optimizer itself. CASCADE retains this behavior for legacy parity in `0.1.0rc2`, records the warning in validation, and must not claim mathematical equivalence to constrained SLSQP until public SVV exposes the requested optimizer selector and the growth campaign validates it.
 
 ## Maintenance rule
 

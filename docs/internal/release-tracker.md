@@ -60,7 +60,7 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 | VAL-04 | Cube tree numerical parity | COMPLETE | All selected scalar/array metrics meet VAL-02 | Same report: zero tolerance failures in blood and water/cell-media at 1, 10, 100, 1k, 10k, 100k, 1M, and 5M terminals |
 | VAL-05 | Forest growth and reload parity | PARTIAL | Deterministic scheduled/nearest assignment and cache reload meet structural/numerical rules | Existing smoke evidence; add canonical public-`svv` cases |
 | VAL-06 | VTK/export parity | PARTIAL | Expected files, schemas, dtypes, IDs, units, point counts, and field values match approved baseline | Normal bounded export passed 23 checks for CSV/NPZ and box/VTP/STL cases; complete heart exporter field/value parity |
-| VAL-07 | Heart shared-global Cext parity | PARTIAL | CASCADE and legacy exporter agree for fixed multi-tree forest and tissue grid | HEART-S preflight exposed a current legacy state-slim regression plus CASCADE mesh-domain/state omissions; retained evidence and source fixes exist, fresh-wheel bounded rerun pending |
+| VAL-07 | Heart shared-global Cext parity | PARTIAL | CASCADE and legacy exporter agree for fixed multi-tree forest and tissue grid | Corrected bounded CASCADE run uses bivent3 and passes flux diagnostics; D-031 removes a 26-point version-specific surface-mask discrepancy by passing one hash-frozen legacy-derived point array to both solvers; fresh-wheel pointwise rerun pending |
 | VAL-08 | `.dmn` interchange decision and round trip | COMPLETE | `.dmn` is explicitly legacy/internal validation input; STL/VTP/VTU are the supported public interchange path | D-013; `m0-legacy-inventory.md`; retain load compatibility without claiming cross-version round trips |
 | VAL-09 | Custom-domain/custom-geometry correctness | COMPLETE | CSV/NPZ plus VTP/STL domain workflows pass topology, unit, solver, and export checks | `../../validation/results/2026-09-09_m2-custom-export-fa2c958/`: all four installed-wheel cases passed outside checkout; CSV/NPZ outputs matched |
 | VAL-10 | CPU/GPU numerical consistency | COMPLETE | Same frozen case meets VAL-02 across CPU and CUDA paths | `../../validation/results/2026-09-09_m2-cpu-gpu-fa2c958/`: CUBE-100 passed all 17 arrays and 23 summaries; max tissue relative error `2.46e-5` |
@@ -93,8 +93,8 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 
 ## Immediate next actions
 
-1. Complete bounded CPU/GPU consistency, canonical forest/cache, custom-domain/geometry, VTK schema/value, negative, and reproducibility cases.
-2. Stage HEART-S healthy and full-occlusion ID 1 against the full 200-cubed grid; advance to HEART-L only after bounded GPU/memory and numerical gates pass.
+1. Complete the fresh-wheel bounded HEART-S shared-point comparison and heart VTK field/value report.
+2. Stage HEART-S healthy and full-occlusion ID 1 against one hash-frozen point set derived from the full 200-cubed grid; advance to HEART-L only after bounded GPU/memory and numerical gates pass.
 3. Execute the clean alternating cube benchmark, reporting cold end-to-end, network load/conversion, warmed geometry/solver, and synchronized GPU timing separately; profile the proven large-tree load regression first.
 4. Run only one solver subprocess at a time, retain failed/inconclusive evidence, and keep every heavy array or export under ignored `validation/runs/`.
 5. Defer GitHub remote, license, and publication work until M4 becomes active.

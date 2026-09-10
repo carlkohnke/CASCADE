@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import gc
+import hashlib
 import importlib.util
 import json
 import sys
@@ -1848,6 +1849,37 @@ def _inside_grid_points_chunked(domain, boundary: pv.PolyData, args) -> np.ndarr
     return np.concatenate(chunks, axis=0)
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _load_tissue_points(path_value: str | Path) -> tuple[np.ndarray, dict]:
+    path = _normalize_path(path_value).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"Tissue point file does not exist: {path}")
+    points = np.load(path, allow_pickle=False)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError(
+            f"Tissue point array must have shape (N, 3); got {points.shape} from {path}"
+        )
+    if points.dtype.kind not in {"f", "i", "u"}:
+        raise ValueError(f"Tissue point array must be numeric; got dtype {points.dtype} from {path}")
+    points = np.asarray(points, dtype=np.float64)
+    if not np.all(np.isfinite(points)):
+        raise ValueError(f"Tissue point array contains NaN or infinite coordinates: {path}")
+    return points, {
+        "mode": "explicit_npy",
+        "path": str(path),
+        "sha256": _sha256_file(path),
+        "count": int(points.shape[0]),
+        "coordinate_units": "cm",
+    }
+
+
 def _compute_tissue(
     ts,
     cext_ts,
@@ -1858,17 +1890,30 @@ def _compute_tissue(
     float_dtype: np.dtype,
     index_dtype: np.dtype,
 ) -> tuple[pv.PolyData, dict]:
-    boundary = _get_boundary(domain, int(args.boundary_resolution))
-    total_grid_points = int(args.nx) * int(args.ny) * int(args.nz)
-    _log(f"Tissue grid: {args.nx} x {args.ny} x {args.nz} = {total_grid_points} points")
-    if bool(args.disable_enclosed_check):
-        points = _inside_grid_points_chunked(domain, boundary, args)
+    if args.tissue_points is not None:
+        points, point_source = _load_tissue_points(args.tissue_points)
+        total_grid_points = int(points.shape[0])
+        _log(
+            f"Explicit tissue points: {total_grid_points} from {point_source['path']} "
+            f"(sha256={point_source['sha256']})"
+        )
     else:
-        _log("Using PyVista enclosed-point check; this is CPU-heavy for large grids.")
-        grid = _grid_points(boundary, int(args.nx), int(args.ny), int(args.nz))
-        inside = _inside_mask(domain, boundary, grid, args)
-        points = grid[inside]
-        del grid, inside
+        boundary = _get_boundary(domain, int(args.boundary_resolution))
+        total_grid_points = int(args.nx) * int(args.ny) * int(args.nz)
+        point_source = {
+            "mode": "generated_grid",
+            "shape": [int(args.nx), int(args.ny), int(args.nz)],
+            "candidate_count": total_grid_points,
+        }
+        _log(f"Tissue grid: {args.nx} x {args.ny} x {args.nz} = {total_grid_points} points")
+        if bool(args.disable_enclosed_check):
+            points = _inside_grid_points_chunked(domain, boundary, args)
+        else:
+            _log("Using PyVista enclosed-point check; this is CPU-heavy for large grids.")
+            grid = _grid_points(boundary, int(args.nx), int(args.ny), int(args.nz))
+            inside = _inside_mask(domain, boundary, grid, args)
+            points = grid[inside]
+            del grid, inside
     _log(f"Inside-domain tissue points: {points.shape[0]}")
     gc.collect()
 
@@ -1971,6 +2016,7 @@ def _compute_tissue(
         "n_tissue_points_exported": int(export_points.shape[0]),
         "conc_max_for_normalization": conc_max,
         "source_mode": "cext_state" if "cext_state" in combo else "legacy_vessel_cin_flow",
+        "point_source": point_source,
         "tissue_timings": tissue_timings,
     }
     return points_poly, meta
@@ -2162,6 +2208,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--nx", type=int, default=200)
     parser.add_argument("--ny", type=int, default=200)
     parser.add_argument("--nz", type=int, default=200)
+    parser.add_argument(
+        "--tissue-points",
+        default=None,
+        help=(
+            "Optional .npy array with shape (N, 3) containing explicit tissue sample coordinates in cm. "
+            "When provided, these points replace generated --nx/--ny/--nz grid filtering."
+        ),
+    )
     parser.add_argument("--boundary-resolution", type=int, default=28)
     parser.add_argument("--implicit-margin", type=float, default=0.0)
     parser.add_argument("--disable-enclosed-check", action="store_true", default=True)

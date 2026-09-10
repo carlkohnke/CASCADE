@@ -21,6 +21,7 @@ from cascade.heart_export import (
     WINDOW_FACTOR_DEFAULT,
     _build_domain,
     _concat_tree_solutions,
+    _load_tissue_points,
     _load_tissuesim,
     _should_use_simulation_cache,
 )
@@ -150,6 +151,34 @@ def test_heart_cext_concat_preserves_flux_state():
     np.testing.assert_array_equal(combined["c_bulk_gl"], state["c_bulk_gl"])
     np.testing.assert_array_equal(combined["c_wall_gl"], state["c_wall_gl"])
     np.testing.assert_array_equal(combined["k_if_gl"], state["k_if_gl"])
+
+
+def test_heart_export_loads_explicit_tissue_points_with_hash(tmp_path: Path):
+    path = tmp_path / "points.npy"
+    expected = np.asarray([[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]], dtype=np.float32)
+    np.save(path, expected, allow_pickle=False)
+
+    points, metadata = _load_tissue_points(path)
+
+    np.testing.assert_array_equal(points, expected.astype(np.float64))
+    assert metadata["mode"] == "explicit_npy"
+    assert metadata["count"] == 2
+    assert metadata["coordinate_units"] == "cm"
+    assert metadata["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize(
+    "values, message",
+    [
+        (np.zeros((2, 2)), "shape"),
+        (np.asarray([[0.0, np.nan, 1.0]]), "NaN or infinite"),
+    ],
+)
+def test_heart_export_rejects_invalid_explicit_tissue_points(tmp_path: Path, values, message):
+    path = tmp_path / "invalid.npy"
+    np.save(path, values, allow_pickle=False)
+    with pytest.raises(ValueError, match=message):
+        _load_tissue_points(path)
 
 
 def test_packaged_bivent3_domain_is_resolvable_and_frozen():

@@ -42,7 +42,7 @@ Final sizes and fixtures are selected before running. This is the proposed minim
 | --- | --- | --- | --- |
 | CUBE-1 through CUBE-5M | Frozen cache-family trees at 1, 10, 100, 1k, 10k, 100k, 1M, and 5M requested terminals; one shared 1M-point cube pool | CPU/GPU through medium scale; GPU-only at 1M/5M | Blood and cell-media computational parity, scaling, performance, and memory gates without growth |
 | FOREST-S | Fixed two-tree cube forest | CPU, cache reload | Forest mapping/connectivity/cache parity |
-| HEART-S | Frozen `heart_seed2_grown100000_t10000.forest`: 10k terminals, 19,999 segments; healthy plus one frozen full downstream occlusion | CPU/GPU consistency plus shared-global CUDA FFT/Cext | Debuggable solver and exporter parity on the full 200-cubed candidate grid |
+| HEART-S | Frozen `heart_seed2_grown100000_t10000.forest`: 10k terminals, 19,999 segments; healthy plus one frozen full downstream occlusion | CPU/GPU consistency plus shared-global CUDA FFT/Cext | Debuggable solver and exporter parity on one hash-frozen legacy-derived point set from the full 200-cubed candidate grid |
 | HEART-L | Frozen one-millimetre extended simulation cache: 12.5M terminals, 24,999,999 segments | GPU-only target configuration | Production solver/performance/memory gate on the full 200-cubed grid; full export only after those gates pass |
 | CUSTOM-Y | Explicit CSV Y channel in box domain | CPU tissue GFM | Custom topology/units/export correctness |
 | CUSTOM-DOMAIN | Fixed user-supplied VTP/STL domain and explicit network | Approved solver | File-path portability and enclosure behavior |
@@ -75,6 +75,13 @@ For each CLI workflow, begin outside the source checkout and use only installed 
 <clean-cascade-venv>/bin/cascade export-heart --forest <forest> --domain <domain> --out-dir <output>
 <svva2>/bin/python <svva2>/lib/python3.9/site-packages/svv/SCRIPTS/<oracle>.py <legacy-args>
 ```
+
+For heart tissue parity, the validation-only legacy wrapper first captures the
+oracle's inside-domain coordinates, then supplies that unchanged `.npy` array on
+all subsequent oracle runs. CASCADE receives the identical file through
+`--tissue-points`. The fixture hash, point count, units, and source grid are
+recorded with every result. Domain-mask counts may be reported diagnostically,
+but they are not allowed to change the pointwise solver workload.
 
 Run the two commands in separate processes and output directories. The comparison layer reads their artifacts after both processes exit; it does not import either solver implementation.
 

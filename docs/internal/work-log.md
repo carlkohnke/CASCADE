@@ -311,3 +311,20 @@ The current TissueSim cube script does not implement a general automatic float64
 - Initial CASCADE wheel: completed but was scientifically invalid because it retained all bounding-cube points and skipped the flux check.
 - Evidence: `../../validation/results/2026-09-09_m2-heart-s-preflight-128c6fc/`; raw VTK/log products are in the matching ignored runs directory.
 - VAL-07 remains partial until a fresh committed wheel passes this bounded comparison and the full 200-cubed healthy/occlusion cases.
+
+## 2026-09-10 — HEART-S shared-coordinate contract implemented
+
+### Work performed
+
+- Reran the corrected source at commit `881d26b` on the bounded 16-cubed HEART-S case. CASCADE used the actual bivent3 mesh, retained 658 generated inside points, completed tissue evaluation, and passed the Cext flux diagnostic with relative L2 error approximately `4.98e-8`.
+- Compared the corrected CASCADE vessel VTP to the tissue-capable legacy oracle: all 39,998 vessel points, 19,999 cells, geometry, flows, radii, lengths, and IDs matched exactly; concentration differences were at float32 scale.
+- Identified a 26-coordinate difference between the two independently generated surface masks (684 legacy versus 658 CASCADE) despite using the same STL and grid axes.
+- Added D-031 and `cascade export-heart --tissue-points` so production and validation runs can consume an explicit numeric `(N, 3)` `.npy` array in centimetres. Metadata records its resolved path, SHA-256, and count.
+- Added a validation-only legacy wrapper that verifies the external exporter hash and either captures its generated points or substitutes a fixed point array without editing or copying the oracle.
+- Captured the bounded oracle's 684 inside coordinates with SHA-256 `9298fab8e103e595c4f674298695d445fed222ca410f5cd5d67a1757b04f9001`. Two failed wrapper bring-up attempts are retained rather than overwritten.
+
+### Verification and next gate
+
+- Full source suite: 123 passed with 15 previously classified warnings.
+- The successful capture run completed with peak RSS below 1 GiB and the frozen production Cext profile. Compact monitor evidence is under `../../validation/results/2026-09-10_m2-heart-shared-points_working/`; raw logs, VTK, and `.npy` data are under the matching ignored runs directory.
+- A committed, freshly installed wheel must now rerun both sides against the captured points and pass the field comparator before the full 200-cubed coordinate fixture is generated.

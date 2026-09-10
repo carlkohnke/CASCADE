@@ -212,3 +212,10 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted from HEART-S preflight
 - Decision: `cascade export-heart --domain <mesh>` must pass the requested mesh through the packaged runtime's PyVista-domain constructor. Combined Cext tissue state must retain bulk concentration, wall concentration, and interfacial transfer coefficient in addition to the previously retained fields.
 - Consequence: Silently substituting a cube or skipping the flux-consistency diagnostic is a failed scientific run even if files are emitted. Regression tests cover both contracts before the bounded HEART-S comparison is repeated from a fresh wheel.
+
+## D-031 — Heart parity uses one hash-frozen explicit tissue-point array
+
+- Date: 2026-09-10
+- Status: accepted from bounded HEART-S comparison design
+- Decision: Generate the canonical inside-domain heart coordinates once with the hash-frozen tissue-capable legacy exporter, retain them as an ignored large fixture, and pass that exact `.npy` array to both isolated solvers for pointwise tissue comparison. CASCADE exposes this as `cascade export-heart --tissue-points`; a validation-only hash-checking wrapper substitutes the same points into the unmodified external legacy oracle.
+- Consequence: Differences between public-`svv` domain adapters at mesh boundaries cannot masquerade as oxygen-solver disagreement. The default generated 200-cubed workflow remains available, but certification records the explicit point-file hash and requires exact coordinate/finite-mask identity.

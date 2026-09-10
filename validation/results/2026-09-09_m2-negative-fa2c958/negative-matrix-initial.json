@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "python": "3.9.20 | packaged by conda-forge | (main, Sep 30 2024, 17:49:10) \n[GCC 13.3.0]",
+  "cascade_entry_point": "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+  "case_count": 10,
+  "pass_count": 7,
+  "all_passed": false,
+  "cases": [
+    {
+      "case_id": "unknown-top-level",
+      "command": [
+        "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+        "run",
+        "--settings",
+        "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/unknown-top-level/settings.json"
+      ],
+      "returncode": 1,
+      "expected_text": "unknown top-level settings",
+      "expected_text_found": false,
+      "successful_manifests": [],
+      "passed": false,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade\", line 8, in <module>\n    sys.exit(main())\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 51, in main\n    return _run(args)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/execution.py\", line 88, in wrapped\n    return func(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 82, in _run\n    config = load_config(args.settings)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/config.py\", line 194, in load_config\n    config = parse_config(raw)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/config.py\", line 200, in parse_config\n    _reject_unknown(\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/config.py\", line 13, in _reject_unknown\n    raise ValueError(f\"Unknown CASCADE setting(s): {names}\")\nValueError: Unknown CASCADE setting(s): simulaton\n"
+    },
+    {
+      "case_id": "unknown-core-setting",
+      "command": [
+        "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+        "run",
+        "--settings",
+        "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/unknown-core-setting/settings.json"
+      ],
+      "returncode": 1,
+      "expected_text": "unknown simulation settings",
+      "expected_text_found": false,
+      "successful_manifests": [],
+      "passed": false,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade\", line 8, in <module>\n    sys.exit(main())\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 51, in main\n    return _run(args)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/execution.py\", line 88, in wrapped\n    return func(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 82, in _run\n    config = load_config(args.settings)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/config.py\", line 194, in load_config\n    config = parse_config(raw)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/config.py\", line 211, in parse_config\n    simulation = _parse_simulation(raw.get(\"simulation\", {}))\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/config.py\", line 391, in _parse_simulation\n    _reject_unknown(\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/config.py\", line 13, in _reject_unknown\n    raise ValueError(f\"Unknown CASCADE setting(s): {names}\")\nValueError: Unknown CASCADE setting(s): simulation.distance_sample_cout\n"
+    },
+    {
+      "case_id": "missing-custom-input",
+      "command": [
+        "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+        "run",
+        "--settings",
+        "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/missing-custom-input/settings.json"
+      ],
+      "returncode": 1,
+      "expected_text": "custom geometry file not found",
+      "expected_text_found": true,
+      "successful_manifests": [],
+      "passed": true,
+      "stdout": "Loaded settings: /home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/missing-custom-input/settings.json\n",
+      "stderr": "\nAllocating patches:   0%|          | 0/24 [00:00<?, ?point/s]\n                                                             \n\nAllocating remaining patches:   0%|          | 0/24 [00:00<?, ?point/s]\n                                                                       \n\nCreating patches:   0%|          | 0/24 [00:00<?, ?patch/s]\n                                                           \n\nSolving patches:   0%|          | 0/24 [00:00<?, ?patch/s]\n                                                          \nTraceback (most recent call last):\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade\", line 8, in <module>\n    sys.exit(main())\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 51, in main\n    return _run(args)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/execution.py\", line 88, in wrapped\n    return func(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 87, in _run\n    build = build_or_load_network(config)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/growth.py\", line 192, in build_or_load_network\n    simple_network = build_simple_network(ts, domain, config)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/simple.py\", line 82, in build_simple_network\n    starts, ends, radii, lengths, inlet_nodes, outlet_nodes, prox_ids, dist_ids = _load_custom_geometry(\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/simple.py\", line 415, in _load_custom_geometry\n    raise FileNotFoundError(f\"Custom geometry file not found: {path}\")\nFileNotFoundError: Custom geometry file not found: /home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/does-not-exist.csv\n"
+    },
+    {
+      "case_id": "malformed-custom-csv",
+      "command": [
+        "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+        "run",
+        "--settings",
+        "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/malformed-custom-csv/settings.json"
+      ],
+      "returncode": 1,
+      "expected_text": "missing columns",
+      "expected_text_found": true,
+      "successful_manifests": [],
+      "passed": true,
+      "stdout": "Loaded settings: /home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/malformed-custom-csv/settings.json\n",
+      "stderr": "\nAllocating patches:   0%|          | 0/24 [00:00<?, ?point/s]\n                                                             \n\nAllocating remaining patches:   0%|          | 0/24 [00:00<?, ?point/s]\n                                                                       \n\nCreating patches:   0%|          | 0/24 [00:00<?, ?patch/s]\n                                                           \n\nSolving patches:   0%|          | 0/24 [00:00<?, ?patch/s]\n                                                          \nTraceback (most recent call last):\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade\", line 8, in <module>\n    sys.exit(main())\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 51, in main\n    return _run(args)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/execution.py\", line 88, in wrapped\n    return func(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 87, in _run\n    build = build_or_load_network(config)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/growth.py\", line 192, in build_or_load_network\n    simple_network = build_simple_network(ts, domain, config)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/simple.py\", line 82, in build_simple_network\n    starts, ends, radii, lengths, inlet_nodes, outlet_nodes, prox_ids, dist_ids = _load_custom_geometry(\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/simple.py\", line 425, in _load_custom_geometry\n    raise ValueError(f\"Custom geometry CSV is missing columns: {', '.join(missing)}\")\nValueError: Custom geometry CSV is missing columns: start_z, end_x, end_y, end_z\n"
+    },
+    {
+      "case_id": "disconnected-custom-geometry",
+      "command": [
+        "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+        "run",
+        "--settings",
+        "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/disconnected-custom-geometry/settings.json"
+      ],
+      "returncode": 1,
+      "expected_text": "connected",
+      "expected_text_found": true,
+      "successful_manifests": [],
+      "passed": true,
+      "stdout": "Loaded settings: /home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/disconnected-custom-geometry/settings.json\n",
+      "stderr": "\nAllocating patches:   0%|          | 0/24 [00:00<?, ?point/s]\n                                                             \n\nAllocating remaining patches:   0%|          | 0/24 [00:00<?, ?point/s]\n                                                                       \n\nCreating patches:   0%|          | 0/24 [00:00<?, ?patch/s]\n                                                           \n\nSolving patches:   0%|          | 0/24 [00:00<?, ?patch/s]\n                                                          \nTraceback (most recent call last):\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade\", line 8, in <module>\n    sys.exit(main())\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 51, in main\n    return _run(args)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/execution.py\", line 88, in wrapped\n    return func(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 87, in _run\n    build = build_or_load_network(config)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/growth.py\", line 192, in build_or_load_network\n    simple_network = build_simple_network(ts, domain, config)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/simple.py\", line 170, in build_simple_network\n    _pressures, flows, *_ = ts.solve_kirchhoff(\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/runtime/tissuesim.py\", line 2756, in solve_kirchhoff\n    tree_result = solve_kirchhoff_tree(\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/runtime/tissuesim.py\", line 2710, in solve_kirchhoff_tree\n    raise RuntimeError(\nRuntimeError: Tree Kirchhoff solver could not traverse all nodes; graph may be disconnected or not tree-like. flow_nodes=2/4 pressure_nodes=2/4\n"
+    },
+    {
+      "case_id": "invalid-grid",
+      "command": [
+        "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+        "run",
+        "--settings",
+        "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/invalid-grid/settings.json"
+      ],
+      "returncode": 0,
+      "expected_text": "grid",
+      "expected_text_found": true,
+      "successful_manifests": [
+        "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/invalid-grid/output/manifest.json"
+      ],
+      "passed": false,
+      "stdout": "Loaded settings: /home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/invalid-grid/settings.json\nKirchhoff diagnostics: solver_used=tree_neumann bc=legacy_equal_terminal_flow solve_time=1.165s true_rel_resid=0.000e+00\nNetwork ready: mode=simple trees=1 segments=[2]\nDone in 1.997s\nWrote:\n  manifest_json: /home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/invalid-grid/output/manifest.json\n",
+      "stderr": "\nAllocating patches:   0%|          | 0/24 [00:00<?, ?point/s]\n                                                             \n\nAllocating remaining patches:   0%|          | 0/24 [00:00<?, ?point/s]\n                                                                       \n\nCreating patches:   0%|          | 0/24 [00:00<?, ?patch/s]\n                                                           \n\nSolving patches:   0%|          | 0/24 [00:00<?, ?patch/s]\n                                                          \n"
+    },
+    {
+      "case_id": "impossible-flow-settings",
+      "command": [
+        "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+        "run",
+        "--settings",
+        "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/impossible-flow-settings/settings.json"
+      ],
+      "returncode": 1,
+      "expected_text": "per-inlet flow requires",
+      "expected_text_found": true,
+      "successful_manifests": [],
+      "passed": true,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade\", line 8, in <module>\n    sys.exit(main())\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 51, in main\n    return _run(args)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/execution.py\", line 88, in wrapped\n    return func(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 82, in _run\n    config = load_config(args.settings)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/config.py\", line 194, in load_config\n    config = parse_config(raw)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/config.py\", line 214, in parse_config\n    _validate(network, growth, simulation, outputs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/config.py\", line 546, in _validate\n    raise ValueError(\"per-inlet flow requires simulation.inlet_conditions.\")\nValueError: per-inlet flow requires simulation.inlet_conditions.\n"
+    },
+    {
+      "case_id": "corrupt-vtk-domain",
+      "command": [
+        "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+        "run",
+        "--settings",
+        "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/corrupt-vtk-domain/settings.json"
+      ],
+      "returncode": 1,
+      "expected_text": "vtk",
+      "expected_text_found": true,
+      "successful_manifests": [],
+      "passed": true,
+      "stdout": "Loaded settings: /home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/corrupt-vtk-domain/settings.json\n",
+      "stderr": "Traceback (most recent call last):\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/pyvista/core/filters/poly_data.py\", line 2003, in compute_normals\n    mesh['Normals']\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/pyvista/core/dataset.py\", line 1478, in __getitem__\n    return self.get_array(name, preference=preference)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/pyvista/core/dataset.py\", line 1404, in get_array\n    arr = get_array(self, name, preference=preference, err=True)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/pyvista/_deprecate_positional_args.py\", line 245, in inner_f\n    return f(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/pyvista/core/utilities/arrays.py\", line 436, in get_array\n    raise KeyError(msg)\nKeyError: 'Data array (Normals) not present in this dataset.'\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade\", line 8, in <module>\n    sys.exit(main())\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 51, in main\n    return _run(args)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/execution.py\", line 88, in wrapped\n    return func(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 87, in _run\n    build = build_or_load_network(config)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/growth.py\", line 150, in build_or_load_network\n    domain = domain_override if domain_override is not None else build_domain(config, ts=ts)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/growth.py\", line 111, in build_domain\n    domain = Domain(mesh)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/_svv_domain/domain.py\", line 60, in __init__\n    self.set_data(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/_svv_domain/domain.py\", line 151, in set_data\n    points, normals, n, d = read(args[0], **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/_svv_domain/io/read.py\", line 40, in read\n    data = data.compute_normals(split_vertices=True, feature_angle=feature_angle)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/pyvista/_deprecate_positional_args.py\", line 245, in inner_f\n    return f(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/pyvista/core/filters/poly_data.py\", line 2011, in compute_normals\n    raise TypeError(msg)\nTypeError: Normals cannot be computed for PolyData containing only vertex cells (e.g. point clouds)\nand/or line cells. The PolyData cells must be polygons (e.g. triangle cells).\n"
+    },
+    {
+      "case_id": "corrupt-forest",
+      "command": [
+        "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+        "run",
+        "--settings",
+        "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/corrupt-forest/settings.json"
+      ],
+      "returncode": 1,
+      "expected_text": "forest",
+      "expected_text_found": true,
+      "successful_manifests": [],
+      "passed": true,
+      "stdout": "Loaded settings: /home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-negative-fa2c958/corrupt-forest/settings.json\nWarning: failed to build forest simulation cache (File is not a zip file); loading forest directly.\n",
+      "stderr": "\nAllocating patches:   0%|          | 0/24 [00:00<?, ?point/s]\n                                                             \n\nAllocating remaining patches:   0%|          | 0/24 [00:00<?, ?point/s]\n                                                                       \n\nCreating patches:   0%|          | 0/24 [00:00<?, ?patch/s]\n                                                           \n\nSolving patches:   0%|          | 0/24 [00:00<?, ?patch/s]\n                                                          \nTraceback (most recent call last):\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade\", line 8, in <module>\n    sys.exit(main())\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 51, in main\n    return _run(args)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/execution.py\", line 88, in wrapped\n    return func(*args, **kwargs)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/cli.py\", line 87, in _run\n    build = build_or_load_network(config)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/growth.py\", line 169, in build_or_load_network\n    trees, forest = _load_existing_network(input_path, domain, config, ts=ts)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/growth.py\", line 385, in _load_existing_network\n    forest = Forest.load(\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/_svv_forest_compat.py\", line 748, in load\n    metadata, trees_data, connections_data = cls._load_archive_members(path, show_progress=show_progress)\n  File \"/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/_svv_forest_compat.py\", line 289, in _load_archive_members\n    with zipfile.ZipFile(path, 'r') as archive:\n  File \"/home/carl/miniconda3/envs/svva2/lib/python3.9/zipfile.py\", line 1268, in __init__\n    self._RealGetContents()\n  File \"/home/carl/miniconda3/envs/svva2/lib/python3.9/zipfile.py\", line 1335, in _RealGetContents\n    raise BadZipFile(\"File is not a zip file\")\nzipfile.BadZipFile: File is not a zip file\n"
+    },
+    {
+      "case_id": "gpu-request-without-visible-device",
+      "command": [
+        "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/cascade",
+        "doctor",
+        "--require-gpu"
+      ],
+      "returncode": 1,
+      "expected_text": "GPU",
+      "expected_text_found": true,
+      "successful_manifests": [],
+      "passed": true,
+      "stdout": "CASCADE 0.1.0rc1 (/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade)\nPython 3.9.20 (/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/python)\nPlatform Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39\nsvv: 0.0.48\nnumpy: 1.26.4\nscipy: 1.13.1\nnumba: 0.60.0\npyvista: 0.46.5\nvtk: 9.5.2\ncupy: 13.6.0\nPySide6: 6.10.3\nGPU: CuPy cannot compile a CUDA test kernel\nTraceback (most recent call last):\n  File \"<string>\", line 4, in <module>\n  File \"cupy_backends/cuda/api/runtime.pyx\", line 420, in cupy_backends.cuda.api.runtime.getDeviceCount\n  File \"cupy_backends/cuda/api/runtime.pyx\", line 423, in cupy_backends.cuda.api.runtime.getDeviceCount\n  File \"cupy_backends/cuda/api/runtime.pyx\", line 146, in cupy_backends.cuda.api.runtime.check_status\ncupy_backends.cuda.api.runtime.CUDARuntimeError: cudaErrorNoDevice: no CUDA-capable device is detected\n",
+      "stderr": ""
+    }
+  ]
+}

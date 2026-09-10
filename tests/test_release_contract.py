@@ -47,6 +47,15 @@ def test_unknown_settings_fail_loudly():
         parse_config(raw)
 
 
+@pytest.mark.parametrize("axis", ["nx", "ny", "nz"])
+def test_nonpositive_tissue_grid_dimensions_fail_loudly(axis):
+    raw = example_config()
+    raw["simulation"]["sample_mode"] = "grid"
+    raw["simulation"]["tissue_grid"] = {axis: 0}
+    with pytest.raises(ValueError, match=rf"simulation\.tissue_grid\.{axis} must be a positive integer"):
+        parse_config(raw)
+
+
 def test_custom_csv_geometry_contract(tmp_path: Path):
     geometry = tmp_path / "y-channel.csv"
     geometry.write_text(

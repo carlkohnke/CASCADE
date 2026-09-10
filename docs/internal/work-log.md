@@ -264,3 +264,17 @@ The current TissueSim cube script does not implement a general automatic float64
 ### Evidence
 
 - `../../validation/results/2026-09-09_m2-custom-export-fa2c958/`; large/generated run products remain under the corresponding ignored `../../validation/runs/` directory.
+
+## 2026-09-09 — Negative preflight found invalid-grid coercion
+
+### Work performed
+
+- Added an installed-entry-point harness covering unknown settings, missing and malformed inputs, disconnected custom geometry, invalid grid dimensions, incompatible flow settings, corrupt VTK/forest inputs, and a requested GPU with no visible device.
+- Ran all ten cases sequentially against the exact installed `fa2c958` wheel outside the checkout and required non-zero exit, matching root-cause text, and no successful manifest.
+- Added strict tissue-grid validation and parameterized regression tests after the run showed that `nx=0` was silently clamped to one.
+
+### Results and evidence
+
+- Seven of ten initial harness checks passed. Two more commands failed correctly but used different message wording than the harness expected; the expectations were corrected.
+- The invalid-grid case was a genuine product failure and its successful manifest is retained under ignored raw evidence. The compact failed result is `../../validation/results/2026-09-09_m2-negative-fa2c958/negative-matrix-initial.json`.
+- `tests/test_release_contract.py` passed 12 tests after the source fix. A fresh committed wheel rerun remains required before VAL-11 completes.

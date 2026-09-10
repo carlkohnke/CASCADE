@@ -562,6 +562,33 @@ def _validate(network: NetworkConfig, growth: GrowthConfig, simulation: Simulati
         raise ValueError("simulation.sample_mode must be 'random', 'grid', or 'file'.")
     if simulation.sample_mode == "file" and not simulation.sample_points_path:
         raise ValueError("simulation.sample_points_path is required when sample_mode is 'file'.")
+    grid = dict(simulation.tissue_grid or {})
+    _reject_unknown(
+        grid,
+        {
+            "nx", "ny", "nz", "boundary_resolution", "implicit_margin",
+            "disable_enclosed_check", "enclosed_tolerance", "inside_combine_mode",
+            "chunk_points", "tissue_grid_chunk_points",
+        },
+        "simulation.tissue_grid",
+    )
+    for name in ("nx", "ny", "nz", "boundary_resolution", "chunk_points", "tissue_grid_chunk_points"):
+        if name in grid:
+            try:
+                value = int(grid[name])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"simulation.tissue_grid.{name} must be a positive integer.") from exc
+            if value <= 0:
+                raise ValueError(f"simulation.tissue_grid.{name} must be a positive integer.")
+    if "inside_combine_mode" in grid and str(grid["inside_combine_mode"]).strip().lower() not in {"and", "or"}:
+        raise ValueError("simulation.tissue_grid.inside_combine_mode must be 'and' or 'or'.")
+    if "enclosed_tolerance" in grid:
+        try:
+            tolerance = float(grid["enclosed_tolerance"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("simulation.tissue_grid.enclosed_tolerance must be finite and non-negative.") from exc
+        if tolerance != tolerance or tolerance < 0.0 or tolerance == float("inf"):
+            raise ValueError("simulation.tissue_grid.enclosed_tolerance must be finite and non-negative.")
     if growth.n_closest_vessels <= 0:
         raise ValueError("growth.n_closest_vessels must be positive.")
     if growth.n_points <= 0:

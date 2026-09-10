@@ -184,3 +184,10 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted from M3 attribution
 - Decision: When `growth.enabled=false`, load only the `data` member of a legacy `.tree.npz` archive. Do not read or unpickle its growth-only payload, which may contain a many-million-entry vessel-map object graph. Infer the terminal count from the stored child columns and attach only the compact simulation state, matching the frozen oracle's analysis-only loader.
 - Consequence: Saved custom growth parameters in the payload are intentionally not an implicit simulation input; CASCADE's explicit settings remain authoritative. Growth-enabled loads continue to restore the full payload. This change must reproduce the existing array evidence through a freshly installed wheel before the earlier candidate is superseded.
+
+## D-027 — Reject invalid tissue-grid specifications instead of coercing them
+
+- Date: 2026-09-09
+- Status: accepted from M2 negative testing
+- Decision: Reject non-positive grid dimensions/resolutions/chunk sizes, unknown tissue-grid keys, invalid combine modes, and non-finite or negative enclosed-point tolerances during configuration validation. Do not silently clamp invalid user input to a different simulation.
+- Consequence: The initial negative campaign's successful `nx=0` run is retained as failed evidence. A fresh committed wheel must pass the unchanged failure-path case before VAL-11 can close.

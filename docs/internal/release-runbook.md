@@ -75,9 +75,11 @@ Offscreen startup is automation evidence; it does not replace the full human int
 
 ## 6. Build artifacts
 
-After verifying the exact artifact paths under `dist/`, replace only the candidate’s prior wheel/sdist and run:
+After verifying the exact artifact paths under `dist/`, replace only the candidate’s prior wheel/sdist. Also resolve and verify that `build/` is the repository-local build directory, then remove that directory before every candidate build; setuptools may otherwise reuse stale package files from an earlier build.
 
 ```bash
+realpath build
+rm -rf -- /absolute/path/to/this/repository/build
 python -m build
 python -m twine check \
   dist/cascade_vascular-<version>-py3-none-any.whl \

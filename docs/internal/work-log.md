@@ -425,3 +425,27 @@ VAL-06, VAL-07, PERF-05, PERF-06, and PERF-07.
 - The full 200-cubed-derived point campaign completed in 132.83 s versus 179.24 s legacy, used 33.76 versus 36.98 GiB peak RSS, and passed the D-042 field/fraction comparison.
 - Evidence is in `../../validation/results/2026-09-10_m2-heart-s-occlusion-987c97e/`, `../../validation/results/2026-09-10_m23-heart-l-connectivity-source/`, and `../../validation/results/2026-09-10_m23-heart-l-full-vectorized/`.
 - Final exact-wheel repetition remains before closing M2/M3.
+
+## 2026-09-10 — RC2 exact-wheel release closure; M2/M3 complete
+
+### Scope
+
+M1, VAL-05, VAL-06, VAL-07, PERF-05, PERF-06, and PERF-07.
+
+### Work performed
+
+- Repeated HEART-L from the exact installed `af001fb` wheel rather than the editable source. The 24,999,999-segment, 1,619,996-input-point GPU workflow passed D-042 in 141.37 seconds application time and 145.21 seconds monitored wall time, versus 179.24/182.74 seconds for the isolated corrected-GL5 oracle. Peak RSS was 33.83 versus 36.98 GiB.
+- Prepared CASCADE `0.1.0rc2`, then retained the first CPU smoke preflight failure: the shared lock still pinned `cascade-vascular==0.1.0rc1`. Commit `129c6a2` updates that lock, after which the artifacts were rebuilt.
+- Installed the rebuilt exact wheel into independent temporary CPU and CUDA 13 environments outside the checkout. Both complete release smokes passed. CUDA diagnostics executed a compiled CuPy operation and cuFFT on the RTX 3080 Laptop GPU; the GPU smoke also completed the installed-wheel shared-global Cext heart workflow and reopened its VTK output.
+- Reran the source suite: 133 passed with 15 already classified warnings.
+- Audited the final archives: 77 wheel entries and 151 sdist entries, packaged bivent3 present, and zero forbidden-path/content hits. Both artifacts passed `twine check` and all four RC1/RC2 checksums in `dist/SHA256SUMS` verify.
+- Added local annotated tag `v0.1.0rc2` at immutable source commit `129c6a2c60b7718a38085f0d3ef92b2184385aff` and copied the checksum-verified RC2 wheel/sdist beside the retained RC1 artifacts. No remote publication was attempted.
+- Marked M2 and M3 complete for the existing-tree scope under D-045. Growth/optimizer qualification and all M4 governance/publication work remain explicitly separate.
+
+### Exact artifacts and evidence
+
+- Wheel: SHA-256 `a0a3f2f7d56fc29d1b161242879677d52bd696ccd9c3f07f128ab07547ae9ba7`, 901,059 bytes.
+- Sdist: SHA-256 `8ae23fd8405303bcdf15305ed61eec60fa0979e27093bbeeace5d23c1a08665f`, 923,695 bytes.
+- Release closure: `../../validation/results/2026-09-10_rc2-release_129c6a2/`.
+- Exact-wheel HEART-L: `../../validation/results/2026-09-10_m23-heart-l-wheel-af001fb/`.
+- Cube scale/performance: `../../validation/results/2026-09-10_m3-gpu-reference-scale-a20b6f9/` and `../../validation/results/2026-09-10_m3-gpu-reference-large-a20b6f9/`.

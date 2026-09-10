@@ -1,6 +1,6 @@
 # CASCADE Step 2 certification plan
 
-Status: staged; canonical existing structures, workloads, tolerances, and performance repetitions are approved. Numerical campaigns have not yet certified the solver.
+Status: completed for the approved existing-tree M2/M3 scope at `v0.1.0rc2`; growth/optimizer qualification remains a separate later campaign.
 
 ## Objective
 
@@ -87,7 +87,7 @@ but they are not allowed to change the pointwise solver workload.
 
 Run the two commands in separate processes and output directories. The comparison layer reads their artifacts after both processes exit; it does not import either solver implementation.
 
-For pointwise cube comparisons, both settings use one frozen NPY coordinate file containing one million seed-42 legacy-domain points. Leading prefixes are allowed only for debugging; final cube correctness consumes the complete array. Heart comparisons independently construct the same deterministic `200 x 200 x 200` bivent3 candidate grid and require exact equality of the retained coordinates and inside-domain mask. Large computational cases disable per-segment CSV and VTK unless the case is specifically testing export; compact summaries and streaming array-comparison statistics prevent Python object materialization from consuming the host budget.
+For pointwise cube comparisons, both settings use one frozen NPY coordinate file containing one million seed-42 legacy-domain points. Leading prefixes are allowed only for debugging; final cube correctness consumes the complete array. Heart comparisons start from the same frozen set of 1,619,996 inside-domain coordinates derived from the deterministic `200 x 200 x 200` bivent3 candidate grid. Exact-coordinate-aligned values are compared pointwise; D-042 permits at most `1e-5` unmatched output coordinates at float32/float64 vessel-cell boundaries and at most `2e-4` aligned GPU physical-field outliers, while retaining strict identity, topology, finite-mask, and aggregate-fraction rules. Large computational cases disable per-segment CSV and VTK unless the case is specifically testing export; compact summaries and streaming array-comparison statistics prevent Python object materialization from consuming the host budget.
 
 Validate:
 
@@ -159,7 +159,7 @@ Record:
 - First-run compilation separately from warmed runs.
 - Explicit CUDA synchronization at timing boundaries.
 
-Report median, spread, minimum, maximum, and CASCADE/legacy ratio. The target is “no slower than `TissueSim_cube_local` for equivalent work.” The statistical/noise rule used to interpret “equivalent” must be approved before the gate is closed.
+Report median, spread, minimum, maximum, and CASCADE/legacy ratio. The target is “no slower than `TissueSim_cube_local` for equivalent work.” D-023 requires another pair when a large-case ratio lies within 5% of the threshold; the completed cube matrix did not require accepting a slowdown, and HEART-L was materially faster.
 
 Report solver-only and end-to-end measurements separately. Solver-only starts from the already loaded identical structure. End-to-end includes explicit input load, float32 preparation, solve, and requested export. Both are release evidence; solver-only is the direct computational-method comparison and end-to-end identifies operational overhead.
 
@@ -207,4 +207,4 @@ The result summary must link the release tracker IDs it satisfies. Failed campai
 
 ## Completion rule
 
-Step 2 is complete only when all in-scope VAL and PERF items in `release-tracker.md` are either COMPLETE or explicitly DEFERRED/ACCEPTED with the owner’s rationale. Smoke tests alone cannot close numerical or performance gates.
+The M2/M3 campaign is complete only when all in-scope VAL and PERF items in `release-tracker.md` are either COMPLETE or explicitly DEFERRED/ACCEPTED with the owner’s rationale. Smoke tests alone cannot close numerical or performance gates. That rule was satisfied for `v0.1.0rc2` by the retained numerical, paired-performance, exact-wheel, and resource-monitor evidence.

@@ -311,3 +311,10 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted from HEART-L performance attribution
 - Decision: Resampling a one-node Cext field onto five tissue quadrature nodes uses vectorized constant replication and vectorized source-weight redistribution. It must not execute a Python loop per segment. The GL1 integrated source weight remains conserved exactly to the working float32 precision.
 - Consequence: A pathological approximately 175-million-iteration HEART-L preprocessing path was removed. The source candidate completes the full 25-million-segment/1.62-million-point production workflow in 132.83 seconds versus 179.24 seconds for the isolated legacy reference.
+
+## D-045 — Close M2/M3 on existing-tree computation and defer growth qualification
+
+- Date: 2026-09-10
+- Status: accepted from the owner-approved campaign scope and final evidence
+- Decision: `v0.1.0rc2` closes numerical, functional, memory, and performance certification for computation on existing trees/forests/caches. This includes cube scales through the largest available five-million-terminal tree and GPU-only HEART-S/L. Tree creation, scheduled/nearest-tree growth, and optimizer-choice equivalence are a separate later scientific campaign and are not silently treated as failed M2 work.
+- Consequence: M0-M3 may be marked complete without claiming growth certification. Public-SVV CCO remains float64 until the retained float32 equal-bifurcation transition, nearest-tree growth remains an important future capability, and the SLSQP/L-BFGS-B selector remains an upstream request. M4 still requires the license, GitHub remote, observed CI, and human acceptance work named in the tracker.

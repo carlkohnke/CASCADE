@@ -24,6 +24,7 @@ This directory is the internal source of truth for the CASCADE production-releas
 Supporting public-facing or release-specific records remain in:
 
 - `../release-0.1.0rc1.md`: immutable result report for the tagged Step 1 release candidate.
+- `../release-0.1.0rc2.md`: result report for the locally tagged M0-M3 existing-tree release candidate.
 - `../release-checklist.md`: concise release gate list.
 - `../svv-compatibility.md`: current public-`svv` boundary and upstream candidates.
 - `../architecture.md`: production package architecture.

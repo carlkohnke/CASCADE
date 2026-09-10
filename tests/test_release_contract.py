@@ -24,6 +24,7 @@ from cascade.heart_export import (
     _domain_cache_path,
     _load_tissue_points,
     _load_tissuesim,
+    _restore_solution_radii,
     _should_use_simulation_cache,
 )
 from cascade.resources import resolve_domain_path
@@ -131,6 +132,16 @@ def test_heart_domain_cache_key_is_content_and_svv_version_scoped(tmp_path: Path
     assert first_key.parent == (tmp_path / "cache")
     assert first_key.name.startswith("surface-v1-")
     assert first_key.suffix == ".dmn"
+
+
+def test_infarction_solve_override_does_not_change_exported_radii():
+    solution = {"radii": np.array([1.0, 0.0, 0.0, 4.0], dtype=np.float32)}
+    _restore_solution_radii(
+        solution,
+        np.array([1, 2], dtype=np.int64),
+        np.array([2.0, 3.0], dtype=np.float64),
+    )
+    np.testing.assert_array_equal(solution["radii"], [1.0, 2.0, 3.0, 4.0])
 
 
 def test_heart_cext_concat_preserves_flux_state():

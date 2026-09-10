@@ -701,6 +701,19 @@ def _collect_downstream_segment_ids(tree, segment_id: int, seg_count: int) -> np
     return np.asarray(ordered, dtype=np.int64)
 
 
+def _restore_solution_radii(
+    solution: dict,
+    segment_ids: np.ndarray,
+    original_radii: np.ndarray,
+) -> None:
+    radii = np.asarray(solution["radii"])
+    ids = np.asarray(segment_ids, dtype=np.int64)
+    values = np.asarray(original_radii)
+    valid = (ids >= 0) & (ids < radii.shape[0])
+    if np.any(valid):
+        radii[ids[valid]] = values[valid]
+
+
 def _resolve_global_segment_id(forest: Forest, global_segment_id: int) -> tuple[int, int]:
     offset = 0
     target = int(global_segment_id)
@@ -2638,6 +2651,12 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 if restore_radii_ids.size > 0 and blocked_tree_id is not None:
                     forest.networks[0][blocked_tree_id].data[restore_radii_ids, 21] = restore_radii_values
+            if restore_radii_ids.size > 0 and blocked_tree_id is not None:
+                # The radius override is a solve-time boundary condition, not a
+                # destructive edit to the anatomical export.  Keep the original
+                # geometry in VTP while metadata records the effective radius.
+                sol = tree_solutions[int(blocked_tree_id)]
+                _restore_solution_radii(sol, restore_radii_ids, restore_radii_values)
             if pct_blocked >= 1.0 and blocked_subtree_ids.size > 0 and blocked_tree_id is not None:
                 sol = tree_solutions[int(blocked_tree_id)]
                 valid_blocked = blocked_subtree_ids[blocked_subtree_ids < sol["flows"].shape[0]]
@@ -2716,6 +2735,8 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 if restore_radii_ids.size > 0:
                     tree.data[restore_radii_ids, 21] = restore_radii_values
+            if restore_radii_ids.size > 0:
+                _restore_solution_radii(sol, restore_radii_ids, restore_radii_values)
             if pct_blocked >= 1.0 and blocked_subtree_ids.size > 0:
                 valid_blocked = blocked_subtree_ids[blocked_subtree_ids < sol["flows"].shape[0]]
                 if valid_blocked.size > 0:

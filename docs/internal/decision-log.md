@@ -276,3 +276,17 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted; clarifies D-023 for heart VTP accelerator fields
 - Decision: Heart physical arrays retain the `1e-3` relative rule and the `1e-6`-of-case-scale floor, with an additional literal `1e-6` field-unit minimum absolute tolerance. Identity, coordinates, finite masks, and fractions retain their existing exact/absolute rules.
 - Consequence: A repeated GPU result with maximum `cext_mean` difference `6.51e-7` is classified as float32 ordering noise instead of a scientific failure. The original stricter failed comparator artifact is retained beside the corrected result.
+
+## D-040 — Correct the frozen oracle's nominal GL5 contract in the validation wrapper
+
+- Date: 2026-09-10
+- Status: accepted from full-grid HEART-S attribution
+- Decision: Preserve an unmodified effective-GL1 oracle run as historical evidence, then use a validation-only wrapper to resample its converged GL1 line-source density onto five Gauss-Legendre nodes before invoking the same frozen GPU tissue evaluator. The wrapper is external to CASCADE runtime/package code, hash-checks the oracle, conserves each segment's integrated source weight, and is covered by a contract test.
+- Consequence: Production CASCADE GL1-to-independent-GL5 work is compared against equivalent GL5 reference work instead of being failed against the oracle's known argument/implementation mismatch. The full 200-cubed healthy comparison passes every field and viability rule; effective-GL1 output remains labeled diagnostic only.
+
+## D-041 — Keep infarction overrides out of anatomical output
+
+- Date: 2026-09-10
+- Status: accepted from HEART-S occlusion comparison
+- Decision: Radius reduction or zero-radius subtree values are temporary solve boundary conditions. After flow/Cext calculation, restore the original radii both in the forest and in the solution arrays used for VTP/tissue geometry; retain effective radii and blocked IDs in infarction metadata.
+- Consequence: Healthy and occluded outputs preserve the exact frozen vascular anatomy while flow, concentration, source strength, and viability reflect the selected occlusion. This also prevents the temporary zero-radius subtree from changing the tissue finite mask.

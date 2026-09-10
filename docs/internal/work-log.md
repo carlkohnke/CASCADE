@@ -390,3 +390,18 @@ The current TissueSim cube script does not implement a general automatic float64
 - The corrected diagnostic passes structure, flow, concentration, tissue oxygen, viability, coordinates, and finite masks in `../../validation/results/2026-09-10_m2-heart-s-quadrature-a20b6f9/`.
 - Targeted release/sweep/execution tests pass: 22 passed with only the known third-party warnings.
 - Build a fresh exact wheel, verify cold cache creation and warm reuse, then execute production-independent-GL5 HEART-S full-grid healthy/occlusion followed by the monitored HEART-L gate.
+
+## 2026-09-10 — Full-grid HEART-S GL5 reference and infarction anatomy correction
+
+### Work performed
+
+- Captured the frozen legacy bivent3 inside mask for the full 200-cubed candidate grid: 1,619,996 coordinates, SHA-256 `ab733bd07827e33e7458f9e474a5b6f6ec12f8eff45cf41c4bd00c268cbc9fdb`.
+- Ran healthy and global-segment-1 full-occlusion cases sequentially in both environments on those exact coordinates with GPU-only execution.
+- Added a validation-only, source-conserving GL1-to-GL5 resampler around the hash-frozen oracle's GPU tissue evaluator, because its native shared-Cext path ignores the requested tissue GL5 order.
+- Corrected CASCADE so zero-radius/radius-reduction solve overrides are restored in exported solution geometry before tissue masking and VTP construction.
+
+### Results and next gate
+
+- The healthy production GL5 comparison passes every structural, field, finite-mask, and viability rule. The native effective-GL1 comparison is retained and shows the expected quadrature difference rather than being promoted to production evidence.
+- The first occlusion GL5 comparison passes viability fractions but exposed exactly 6,207 temporarily zeroed subtree radii (12,414 VTP points) and the resulting tissue-mask difference. D-041 records the source fix; rerun from an exact fresh wheel before closing VAL-07.
+- CASCADE full-grid healthy wall time was below the equivalent explicit-point legacy run despite performing five tissue nodes. All runs remained far below the 45 GiB RSS ceiling.

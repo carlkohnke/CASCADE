@@ -11,8 +11,10 @@ from svv.tree.data.data import TreeData
 def test_tree_analysis_load_uses_requested_compact_dtypes(tmp_path):
     data = np.arange(3 * 31, dtype=np.float64).reshape(3, 31)
     payload = {
-        "segment_count": 3,
-        "n_terminals": 2,
+        # Deliberately inconsistent: analysis-only loading must not inflate or
+        # trust the potentially enormous pickled growth payload.
+        "segment_count": 999,
+        "n_terminals": 999,
         "preallocation_step": 10_000,
         "data_dtype": "float64",
         "index_dtype": "int64",
@@ -29,6 +31,8 @@ def test_tree_analysis_load_uses_requested_compact_dtypes(tmp_path):
 
     assert tree.data.dtype == np.dtype(np.float32)
     assert tree.preallocate is tree.data
+    assert tree.segment_count == 3
+    assert tree.n_terminals == 2
     assert tree.preallocation_step == 3
     assert tree.preallocate_midpoints.shape == (0, 3)
     assert tree.connectivity is None

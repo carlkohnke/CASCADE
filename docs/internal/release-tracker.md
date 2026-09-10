@@ -76,7 +76,7 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 | PERF-03 | Tissue oxygen CPU benchmark | PLANNED | Component and end-to-end timings versus `TissueSim_cube_local` | Use shared samples and cached geometry separately from end-to-end test |
 | PERF-04 | Tissue oxygen CUDA benchmark | PLANNED | Kernel/component and end-to-end timings with synchronization | Include first-run compile separately from warmed execution |
 | PERF-05 | Heart forest/export benchmark | PLANNED | Load/cache, flow, Cext, tissue, and VTK timings at representative scale | Frozen HEART-S/HEART-L and 200-cubed grid; stage commands after bounded GPU/memory preflight |
-| PERF-06 | Profile regressions | PLANNED | Attribute any statistically meaningful slowdown and implement or disposition fixes | Use profiler only after equivalent work is confirmed |
+| PERF-06 | Profile regressions | IN PROGRESS | Attribute any statistically meaningful slowdown and implement or disposition fixes | D-026 removes the proven analysis-only payload inflation path; rebuild and verify exact 1M/5M parity plus load/RSS reduction before closing |
 | PERF-07 | Equivalent-or-faster release gate | PLANNED | CASCADE meets agreed performance criterion against `TissueSim_cube_local` | No performance claim until PERF-01 through PERF-06 are complete |
 
 ## Usability, CI, and governance

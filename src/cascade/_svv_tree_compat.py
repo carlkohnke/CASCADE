@@ -1183,6 +1183,55 @@ class TreeCompatibilityMixin:
         if not os.path.splitext(path)[1] and os.path.exists(path + ".tree.npz"):
             path = path + ".tree.npz"
 
+        # A legacy payload can contain a many-million-entry vessel_map object
+        # graph.  Simulation-only callers need only the vessel table, and
+        # inflating/unpickling that payload dominated both load time and peak
+        # memory for large validation trees.  Match the frozen TissueSim
+        # analysis loader by never touching the payload in this mode.
+        if analysis_only:
+            with np.load(path, allow_pickle=False) as npz:
+                data = npz["data"]
+            resolved_data_dtype = _normalize_float_dtype(
+                data_dtype if data_dtype is not None else os.environ.get("SVV_TREE_DATA_DTYPE"),
+                data.dtype,
+            )
+            resolved_index_dtype = _normalize_int_dtype(
+                index_dtype if index_dtype is not None else os.environ.get("SVV_TREE_INDEX_DTYPE"),
+                np.int64,
+            )
+            if data.dtype != resolved_data_dtype:
+                data = np.asarray(data, dtype=resolved_data_dtype)
+            else:
+                data = np.asarray(data)
+            domain = cls._coerce_domain(domain)
+            tree = cls(
+                preallocation_step=1,
+                data_dtype=resolved_data_dtype,
+                index_dtype=resolved_index_dtype,
+            )
+            tree_data = TreeData.from_array(data)
+            tree.data = tree_data
+            tree.preallocate = tree_data
+            tree.segment_count = int(data.shape[0])
+            if data.ndim == 2 and data.shape[1] > 16:
+                terminal_mask = np.isnan(data[:, 15]) & np.isnan(data[:, 16])
+                inferred_terminals = int(np.count_nonzero(terminal_mask))
+            else:
+                inferred_terminals = 0
+            tree.n_terminals = inferred_terminals or max((tree.segment_count + 1) // 2, 0)
+            tree.preallocation_step = tree.segment_count
+            tree.preallocate_midpoints = np.empty((0, 3), dtype=resolved_data_dtype)
+            tree.midpoints = tree.preallocate_midpoints
+            tree.connectivity = None
+            tree.vessel_map = TreeMap()
+            tree.kdtm = None
+            tree.hnsw_tree = None
+            tree.hnsw_tree_id = None
+            tree.domain = domain
+            tree.probability = None
+            tree._analysis_only_load = True
+            return tree
+
         with np.load(path, allow_pickle=True) as npz:
             data = npz["data"]
             payload = pickle.loads(npz["payload"][0])

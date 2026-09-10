@@ -177,3 +177,10 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted from M2 harness inspection
 - Decision: Keep the Kirchhoff implementation and legacy-oracle comparison in `dyn/cm^2`, but divide solved pressures by 10 before CASCADE writes public summary, segment CSV, or VTK fields documented as pascals. The M2 array comparator performs the same normalization on both solver sides.
 - Consequence: Existing historical pressure values are interpreted using their recorded implementation context. New CASCADE artifacts have truthful `pressure_pa` units without changing the numerical solver or resistance calculations.
+
+## D-026 — Do not inflate growth payloads for simulation-only tree loads
+
+- Date: 2026-09-09
+- Status: accepted from M3 attribution
+- Decision: When `growth.enabled=false`, load only the `data` member of a legacy `.tree.npz` archive. Do not read or unpickle its growth-only payload, which may contain a many-million-entry vessel-map object graph. Infer the terminal count from the stored child columns and attach only the compact simulation state, matching the frozen oracle's analysis-only loader.
+- Consequence: Saved custom growth parameters in the payload are intentionally not an implicit simulation input; CASCADE's explicit settings remain authoritative. Growth-enabled loads continue to restore the full payload. This change must reproduce the existing array evidence through a freshly installed wheel before the earlier candidate is superseded.

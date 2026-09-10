@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Avoid inflating and unpickling legacy growth payloads when loading `.tree.npz` files for simulation-only analysis; this preserves the compact data table while eliminating the dominant large-tree load/memory overhead.
+
 - Added the packaged bivent3 heart surface as a portable CASCADE Studio domain option.
 - Normalized default heart/Cext controls to float32 accelerator arrays, grid 256, Cext quadrature 1, tissue quadrature 5, one coupling iteration, and window factor 6.
 - Removed bundled legacy TissueSim copies and obsolete same-process comparison helpers; M2 uses isolated wheel and external-oracle environments.

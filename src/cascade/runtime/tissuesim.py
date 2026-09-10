@@ -2352,7 +2352,7 @@ if _HAVE_NUMBA:
         return pressures, assigned_edges
 
 
-    @njit
+    @njit(cache=True)
     def _kirchhoff_tree_neumann_numba(
         prox_ids: np.ndarray,
         dist_ids: np.ndarray,
@@ -2459,7 +2459,7 @@ if _HAVE_NUMBA:
         return pressures, flows, n_order, n_pressure
 
 
-    @njit
+    @njit(cache=True)
     def _kirchhoff_tree_mixed_numba(
         prox_ids: np.ndarray,
         dist_ids: np.ndarray,
@@ -2921,7 +2921,7 @@ def netflow_viscor_cgs(d_um: np.ndarray, hd: np.ndarray) -> np.ndarray:
 
 
 if _HAVE_NUMBA:
-    @njit
+    @njit(cache=True)
     def _netflow_viscor_cgs_numba(d_um: np.ndarray, hd: np.ndarray) -> np.ndarray:
         n = d_um.shape[0]
         out = np.empty(n, dtype=np.float64)
@@ -3199,7 +3199,7 @@ def _tube_hematocrit_from_hd_radius(radii_cm: np.ndarray, hd: np.ndarray) -> np.
 
 
 if _HAVE_NUMBA:
-    @njit
+    @njit(cache=True)
     def _phase_fraction_pries_numba(
         q_frac: float,
         d_parent_um: float,
@@ -3247,7 +3247,7 @@ if _HAVE_NUMBA:
         return 1.0 / (1.0 + np.exp(-y))
 
 
-    @njit
+    @njit(cache=True)
     def _propagate_hematocrit_pries_numba(
         order: np.ndarray,
         left_child: np.ndarray,
@@ -3484,7 +3484,7 @@ def compute_tree_hematocrit(
 
 
 if _HAVE_NUMBA:
-    @njit
+    @njit(cache=True)
     def _topdown_order_from_children_numba(
         left_child: np.ndarray,
         right_child: np.ndarray,

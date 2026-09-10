@@ -20,22 +20,28 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--campaign-id", required=True)
     parser.add_argument("--targets", type=int, nargs="+", required=True)
+    parser.add_argument("--fluids", nargs="+", choices=("blood", "water"), default=("blood", "water"))
+    parser.add_argument("--backend", choices=("cpu", "gpu"))
+    parser.add_argument("--label-suffix", default="")
     args = parser.parse_args()
 
     base = json.loads(args.base_settings.read_text(encoding="utf-8"))
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for target in args.targets:
-        for fluid in ("blood", "water"):
+        for fluid in args.fluids:
             raw = copy.deepcopy(base)
             raw["network"]["input_path"] = str(TREE_ROOT / f"tree_{TREE_FAMILY}_t{target}.tree.npz")
             raw["network"]["target_terminal_count"] = int(target)
             raw["simulation"]["fluid"] = fluid
-            raw["simulation"]["tissue_accel"] = "gpu" if target >= 1_000_000 else "cpu"
-            raw["outputs"]["out_dir"] = (
-                f"../../runs/{args.campaign_id}/cube-{target}-{fluid}/cascade-output"
+            raw["simulation"]["tissue_accel"] = (
+                args.backend if args.backend is not None else ("gpu" if target >= 1_000_000 else "cpu")
             )
-            raw["outputs"]["prefix"] = f"cube_{target}_{fluid}"
-            path = args.output_dir / f"cube-{target}-{fluid}-settings.json"
+            label = f"cube-{target}-{fluid}{args.label_suffix}"
+            raw["outputs"]["out_dir"] = (
+                f"../../runs/{args.campaign_id}/{label}/cascade-output"
+            )
+            raw["outputs"]["prefix"] = label.replace("-", "_")
+            path = args.output_dir / f"{label}-settings.json"
             if path.exists():
                 raise FileExistsError(f"Refusing to overwrite {path}")
             path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")

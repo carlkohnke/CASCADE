@@ -125,6 +125,12 @@ def main() -> int:
     parser.add_argument("--cascade", type=Path, required=True)
     parser.add_argument("--fluid", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--reference-pressure-unit",
+        choices=("dyn_per_cm2", "pa"),
+        default="dyn_per_cm2",
+        help="Unit used by pressure fields in the reference CSV.",
+    )
     parser.add_argument("--fields", nargs="*", default=list(DEFAULT_FIELDS))
     parser.add_argument(
         "--case-scales",
@@ -143,7 +149,7 @@ def main() -> int:
     comparisons = []
     for field in args.fields:
         legacy_value = number(legacy_row, field)
-        if field in PRESSURE_FIELDS:
+        if field in PRESSURE_FIELDS and args.reference_pressure_unit == "dyn_per_cm2":
             legacy_value *= 0.1  # frozen oracle emits raw dyn/cm^2; CASCADE public fields are Pa
         item = compare_field(
             field,
@@ -153,11 +159,14 @@ def main() -> int:
         )
         if field in PRESSURE_FIELDS:
             item["units"] = "Pa"
-            item["legacy_normalization"] = "dyn/cm^2 * 0.1"
+            item["reference_normalization"] = (
+                "dyn/cm^2 * 0.1" if args.reference_pressure_unit == "dyn_per_cm2" else "none"
+            )
         comparisons.append(item)
     result = {
         "status": "pass" if all(item["passed"] for item in comparisons) else "fail",
         "fluid": args.fluid,
+        "reference_pressure_unit": args.reference_pressure_unit,
         "legacy_csv": str(args.legacy.resolve()),
         "cascade_csv": str(args.cascade.resolve()),
         "comparisons": comparisons,

@@ -63,7 +63,7 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 | VAL-07 | Heart shared-global Cext parity | PARTIAL | CASCADE and legacy exporter agree for fixed multi-tree forest and tissue grid | Operational CUDA smoke passed; representative numerical comparison not run |
 | VAL-08 | `.dmn` interchange decision and round trip | COMPLETE | `.dmn` is explicitly legacy/internal validation input; STL/VTP/VTU are the supported public interchange path | D-013; `m0-legacy-inventory.md`; retain load compatibility without claiming cross-version round trips |
 | VAL-09 | Custom-domain/custom-geometry correctness | PARTIAL | CSV/NPZ plus VTP/STL domain workflows pass topology, unit, solver, and export checks | Basic Y-channel case passed; broaden fixtures and negative tests |
-| VAL-10 | CPU/GPU numerical consistency | IN PROGRESS | Same frozen case meets VAL-02 across CPU and CUDA paths | Both isolated CUDA 13 environments passed actual GPU execution; run the same bounded case on CPU and GPU for direct comparison |
+| VAL-10 | CPU/GPU numerical consistency | COMPLETE | Same frozen case meets VAL-02 across CPU and CUDA paths | `../../validation/results/2026-09-09_m2-cpu-gpu-fa2c958/`: CUBE-100 passed all 17 arrays and 23 summaries; max tissue relative error `2.46e-5` |
 | VAL-11 | Failure-mode and input-validation tests | PARTIAL | Invalid settings, missing files, malformed geometry, unavailable GPU, and incompatible caches fail clearly | Strict settings and basic failures covered; build adversarial matrix |
 | VAL-12 | Reproducibility rerun | PLANNED | Repeated fixed-seed run produces accepted identical/tolerant outputs and manifests | Run from two clean environments and compare hashes/arrays |
 

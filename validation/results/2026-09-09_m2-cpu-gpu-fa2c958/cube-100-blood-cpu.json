@@ -1,0 +1,28 @@
+{
+  "settings_path": "/home/carl/svv_sweeps/GFM/validation/results/2026-09-09_m2-cpu-gpu-fa2c958/cube-100-blood-cpu-settings.json",
+  "cascade_version": "0.1.0rc1",
+  "cascade_module": "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/__init__.py",
+  "gpu": null,
+  "elapsed_process_s": 31.553281787000742,
+  "build_wall_s": 0.861389629999394,
+  "solve_wall_s": 30.630995768000503,
+  "export_wall_s": 0.022799319000114338,
+  "build_timings": {
+    "domain_s": 0.834419771001194,
+    "sample_points_s": 0.024448153000776074,
+    "network_load_s": 0.0016430010000476614
+  },
+  "simulation_timings": {
+    "sample_points_resolve_s": 2.468001184752211e-06,
+    "tree_0_tissue_cache_s": 25.594410169000184,
+    "points_s": 1.7659986042417586e-06
+  },
+  "max_rss_bytes": 3053834240,
+  "array_manifests": [
+    "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-cpu-gpu-fa2c958/cube-100-blood-cpu/arrays/manifest.json"
+  ],
+  "outputs": {
+    "summary_csv": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-cpu-gpu-fa2c958/cube-100-blood-cpu/cascade-output/summary.csv",
+    "manifest_json": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-cpu-gpu-fa2c958/cube-100-blood-cpu/cascade-output/manifest.json"
+  }
+}

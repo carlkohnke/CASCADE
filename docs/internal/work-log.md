@@ -229,3 +229,18 @@ The current TissueSim cube script does not implement a general automatic float64
 
 - `../../validation/results/2026-09-09_m23-loadfix-fa2c958/`.
 - Heavy emitted arrays/logs remain under the corresponding ignored `../../validation/runs/` directory.
+
+## 2026-09-09 — CUBE-100 CPU/GPU consistency passed
+
+### Work performed
+
+- Extended cube settings staging with explicit backend, fluid, and label controls so CPU and CUDA runs can coexist without overwriting evidence.
+- Generalized the summary comparator's reference-pressure unit so CASCADE-to-CASCADE comparisons preserve already-SI pressure values while legacy comparisons retain cgs-to-SI normalization.
+- Ran the exact installed `fa2c958` wheel sequentially on CUBE-100 blood with the same hashed tree and one-million tissue coordinates, once on CPU and once on CUDA.
+
+### Results and evidence
+
+- All 17 arrays and all 23 summary fields passed VAL-02.
+- Identity fields had zero mismatches. The tissue field's maximum relative error was `2.4555e-05`, below `1e-3`; its maximum absolute error was `5.4288e-07`.
+- Evidence-enabled wall time was 31.55 seconds CPU and 8.17 seconds GPU; peak host RSS was 2.84 and 1.43 GiB. These single cold observations are diagnostic only.
+- Evidence: `../../validation/results/2026-09-09_m2-cpu-gpu-fa2c958/`; heavy arrays/logs under the matching ignored runs directory.

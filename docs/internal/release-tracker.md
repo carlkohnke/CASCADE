@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-10
 
-Current release baseline: `v0.1.0rc2` at commit `129c6a2`; RC3 CLI/package hardening is in final local qualification.
+Current release baseline: `v0.1.0rc3` at commit `a1b0cf8`; the exact CPU/CUDA wheel qualification and archive audit passed.
 
 Current objective: preserve the completed M0-M3 existing-tree certification while preparing the governance, remote-CI, and human-acceptance work that remains in M4.
 
@@ -11,7 +11,7 @@ Current objective: preserve the completed M0-M3 existing-tree certification whil
 | Milestone | Status | Exit criterion | Evidence / next action |
 | --- | --- | --- | --- |
 | M0 — Legacy inventory and initial parity audit | COMPLETE | Relevant scripts, inputs, outputs, assumptions, and gaps identified | `m0-legacy-inventory.md`, `m0-traceability.md`, and `../../validation/results/2026-09-09_m2-staging_20744c8/`; completed M2 used the frozen inputs and rules |
-| M1 — Reproducible release candidate | COMPLETE | Git baseline, installable CLI/GUI, pinned CPU/GPU environments, artifacts, basic workflows, and release report | RC2 M2/M3 baseline plus RC3 CLI/package audit; final exact artifacts/evidence recorded under `../../validation/results/` |
+| M1 — Reproducible release candidate | COMPLETE | Git baseline, installable CLI/GUI, pinned CPU/GPU environments, artifacts, basic workflows, and release report | `v0.1.0rc3` plus `../../validation/results/2026-09-10_rc3-cli-audit_a1b0cf8/` |
 | M2 — Numerical and functional certification | COMPLETE for approved existing-tree scope | All agreed reference cases pass structural and numerical acceptance criteria on fixed inputs | Cube matrix, custom inputs, negative/reproducibility, HEART-S healthy/occlusion, and exact-wheel HEART-L pass; scientific growth qualification is explicitly deferred by D-023 |
 | M3 — Performance certification | COMPLETE | CASCADE is not slower than the agreed `TissueSim_cube_local` baseline under the approved protocol, or every regression is resolved/accepted | Warm small GPU solve `0.123-0.148 s`; 10,000,001-vessel compute ratio `0.947`; exact-wheel HEART-L application-time ratio `0.789` with lower peak RSS |
 | M4 — Public-release readiness | BLOCKED | License selected, remote/CI operational, supported-platform statement finalized, M2/M3 disposition recorded | Owner license decision and GitHub repository URL required |
@@ -39,17 +39,17 @@ Current objective: preserve the completed M0-M3 existing-tree certification whil
 | RC-02 | Rename public package/CLI/GUI branding from GFM to CASCADE while retaining scientific GFM terminology | COMPLETE | Commit `eec412a`; `../../src/cascade/`; `../../pyproject.toml` | Review new public text as it is added |
 | RC-03 | Package CLI, GUI, viewer, diagnostics, and heart exporter | COMPLETE | Wheel entry points in `../../pyproject.toml`; artifact audit | Add new entry points only through packaging tests |
 | RC-04 | Pin public `svv` and Python/dependency environments | COMPLETE | `svv==0.0.48`; `../../locks/`; Python 3.9.20 report | Re-resolve only as a deliberate release change |
-| RC-05 | Validate CPU-only installation outside checkout | COMPLETE | Exact RC2 wheel smoke passed; `../../validation/results/2026-09-10_rc2-release_129c6a2/` | Repeat for every artifact build |
-| RC-06 | Validate CUDA 13 installation outside checkout | COMPLETE | Exact RC2 wheel kernel, cuFFT, and heart Cext smoke passed on RTX 3080 Laptop GPU | CUDA 11/12 remain unvalidated |
+| RC-05 | Validate CPU-only installation outside checkout | COMPLETE | Exact RC3 wheel smoke and installed self-test passed; `../../validation/results/2026-09-10_rc3-cli-audit_a1b0cf8/` | Repeat for every artifact build |
+| RC-06 | Validate CUDA 13 installation outside checkout | COMPLETE | Exact RC3 wheel compiled CuPy, cuFFT, installed self-test, and heart Cext smoke passed on RTX 3080 Laptop GPU | CUDA 11/12 remain unvalidated |
 | RC-07 | Support custom explicit CSV/NPZ vascular geometry | COMPLETE | `../../examples/custom_y_channel.csv`; release smoke and completed malformed-input matrix | Keep format regression coverage |
 | RC-08 | Support custom/file-backed domains | COMPLETE for supported contract | VTP/STL and built-in domains operational; packaged `bivent3.stl` added | `.dmn` remains legacy/internal validation input, not public interchange |
 | RC-09 | Export ParaView-compatible vascular/domain/tissue results | COMPLETE | VTP/VTU files reopened with PyVista | Validate field schema/value parity under VAL-06 |
 | RC-10 | Package advanced heart forest exporter and Cext runtime | COMPLETE | CPU/CUDA smoke plus HEART-S/L M2/M3 certification passed | Keep exact-wheel and representative-scale regression coverage |
 | RC-11 | Validate CASCADE Studio startup | COMPLETE for basic gate | Offscreen construct/show/event-loop/exit passed | Full human queue/cancel/result workflow remains UX-01 |
-| RC-12 | Produce clean wheel/sdist and checksums | COMPLETE | RC2 artifacts in `../../dist/`; `twine check`; 77/151-entry audit; SHA-256 verification | Rebuild/check for each release tag |
+| RC-12 | Produce clean wheel/sdist and checksums | COMPLETE | RC3 wheel/sdist in `../../dist/`; `twine check`; 78/153-entry audit; SHA-256 verification in RC3 evidence | Rebuild/check for each release tag |
 | RC-13 | Configure GitHub remote and verify CI | BLOCKED | Local branch/tag exist; no remote configured | Obtain repository URL, add remote, push branch/tag, observe CI |
 | RC-14 | Select project license | BLOCKED | No `LICENSE` exists | Owner/legal decision; confirm compatibility with derived `svv` code |
-| RC-15 | Complete post-M3 CLI/package audit | COMPLETE pending immutable tag | 135-test suite, high-signal static/import audit, CPU/CUDA exact-wheel smokes, all entry points, public-SVV byte-integrity check, starter and installed self-test | Freeze RC3 source/artifacts and record final hashes |
+| RC-15 | Complete post-M3 CLI/package audit | COMPLETE | Immutable tag `v0.1.0rc3` at `a1b0cf8`; 135-test suite, high-signal static/import audit, exact-wheel CPU/CUDA smokes, entry-point audit, public-SVV byte-integrity check, starter and installed self-test | Preserve the compact evidence and immutable artifacts |
 
 ## Step 2: numerical and functional certification
 
@@ -94,7 +94,7 @@ Current objective: preserve the completed M0-M3 existing-tree certification whil
 
 ## Immediate next actions
 
-1. Freeze the audited RC3 candidate and retain RC2 plus both candidates' checksum-verified artifacts immutably.
+1. Retain the immutable RC2 and RC3 tags and checksum-verified artifacts; any packaged-source change requires a new build and exact-wheel qualification.
 2. Treat tree-growth/optimizer qualification as a separate post-M3 scientific campaign: retain float64 public-SVV CCO, the float32 equal-bifurcation transition, and the planned upstream SLSQP/L-BFGS-B selector.
 3. When M4 is activated, select a license, configure the GitHub remote, push the branch/tag intentionally, observe CPU CI, and finalize the supported-platform statement.
 4. Complete human CASCADE Studio queue/cancel/recovery/viewer acceptance before a public production claim.

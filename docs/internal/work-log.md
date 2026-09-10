@@ -471,3 +471,12 @@ M1/RC-03 through RC-12, UX-02, GOV-01, and preservation of the completed M2/M3 c
 - All 69 non-executable package modules import successfully.
 - Pre-freeze RC3 wheel CPU and CUDA release smokes passed outside the checkout, including compiled CuPy/cuFFT checks and real GPU Cext/tissue self-test.
 - M2/M3 results remain valid because no accepted scientific settings, comparison rules, canonical structures, or certified performance algorithms were changed. Final immutable artifact hashes and archive audit are retained in the RC3 compact evidence directory.
+
+### Immutable RC3 closure
+
+- Tagged source commit `a1b0cf8848c95ad85cb39f2ab3b87a872067ae9a` as `v0.1.0rc3`.
+- Exact wheel: 904,370 bytes, 78 entries, SHA-256 `6c7411f2b3e7dca4b4d426472c0292eb6b42d872da95dcd285e6aaf25d2dab1c`.
+- Exact sdist: 929,906 bytes, 153 entries, SHA-256 `839d5b8f84dcbc717678aea198a33fea2ae0eecc510fbde82ff7bd7f7f36b2fc`.
+- Both artifacts passed `twine check`; all entries in `dist/SHA256SUMS` verified. Archive inspection found no private/user paths, external oracle paths, generated validation output, or arbitrary external-module loader.
+- Independent exact-wheel CPU and CUDA 13 smokes passed. The public `svv==0.0.48` distribution hash remained `c8767e211f732e8e38c20085989140123c3d2370531c349d4acb3d0717982660` before and after each smoke.
+- Compact evidence: `../../validation/results/2026-09-10_rc3-cli-audit_a1b0cf8/`. Raw final transcripts remain ignored under `../../validation/tmp/rc3-final-{cpu,gpu}-smoke.log`.

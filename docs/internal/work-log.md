@@ -153,3 +153,24 @@ The current TissueSim cube script does not implement a general automatic float64
 
 - Evidence: `../../validation/results/2026-09-09_m2-staging_20744c8/`.
 - M0 is COMPLETE. M2 is IN PROGRESS; this summary preflight is not detailed-array, heart, GPU-consistency, scale-matrix, or performance certification.
+
+## 2026-09-09 — Unified M2/M3 characterization harness staged
+
+### Work performed
+
+- Checkpointed the reviewed M0-complete/M2-staging state at commit `1f262f7` after 112 tests passed.
+- Added isolated installed-wheel and legacy cube array runners. They write individually memory-mappable arrays for topology, geometry, flow, pressure, hematocrit, vessel concentration, tissue coordinates, and tissue oxygen.
+- Added a chunked comparator enforcing exact identity and finite-mask rules plus the approved physical-field tolerance without loading duplicate full arrays.
+- Added a process-tree resource monitor that records wall time, peak RSS, GPU memory where visible through `nvidia-smi`, logs, environment, and a 45 GiB host-memory safety abort. A smoke command verified its output and lock behavior.
+- Expanded scalar comparison coverage to pressure, flow, resistance, Damkohler, and all reported viability fractions.
+- Found that Kirchhoff pressure arrays use `dyn/cm^2` while public CASCADE fields promise pascals. Added explicit conversion for public summaries and segment/VTK output and recorded D-025; comparison evidence normalizes both internal solver sides to pascals.
+
+### Verification
+
+- Targeted release-contract, harness, and execution tests: 16 passed with 14 third-party warnings.
+- The resource-monitor smoke recorded process-tree memory, host metadata, output hash, and a successful exit.
+- `git diff --check` passed.
+
+### Status
+
+- The first characterization artifact built from `1f262f7` is superseded before numerical use because the pressure-unit correction changes packaged production code. A new checkpoint and wheel are required before the array campaign begins.

@@ -10,6 +10,7 @@
 - Enforced one resident CLI simulation per user and added explicit sweep/CUDA cleanup between cases.
 - Made analysis-only tree and forest loads avoid growth buffers and spatial indexes; simulation-cache arrays stream directly into the requested float32 working dtype.
 - Aligned the water/cell-media inlet oxygen default with the frozen TissueSim cube oracle (`0.2211`) across the runtime, settings registry, and Studio fallback.
+- Corrected public pressure summaries and `pressure_pa` export fields to convert the internal `dyn/cm^2` Kirchhoff solution to pascals.
 
 ## 0.1.0rc1
 

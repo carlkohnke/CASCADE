@@ -19468,6 +19468,7 @@ def summarize_tree(
     dlp_enabled = bool(getattr(parms, "dlp_enable", False)) if parms is not None else False
     dlp_angle = float(getattr(parms, "dlp_min_angle_deg", 0.0)) if dlp_enabled else 0.0
 
+    solved_pressure_scale = DYN_PER_CM2_TO_PA if pressures.size else 1.0
     result = {
         "target_terminals": int(target_terminals),
         "cube_side_length": _characteristic_length(tree, fallback_side_length=side_length),
@@ -19481,9 +19482,10 @@ def summarize_tree(
         "graetz_n_modes": int(GRAETZ_N_MODES),
         "total_volume": total_volume,
         "total_flowrate": reference_flow,
-        "pressure_in_root": pressure_in,
-        "pressure_out_terminals": pressure_out,
-        "pressure_drop": pressure_drop,
+        # The Kirchhoff system is solved in dyn/cm^2. Public summary fields are Pa.
+        "pressure_in_root": pressure_in * solved_pressure_scale,
+        "pressure_out_terminals": pressure_out * solved_pressure_scale,
+        "pressure_drop": pressure_drop * solved_pressure_scale,
         "avg_radius": avg_radius,
         "radius_min": radius_min,
         "radius_max": radius_max,

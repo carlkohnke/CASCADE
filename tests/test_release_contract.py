@@ -24,6 +24,7 @@ from cascade.heart_export import (
 )
 from cascade.resources import resolve_domain_path
 from cascade.settings.oxygen import DEFAULTS as OXYGEN_DEFAULTS
+from cascade.simulation import DYN_PER_CM2_TO_PA, _segment_rows
 from cascade.simple import _load_custom_geometry
 
 
@@ -102,6 +103,22 @@ def test_heart_export_recognizes_cascade_simulation_cache(tmp_path: Path):
     with zipfile.ZipFile(cache, "w") as archive:
         archive.writestr("simulation_meta.pkl", b"placeholder")
     assert _should_use_simulation_cache(forest, cache)
+
+
+def test_segment_pressure_export_converts_cgs_solver_values_to_pa():
+    details = {
+        "starts": np.zeros((1, 3)),
+        "ends": np.ones((1, 3)),
+        "radii": np.asarray([0.01]),
+        "lengths": np.asarray([1.0]),
+        "flows": np.asarray([0.001]),
+        "pressures": np.asarray([666_610.0]),
+        "cin": np.asarray([0.14]),
+        "cout": np.asarray([0.13]),
+    }
+    rows, _ = _segment_rows(details, {}, tree_id=0, start_global_id=0)
+    assert DYN_PER_CM2_TO_PA == 0.1
+    assert rows[0]["pressure_pa"] == pytest.approx(66_661.0)
 
 
 def test_doctor_machine_readable_contract():

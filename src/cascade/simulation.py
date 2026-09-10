@@ -22,6 +22,8 @@ from .growth import (
 )
 from .simple import simple_details
 
+DYN_PER_CM2_TO_PA = 0.1
+
 
 @dataclass
 class TreeSimulation:
@@ -429,7 +431,12 @@ def _segment_rows(
             "length_cm": float(lengths[local_id]) if local_id < lengths.size else math.nan,
             "flow_cm3_s": float(flows[local_id]) if local_id < flows.size else math.nan,
             "flow_ul_min": float(flows[local_id] * 60000.0) if local_id < flows.size else math.nan,
-            "pressure_pa": float(pressures[local_id]) if local_id < pressures.size else math.nan,
+            # Runtime Kirchhoff arrays use dyn/cm^2; exports promise pascals.
+            "pressure_pa": (
+                float(pressures[local_id]) * DYN_PER_CM2_TO_PA
+                if local_id < pressures.size
+                else math.nan
+            ),
             "cin": float(cin[local_id]) if local_id < cin.size else math.nan,
             "cout": float(cout[local_id]) if local_id < cout.size else math.nan,
             "pressure_in_root": summary_row.get("pressure_in_root", math.nan),

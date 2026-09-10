@@ -56,8 +56,8 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 | --- | --- | --- | --- | --- |
 | VAL-01 | Freeze canonical reference inputs | COMPLETE | Versioned settings plus hashes for geometry, domain, forest/tree, seeds, and tissue samples | One-million cube coordinates hash `251ca61e...`; heart axes/grid contract and HEART-S major-branch occlusion ID 1 in the M2 staging evidence |
 | VAL-02 | Freeze comparison fields and tolerances | COMPLETE | Written exact/tolerant comparison rules for geometry, flow, pressure, concentration, and tissue oxygen | D-023 and `test-plan.md`; refine only if a recorded scientific reason emerges during M2 |
-| VAL-03 | Cube existing-tree structural identity | PLANNED | Both sides load the exact hashed topology, segment ordering/mapping, endpoints, radii, and terminal counts | Frozen family through 5M; no growth in this campaign |
-| VAL-04 | Cube tree numerical parity | IN PROGRESS | All selected scalar/array metrics meet VAL-02 | Fresh-wheel CUBE-1 blood and water/cell-media summary preflight passed on the complete shared 1M-point pool; detailed arrays and remaining scales are not yet certified |
+| VAL-03 | Cube existing-tree structural identity | IN PROGRESS | Both sides load the exact hashed topology, segment ordering/mapping, endpoints, radii, and terminal counts | Streaming exact-array evidence/comparator implemented; execute frozen family through 5M with no growth |
+| VAL-04 | Cube tree numerical parity | IN PROGRESS | All selected scalar/array metrics meet VAL-02 | Fresh-wheel CUBE-1 summary preflight passed; isolated array runners now capture pressure, flow, hematocrit, concentration, and tissue fields without CSV row materialization |
 | VAL-05 | Forest growth and reload parity | PARTIAL | Deterministic scheduled/nearest assignment and cache reload meet structural/numerical rules | Existing smoke evidence; add canonical public-`svv` cases |
 | VAL-06 | VTK/export parity | PLANNED | Expected files, schemas, dtypes, IDs, units, point counts, and field values match approved baseline | Compare normal and heart exporters field-by-field |
 | VAL-07 | Heart shared-global Cext parity | PARTIAL | CASCADE and legacy exporter agree for fixed multi-tree forest and tissue grid | Operational CUDA smoke passed; representative numerical comparison not run |
@@ -72,7 +72,7 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 | ID | Work item | Status | Required result | Evidence / next action |
 | --- | --- | --- | --- | --- |
 | PERF-01 | Freeze benchmark protocol | COMPLETE | Same process isolation, geometry, arrays, settings, hardware state, warmups, run count, and timing boundaries | D-023: five pairs through 100k, three at 1M, one initial at 5M/HEART-L with a recorded noise-triggered repeat rule |
-| PERF-02 | Cube scale matrix | PARTIAL | Compare every available decade and the highest cached target | Historical timings exist for 1/100/1000; frozen matrix is 1, 10, 100, 1k, 10k, 100k, 1M, and 5M; missing 10M is an input gap, not a build request |
+| PERF-02 | Cube scale matrix | PARTIAL | Compare every available decade and the highest cached target | Resource monitor now records subprocess wall time, peak process-tree RSS, GPU memory where observable, environment, logs, and a 45 GiB safety abort; execute the frozen matrix |
 | PERF-03 | Tissue oxygen CPU benchmark | PLANNED | Component and end-to-end timings versus `TissueSim_cube_local` | Use shared samples and cached geometry separately from end-to-end test |
 | PERF-04 | Tissue oxygen CUDA benchmark | PLANNED | Kernel/component and end-to-end timings with synchronization | Include first-run compile separately from warmed execution |
 | PERF-05 | Heart forest/export benchmark | PLANNED | Load/cache, flow, Cext, tissue, and VTK timings at representative scale | Frozen HEART-S/HEART-L and 200-cubed grid; stage commands after bounded GPU/memory preflight |

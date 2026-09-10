@@ -10,22 +10,39 @@ from pathlib import Path
 
 
 DEFAULT_FIELDS = (
+    "pressure_in_root",
+    "pressure_out_terminals",
+    "pressure_drop_mean",
     "total_segments_mean",
     "terminal_segments_mean",
     "total_volume_mean",
+    "total_flowrate_mean",
     "total_length_mean",
+    "avg_length_mean",
     "avg_radius_mean",
     "radius_min_mean",
     "radius_max_mean",
+    "Rnet_mean",
     "dRnet_mean",
     "Qmin_over_Qinlet_mean",
     "C_LQ_over_Cmax_mean",
     "C_tiss_over_Cmax_mean",
+    "Damkohler_mean",
+    "FracAbove50pct_mean",
+    "FracAbove25pct_mean",
+    "FracAbove10pct_mean",
     "FracAbove1pct_mean",
     "FracAbove5pct_mean",
 )
 EXACT_FIELDS = {"total_segments_mean", "terminal_segments_mean"}
-FRACTION_FIELDS = {"FracAbove1pct_mean", "FracAbove5pct_mean"}
+FRACTION_FIELDS = {
+    "FracAbove50pct_mean",
+    "FracAbove25pct_mean",
+    "FracAbove10pct_mean",
+    "FracAbove5pct_mean",
+    "FracAbove1pct_mean",
+}
+PRESSURE_FIELDS = {"pressure_in_root", "pressure_out_terminals", "pressure_drop_mean"}
 
 
 def read_row(path: Path, fluid: str) -> dict[str, str]:
@@ -123,15 +140,21 @@ def main() -> int:
         case_scales = json.loads(args.case_scales.read_text(encoding="utf-8"))
         if not isinstance(case_scales, dict):
             raise ValueError("--case-scales must contain a JSON object")
-    comparisons = [
-        compare_field(
+    comparisons = []
+    for field in args.fields:
+        legacy_value = number(legacy_row, field)
+        if field in PRESSURE_FIELDS:
+            legacy_value *= 0.1  # frozen oracle emits raw dyn/cm^2; CASCADE public fields are Pa
+        item = compare_field(
             field,
-            number(legacy_row, field),
+            legacy_value,
             number(cascade_row, field),
             reference_case_scale=case_scales.get(field),
         )
-        for field in args.fields
-    ]
+        if field in PRESSURE_FIELDS:
+            item["units"] = "Pa"
+            item["legacy_normalization"] = "dyn/cm^2 * 0.1"
+        comparisons.append(item)
     result = {
         "status": "pass" if all(item["passed"] for item in comparisons) else "fail",
         "fluid": args.fluid,

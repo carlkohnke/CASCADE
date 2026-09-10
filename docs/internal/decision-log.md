@@ -170,3 +170,10 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted from M2 preflight evidence
 - Decision: Normalize the CASCADE runtime, settings registry, and Studio fallback for water/cell-media inlet oxygen to `0.2211`, matching the frozen cube oracle. Blood remains `0.14`. The editable Studio new-project preset is not a runtime default and remains user-configurable.
 - Consequence: The first CUBE-1 water preflight failure (25% vessel and 43% mean-tissue discrepancy) is retained. After the correction, the fresh-wheel blood and water/cell-media summary comparisons pass the frozen M2 rules. This is a bounded preflight, not full M2 certification.
+
+## D-025 — Convert public pressure outputs from solver cgs units to pascals
+
+- Date: 2026-09-09
+- Status: accepted from M2 harness inspection
+- Decision: Keep the Kirchhoff implementation and legacy-oracle comparison in `dyn/cm^2`, but divide solved pressures by 10 before CASCADE writes public summary, segment CSV, or VTK fields documented as pascals. The M2 array comparator performs the same normalization on both solver sides.
+- Consequence: Existing historical pressure values are interpreted using their recorded implementation context. New CASCADE artifacts have truthful `pressure_pa` units without changing the numerical solver or resistance calculations.

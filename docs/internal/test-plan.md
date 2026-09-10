@@ -132,6 +132,8 @@ Before tests are called certifying, document for every field:
 
 The approved functional rule is 0.1% agreement for the physical conclusion: oxygenation statistics/percentiles, segment and total flow, pressures, viability, and `FracAbove1pct`. Fractions use an absolute 0.001 limit (0.1 percentage points). Other nonzero physical values use relative tolerance `1e-3`; near zero they use absolute tolerance `1e-6` times the field's frozen reference-case scale. The comparison report records that scale and resulting absolute tolerance per field. Exact topology, IDs, shared coordinates, ordering/mapping, and finite/non-finite masks are not relaxed.
 
+Kirchhoff solver arrays on both sides use `dyn/cm^2`. Array evidence converts them to pascals before comparison, and CASCADE public summary/CSV/VTK pressure fields are also converted to pascals. Resistance metrics retain their documented legacy cgs interpretation unless a separately named SI field is added.
+
 ## Performance protocol
 
 The benchmark must execute legacy and CASCADE cases in alternating/interleaved order to reduce thermal and background-load bias, but strictly sequentially: legacy exits and releases memory before CASCADE starts, and vice versa.

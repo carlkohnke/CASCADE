@@ -483,6 +483,7 @@ class DomainPage(Page):
             [
                 ("Box", "box"),
                 ("Sphere", "sphere"),
+                ("Biventricular heart (bivent3)", "bivent3"),
                 ("Upload mesh / .dmn", "file"),
             ]
         )
@@ -521,6 +522,17 @@ class DomainPage(Page):
             )
         )
         self.stack.addWidget(sphere_panel)
+        heart_panel = QWidget()
+        heart_layout = QVBoxLayout(heart_panel)
+        heart_layout.setContentsMargins(0, 0, 0, 0)
+        heart_description = QLabel(
+            "Use the packaged bivent3 STL heart surface. CASCADE resolves the "
+            "mesh from the installed package, so saved projects remain portable."
+        )
+        heart_description.setWordWrap(True)
+        heart_description.setMinimumWidth(0)
+        heart_layout.addWidget(heart_description)
+        self.stack.addWidget(heart_panel)
         self.domain_path = PathPicker(
             caption="Choose tissue domain",
             file_filter="Domain and mesh (*.dmn *.stl *.vtk *.vtp *.vtu *.ply *.obj);;All files (*)",
@@ -548,10 +560,17 @@ class DomainPage(Page):
     def load(self, config):
         domain = config.get("domain", {})
         kind = domain.get("type", domain.get("kind", "cube"))
-        visible_kind = "box" if kind == "cube" else kind
+        path_name = Path(str(domain.get("path") or "")).name.lower()
+        visible_kind = (
+            "box"
+            if kind == "cube"
+            else "bivent3"
+            if kind == "file" and path_name == "bivent3.stl"
+            else kind
+        )
         _set_combo(
             self.kind,
-            visible_kind if visible_kind in {"box", "sphere"} else "file",
+            visible_kind if visible_kind in {"box", "sphere", "bivent3"} else "file",
         )
         self.stack.setCurrentIndex(self.kind.currentIndex())
         self.box_x.setValue(
@@ -599,6 +618,13 @@ class DomainPage(Page):
                     "center": [0.0, 0.0, 0.0],
                     "theta_resolution": theta,
                     "phi_resolution": phi,
+                }
+            )
+        elif kind == "bivent3":
+            domain.update(
+                {
+                    "type": "file",
+                    "path": "bivent3.stl",
                 }
             )
         else:
@@ -1142,6 +1168,8 @@ class PhysicsPage(Page):
         self.inlet_card.setVisible(False)
 
         oxy = Card("Diffusion and consumption")
+        # TODO(M2+): expose a validated custom tissue oxygen-consumption law.
+        # M0 preserves the current Michaelis-Menten Vmax/Km contract.
         self.diffusivity = UnitValue(
             ["cm²/s", "m²/s"], 2.41e-5, minimum=0, maximum=1e6, decimals=10
         )
@@ -1432,7 +1460,7 @@ class PhysicsPage(Page):
             config,
             "oxygen",
             "concentration_inlet_by_fluid",
-            {"blood": 0.14, "water": 0.214},
+            {"blood": 0.14, "water": 0.2211, "cell media": 0.2211, "media": 0.2211},
         )
         fluid = config.get("simulation", {}).get("fluid", "blood")
         inlet_c = (
@@ -1683,7 +1711,7 @@ class SolverPage(Page):
         self.cext_grid = _spin(256, 16, 1024, 16)
         self.lambda_bins = _spin(5, 1, 64)
         self.window = _double(6.0, 0.1, 100, 3, 0.5)
-        self.cext_iters = _spin(5, 1, 10000)
+        self.cext_iters = _spin(1, 1, 10000)
         self.cext_tol = _double(1e-3, 0, 1e9, 10, 1e-4)
         self.cext_accel = _combo(
             [("Anderson", "anderson"), ("Aitken", "aitken"), ("None", "none")]
@@ -1944,7 +1972,7 @@ class SolverPage(Page):
         )
         self.window.setValue(float(_value(config, "cext", "window_factor", 6)))
         self.cext_iters.setValue(
-            int(_value(config, "cext", "vess_coupling_max_iter", 5))
+            int(_value(config, "cext", "vess_coupling_max_iter", 1))
         )
         self.cext_tol.setValue(float(_value(config, "cext", "vess_coupling_tol", 1e-3)))
         _set_combo(
@@ -2098,12 +2126,21 @@ class OutputsPage(Page):
         )
         sample = Card(
             "Tissue domain points",
-            "Choose either independent random points or a structured Cartesian grid inside the tissue domain.",
+            "Choose independent random points, a structured Cartesian grid, or a frozen coordinate file.",
         )
         self.sample_mode = _combo(
-            [("Random points", "random"), ("Structured Cartesian grid", "grid")]
+            [
+                ("Random points", "random"),
+                ("Structured Cartesian grid", "grid"),
+                ("Fixed coordinate file", "file"),
+            ]
         )
         self.sample_points = _spin(10000, 0, 100_000_000, 1000)
+        self.sample_file = PathPicker(
+            mode="file",
+            caption="Choose fixed tissue sample coordinates",
+            file_filter="Coordinate files (*.csv *.npy *.npz);;All files (*)",
+        )
         self.grid_x = _spin(64, 2, 2048)
         self.grid_y = _spin(64, 2, 2048)
         self.grid_z = _spin(64, 2, 2048)
@@ -2117,6 +2154,9 @@ class OutputsPage(Page):
             labeled("Number of random points", self.sample_points)
         )
         self.sample_controls.addWidget(self.grid_fields)
+        self.sample_controls.addWidget(
+            labeled("Coordinate file (x, y, z in cm)", self.sample_file)
+        )
         self.grid_total = QLabel()
         self.grid_total.setObjectName("fieldHelp")
         sample.add(labeled("Point layout", self.sample_mode, important=True))
@@ -2239,8 +2279,9 @@ class OutputsPage(Page):
         )
 
     def _sampling_changed(self):
-        grid = self.sample_mode.currentData() == "grid"
-        self.sample_controls.setCurrentIndex(1 if grid else 0)
+        mode = self.sample_mode.currentData()
+        grid = mode == "grid"
+        self.sample_controls.setCurrentIndex({"random": 0, "grid": 1, "file": 2}.get(mode, 0))
         self.grid_total.setVisible(grid)
 
     def _update_grid_total(self, *_):
@@ -2448,6 +2489,7 @@ class OutputsPage(Page):
         outputs = config.get("outputs", {})
         _set_combo(self.sample_mode, sim.get("sample_mode", "random"))
         self.sample_points.setValue(int(sim.get("distance_sample_count", 10000)))
+        self.sample_file.setText(str(sim.get("sample_points_path") or ""))
         shape = sim.get("tissue_grid", {}).get("shape", [64, 64, 64])
         shape = list(shape) + [64, 64, 64]
         self.grid_x.setValue(int(shape[0]))
@@ -2488,11 +2530,15 @@ class OutputsPage(Page):
     def write(self, config):
         sim = config.setdefault("simulation", {})
         sim["sample_mode"] = self.sample_mode.currentData()
-        sim["distance_sample_count"] = self.sample_points.value()
+        sim["distance_sample_count"] = 0 if sim["sample_mode"] == "file" else self.sample_points.value()
         if sim["sample_mode"] == "grid":
             sim["tissue_grid"] = {
                 "shape": [self.grid_x.value(), self.grid_y.value(), self.grid_z.value()]
             }
+        if sim["sample_mode"] == "file":
+            sim["sample_points_path"] = self.sample_file.text()
+        else:
+            sim.pop("sample_points_path", None)
         outputs = config.setdefault("outputs", {})
         outputs.update(
             {

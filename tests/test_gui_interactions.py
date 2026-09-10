@@ -219,6 +219,7 @@ def test_finite_radius_choices_use_backend_terms(app):
     assert page.tissue_gl_order.value() == 5
     assert page.cext_gl_order.value() == 1
     assert page.axial_steps.value() == 5
+    assert page.cext_iters.value() == 1
 
 
 def test_tissue_and_external_field_quadrature_orders_are_independent(app):
@@ -357,6 +358,7 @@ def test_domain_uses_one_box_choice_and_loads_legacy_cubes(app):
     assert [page.kind.itemText(i) for i in range(page.kind.count())] == [
         "Box",
         "Sphere",
+        "Biventricular heart (bivent3)",
         "Upload mesh / .dmn",
     ]
     assert page.kind.currentData() == "box"
@@ -385,6 +387,17 @@ def test_domain_uses_one_box_choice_and_loads_legacy_cubes(app):
         "z_length": 2.5,
     }
 
+    page.kind.setCurrentIndex(page.kind.findData("bivent3"))
+    page.write(config)
+    assert config["domain"] == {
+        "type": "file",
+        "random_seed": 42,
+        "path": "bivent3.stl",
+    }
+
+    page.load(config)
+    assert page.kind.currentData() == "bivent3"
+
 
 def test_box_dimensions_share_one_equal_three_column_row(app):
     page = DomainPage()
@@ -403,11 +416,12 @@ def test_box_dimensions_share_one_equal_three_column_row(app):
     page.close()
 
 
-def test_tissue_points_are_random_or_structured_cartesian(app):
+def test_tissue_points_support_random_grid_or_fixed_file(app):
     page = OutputsPage()
     assert [page.sample_mode.itemData(i) for i in range(page.sample_mode.count())] == [
         "random",
         "grid",
+        "file",
     ]
     assert page.sample_mode.itemText(1) == "Structured Cartesian grid"
 
@@ -422,6 +436,15 @@ def test_tissue_points_are_random_or_structured_cartesian(app):
     assert page.sample_controls.currentWidget() is page.grid_fields
     assert config["simulation"]["sample_mode"] == "grid"
     assert config["simulation"]["tissue_grid"]["shape"] == [12, 13, 14]
+
+    page.sample_mode.setCurrentIndex(page.sample_mode.findData("file"))
+    page.sample_file.setText("fixtures/tissue_points.npz")
+    page._sampling_changed()
+    page.write(config)
+    assert page.sample_controls.currentIndex() == 2
+    assert config["simulation"]["sample_mode"] == "file"
+    assert config["simulation"]["sample_points_path"] == "fixtures/tissue_points.npz"
+    assert config["simulation"]["distance_sample_count"] == 0
 
 
 def test_flow_sweep_parameter_and_values_can_be_edited(app):

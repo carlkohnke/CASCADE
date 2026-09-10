@@ -1167,7 +1167,16 @@ class TreeCompatibilityMixin:
         return data, payload
 
     @classmethod
-    def load(cls, path, *, domain=None, domain_path=None, data_dtype=None, index_dtype=None):
+    def load(
+        cls,
+        path,
+        *,
+        domain=None,
+        domain_path=None,
+        data_dtype=None,
+        index_dtype=None,
+        analysis_only: bool = False,
+    ):
         """
         Load a Tree saved with Tree.save().
         """
@@ -1196,26 +1205,13 @@ class TreeCompatibilityMixin:
 
         if domain is None and domain_path is None:
             domain_path = payload.get("domain_path")
-        # Relocate legacy package-owned cached domains when a tree was saved
-        # from a different Python environment. User-supplied paths are never
-        # rewritten.
-        if domain_path and not Path(domain_path).expanduser().exists():
-            normalized_path = str(domain_path).replace("\\", "/")
-            marker = "/SCRIPTS/trees_cache_heart/"
-            if marker in normalized_path:
-                import svv
-
-                suffix = normalized_path.split(marker, 1)[1]
-                candidate = Path(svv.__file__).resolve().parent / "SCRIPTS" / "trees_cache_heart" / suffix
-                if candidate.exists():
-                    domain_path = str(candidate)
         if domain is None and domain_path:
             from cascade.svv_adapter import Domain
             domain = Domain.load(domain_path)
         else:
             domain = cls._coerce_domain(domain)
 
-        return cls._from_state(data, payload, domain=domain)
+        return cls._from_state(data, payload, domain=domain, analysis_only=analysis_only)
 
     @staticmethod
     def _coerce_domain(domain):
@@ -1233,13 +1229,16 @@ class TreeCompatibilityMixin:
         raise TypeError("domain must be a svv.domain.Domain or a pyvista dataset.")
 
     @classmethod
-    def _from_state(cls, data, payload, *, domain=None):
+    def _from_state(cls, data, payload, *, domain=None, analysis_only: bool = False):
         data_dtype = _normalize_float_dtype(payload.get("data_dtype"), data.dtype)
         index_dtype = _normalize_int_dtype(payload.get("index_dtype"), np.int64)
-        preallocation_step = int(payload.get("preallocation_step", data.shape[0] + 2))
-        min_prealloc = int(getattr(data, "shape", (0,))[0]) + 2
-        if preallocation_step < min_prealloc:
-            preallocation_step = min_prealloc
+        if analysis_only:
+            preallocation_step = 1
+        else:
+            preallocation_step = int(payload.get("preallocation_step", data.shape[0] + 2))
+            min_prealloc = int(getattr(data, "shape", (0,))[0]) + 2
+            if preallocation_step < min_prealloc:
+                preallocation_step = min_prealloc
         tree = cls(
             parameters=payload.get("parameters", None),
             preallocation_step=preallocation_step,
@@ -1265,24 +1264,33 @@ class TreeCompatibilityMixin:
         if segment_count <= 0:
             segment_count = int(data.shape[0])
         tree.segment_count = segment_count
+        if analysis_only:
+            tree.preallocate = tree.data
+            tree.preallocation_step = int(segment_count)
+            tree.preallocate_midpoints = np.empty((0, 3), dtype=data_dtype)
+            tree.midpoints = tree.preallocate_midpoints
+        else:
+            midpoints = (data[:, 0:3] + data[:, 3:6]) / 2
+            tree.preallocate[:data.shape[0], :] = data
+            tree.preallocate_midpoints[:data.shape[0], :] = np.asarray(midpoints, dtype=data_dtype)
+            tree.midpoints = tree.preallocate_midpoints[:segment_count, :]
 
-        tree.preallocate[:data.shape[0], :] = data
-        midpoints = (data[:, 0:3] + data[:, 3:6]) / 2
-        tree.preallocate_midpoints[:data.shape[0], :] = np.asarray(midpoints, dtype=data_dtype)
-        tree.midpoints = tree.preallocate_midpoints[:segment_count, :]
-
-        connectivity = payload.get("connectivity")
-        if connectivity is None:
+        connectivity = None if analysis_only else payload.get("connectivity")
+        if connectivity is None and not analysis_only:
             connectivity = np.nan_to_num(data[:, 15:18], nan=-1.0).astype(index_dtype)
         else:
-            connectivity = np.asarray(connectivity, dtype=index_dtype)
+            connectivity = None if connectivity is None else np.asarray(connectivity, dtype=index_dtype)
         tree.connectivity = connectivity
 
         tree.vessel_map = TreeMap()
-        tree.vessel_map.update(payload.get("vessel_map", {}))
+        if not analysis_only:
+            tree.vessel_map.update(payload.get("vessel_map", {}))
 
         if domain is not None:
-            tree.set_domain(domain)
+            if analysis_only:
+                tree.domain = domain
+            else:
+                tree.set_domain(domain)
             tree.domain = domain
             if payload.get("domain_clearance") is not None:
                 tree.domain_clearance = payload.get("domain_clearance")
@@ -1297,7 +1305,7 @@ class TreeCompatibilityMixin:
             if tree.domain is not None:
                 tree.domain.cumulative_probability = np.cumsum(probability)
 
-        if segment_count > 0:
+        if segment_count > 0 and not analysis_only:
             tree.kdtm = KDTreeManager(tree.preallocate_midpoints[:segment_count, :])
             tree.hnsw_tree = USearchTree(midpoints.astype(np.float32))
             tree.hnsw_tree_id = id(tree.hnsw_tree)
@@ -1307,6 +1315,7 @@ class TreeCompatibilityMixin:
             tree.hnsw_tree_id = None
 
         tree.times = payload.get("times", tree.times)
+        tree._analysis_only_load = bool(analysis_only)
         return tree
 
     def coerce_dtypes(self, *, data_dtype=None, index_dtype=None, rebuild_indices: bool = True):

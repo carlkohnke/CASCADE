@@ -1,6 +1,6 @@
 # CASCADE Step 2 certification plan
 
-Status: planned; acceptance tolerances and canonical production scales require confirmation before execution.
+Status: staged; canonical existing structures, workloads, tolerances, and performance repetitions are approved. Numerical campaigns have not yet certified the solver.
 
 ## Objective
 
@@ -12,7 +12,7 @@ The primary legacy references are:
 - `export_paraview_heart_forest_grid_cext_gfm.py` for heart forest, shared Cext, tissue grid, and ParaView export behavior.
 - Custom channel/domain workflows only as geometry-input capability tests; their extra plotting and profile analyses are not release requirements.
 
-Legacy scripts are test oracles, not production imports.
+Legacy scripts are test oracles, not production imports. Their exact external paths and hashes are frozen in `m0-legacy-inventory.md`; the CASCADE side must never add that SCRIPTS directory to `PYTHONPATH` or dynamically load a file from it.
 
 ## Principles
 
@@ -22,6 +22,8 @@ Legacy scripts are test oracles, not production imports.
 4. Separate cold-start, warm solver, and end-to-end timings.
 5. Do not silently repair one side only. Any normalization or repair must be applied symmetrically and recorded.
 6. Preserve failures and regressions as evidence rather than rerunning until a favorable sample appears.
+7. Do not grow trees during the computational-method campaign. Growth/optimizer qualification is a later campaign.
+8. Never overlap simulations. With approximately 50 GB host RAM, each legacy or CASCADE subprocess must exit before the next begins.
 
 ## Environment matrix
 
@@ -29,7 +31,7 @@ Legacy scripts are test oracles, not production imports.
 | --- | --- | --- |
 | CPU release environment | Packaging, CPU solver, deterministic/reference checks | Python 3.9.20 and `locks/requirements-py39-cpu.txt` |
 | CUDA 13 release environment | GPU Cext/tissue and performance checks | Python 3.9.20 and `locks/requirements-py39-cu13.txt` |
-| Legacy oracle environment | Execute selected reference scripts | Freeze and record its full package inventory; do not let it leak into CASCADE imports |
+| Legacy oracle environment | Execute selected reference scripts from `svva2/SCRIPTS` | Python 3.9.20 and the frozen `svv==0.0.43` oracle inventory; do not let it leak into CASCADE imports |
 | GitHub CPU CI | Regression checks on clean checkout | Activate after remote is configured |
 
 ## Canonical case matrix
@@ -38,27 +40,45 @@ Final sizes and fixtures are selected before running. This is the proposed minim
 
 | Case | Structure/domain | Solver path | Purpose |
 | --- | --- | --- | --- |
-| CUBE-S | Fixed cube tree, small terminal count | CPU top-down + tissue GFM | Fast exact/debug reference |
-| CUBE-M | Fixed cube tree, medium terminal count | CPU and CUDA where applicable | Functional and scaling comparison |
-| CUBE-L | Fixed cube tree, production-representative terminal count | Target production solver | Performance and memory gate |
+| CUBE-1 through CUBE-5M | Frozen cache-family trees at 1, 10, 100, 1k, 10k, 100k, 1M, and 5M requested terminals; one shared 1M-point cube pool | CPU/GPU through medium scale; GPU-only at 1M/5M | Blood and cell-media computational parity, scaling, performance, and memory gates without growth |
 | FOREST-S | Fixed two-tree cube forest | CPU, cache reload | Forest mapping/connectivity/cache parity |
-| HEART-S | Fixed small heart forest and domain | Shared-global CUDA FFT/Cext | Debuggable exporter parity |
-| HEART-P | Production-representative heart forest/grid | Target CUDA configuration | Performance, memory, and VTK certification |
+| HEART-S | Frozen `heart_seed2_grown100000_t10000.forest`: 10k terminals, 19,999 segments; healthy plus one frozen full downstream occlusion | CPU/GPU consistency plus shared-global CUDA FFT/Cext | Debuggable solver and exporter parity on the full 200-cubed candidate grid |
+| HEART-L | Frozen one-millimetre extended simulation cache: 12.5M terminals, 24,999,999 segments | GPU-only target configuration | Production solver/performance/memory gate on the full 200-cubed grid; full export only after those gates pass |
 | CUSTOM-Y | Explicit CSV Y channel in box domain | CPU tissue GFM | Custom topology/units/export correctness |
 | CUSTOM-DOMAIN | Fixed user-supplied VTP/STL domain and explicit network | Approved solver | File-path portability and enclosure behavior |
 
 Each case receives a stable ID, versioned settings, and SHA-256 hashes for every input.
+
+## Frozen heart/Cext profile
+
+Unless a named case is explicitly testing a different control, both sides use:
+
+| Control | Value |
+| --- | ---: |
+| Cext/tissue accelerator work arrays | float32 |
+| FFT background grid | 256 per axis |
+| Cext quadrature | 1 |
+| Tissue quadrature | 5 |
+| Vessel/Cext coupling iterations | 1 |
+| Interaction window factor | 6 |
+
+The runtime-stencil and runtime-moment GPU paths remain in scope. Growth is not exercised here. A later growth campaign will retain public-SVV CCO in float64, transition to float32 at the default 300,000-terminal equal-bifurcation boundary, and test the upstream optimizer selector when available.
 
 ## Functional checks
 
 For each CLI workflow, begin outside the source checkout and use only installed entry points:
 
 ```bash
-cascade --version
-cascade doctor --no-gpu-probe
-cascade run --settings validation/fixtures/<case>.json
-cascade export-heart --forest <forest> --domain <domain> --out-dir <output>
+<clean-cascade-venv>/bin/cascade --version
+<clean-cascade-venv>/bin/cascade doctor --no-gpu-probe
+<clean-cascade-venv>/bin/cascade run --settings validation/fixtures/<case>.json
+<clean-cascade-venv>/bin/cascade export-heart --forest <forest> --domain <domain> --out-dir <output>
+<svva2>/bin/python <svva2>/lib/python3.9/site-packages/svv/SCRIPTS/<oracle>.py <legacy-args>
 ```
+
+Run the two commands in separate processes and output directories. The comparison layer reads their artifacts after both processes exit; it does not import either solver implementation.
+
+For pointwise cube comparisons, both settings use one frozen NPY coordinate file containing one million seed-42 legacy-domain points. Leading prefixes are allowed only for debugging; final cube correctness consumes the complete array. Heart comparisons independently construct the same deterministic `200 x 200 x 200` bivent3 candidate grid and require exact equality of the retained coordinates and inside-domain mask. Large computational cases disable per-segment CSV and VTK unless the case is specifically testing export; compact summaries and streaming array-comparison statistics prevent Python object materialization from consuming the host budget.
 
 Validate:
 
@@ -110,9 +130,11 @@ Before tests are called certifying, document for every field:
 - dtype conversion policy.
 - Whether ordering is significant or an ID mapping is applied.
 
+The approved functional rule is 0.1% agreement for the physical conclusion: oxygenation statistics/percentiles, segment and total flow, pressures, viability, and `FracAbove1pct`. Fractions use an absolute 0.001 limit (0.1 percentage points). Other nonzero physical values use relative tolerance `1e-3`; near zero they use absolute tolerance `1e-6` times the field's frozen reference-case scale. The comparison report records that scale and resulting absolute tolerance per field. Exact topology, IDs, shared coordinates, ordering/mapping, and finite/non-finite masks are not relaxed.
+
 ## Performance protocol
 
-The benchmark must execute legacy and CASCADE cases in alternating/interleaved order to reduce thermal and background-load bias.
+The benchmark must execute legacy and CASCADE cases in alternating/interleaved order to reduce thermal and background-load bias, but strictly sequentially: legacy exits and releases memory before CASCADE starts, and vice versa.
 
 Record:
 
@@ -127,6 +149,10 @@ Record:
 - Explicit CUDA synchronization at timing boundaries.
 
 Report median, spread, minimum, maximum, and CASCADE/legacy ratio. The target is “no slower than `TissueSim_cube_local` for equivalent work.” The statistical/noise rule used to interpret “equivalent” must be approved before the gate is closed.
+
+Report solver-only and end-to-end measurements separately. Solver-only starts from the already loaded identical structure. End-to-end includes explicit input load, float32 preparation, solve, and requested export. Both are release evidence; solver-only is the direct computational-method comparison and end-to-end identifies operational overhead.
+
+Measured repetitions alternate legacy/CASCADE while remaining strictly sequential: five paired runs for each cube scale through 100k terminals, three pairs at 1M, and one initial pair at 5M and HEART-L. Repeat a large-case pair when it fails, reports memory pressure, or its time ratio lies within 5% of the release threshold. Small and medium cases include CPU/GPU consistency; the 1M, 5M, and HEART-L production cases are GPU-only. Full export performance is measured on bounded cases first; a full HEART-L export is a separate monitored run after solver correctness and memory gates pass.
 
 Investigate rather than average away:
 

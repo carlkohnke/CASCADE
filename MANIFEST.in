@@ -3,12 +3,15 @@ include pyproject.toml setup_env.py environment.yml
 include requirements*.txt
 include launch_gui.py launch_gui.sh launch_gui_windows.bat launch_gui_windows.vbs
 recursive-include docs *.md *.txt
+exclude docs/cascade_refactor_audit.md
 recursive-include domains *.md
 recursive-include examples *.json *.csv
 recursive-include locks *.txt
 recursive-include scripts *.py
 recursive-include tests *.py
+exclude tests/test_m2_harness.py
 recursive-include src/cascade/gui/assets *.svg
+recursive-include src/cascade/assets/domains *.stl
 prune backups
 prune docs/internal
 prune examples/.cascade_gui_test

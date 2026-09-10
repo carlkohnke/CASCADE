@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from cascade.config import example_config, parse_config
 from cascade.lattice import channel_count
+from cascade.resources import resolve_domain_path
 
 from . import GUI_SCHEMA_VERSION
 
@@ -140,7 +141,7 @@ def default_project() -> dict[str, Any]:
             },
             "cext": {
                 "accel_mode": "gpu",
-                "vess_coupling_max_iter": 5,
+                "vess_coupling_max_iter": 1,
                 "vess_coupling_tol": 1e-3,
                 "window_factor": 6,
                 "hybrid_bg_grid": 256,
@@ -272,7 +273,8 @@ def validate_project(config: dict[str, Any]) -> ValidationReport:
     domain = config.get("domain", {})
     if domain.get("type") not in {"cube", "box", "sphere"} and not domain.get("path"):
         report.errors.append("An uploaded domain requires a readable domain file path.")
-    if domain.get("path") and not Path(str(domain["path"])).expanduser().exists():
+    domain_path = resolve_domain_path(domain.get("path"))
+    if domain.get("path") and (domain_path is None or not domain_path.exists()):
         report.errors.append(f"Domain file does not exist: {domain['path']}")
 
     network = config.get("network", {})

@@ -102,10 +102,17 @@ class ForestCompatibilityMixin:
         }
 
     @classmethod
-    def _load_simulation_cache(cls, path: str):
+    def _load_simulation_cache(cls, path: str, *, data_dtype=None, index_dtype=None):
         import numpy as np
         from svv.tree.data.data import TreeData, TreeMap
         from svv.tree.data.units import UnitSystem
+
+        resolved_data_dtype = None if data_dtype is None else np.dtype(data_dtype)
+        if resolved_data_dtype is not None and resolved_data_dtype not in {np.dtype(np.float32), np.dtype(np.float64)}:
+            raise ValueError("data_dtype must be float32 or float64.")
+        resolved_index_dtype = np.dtype(np.int64 if index_dtype is None else index_dtype)
+        if resolved_index_dtype not in {np.dtype(np.int32), np.dtype(np.int64)}:
+            raise ValueError("index_dtype must be int32 or int64.")
 
         with zipfile.ZipFile(path, 'r') as archive:
             meta = pickle.loads(archive.read("simulation_meta.pkl"))
@@ -162,6 +169,35 @@ class ForestCompatibilityMixin:
                 def __getattr__(self, name):
                     return getattr(self._raw, name)
 
+            def _read_npy_member(member):
+                """Stream one NPY member directly into its requested working dtype."""
+                with archive.open(member, "r") as raw_handle:
+                    handle = _SharedProgressReader(raw_handle, load_progress)
+                    version = np.lib.format.read_magic(handle)
+                    shape, fortran_order, source_dtype = np.lib.format._read_array_header(handle, version)
+                    source_dtype = np.dtype(source_dtype)
+                    if source_dtype.hasobject:
+                        raise ValueError(f"Simulation cache member {member!r} contains object data.")
+                    target_dtype = resolved_data_dtype or source_dtype
+                    order = "F" if fortran_order else "C"
+                    output = np.empty(shape, dtype=target_dtype, order=order)
+                    output_flat = output.reshape(-1, order=order)
+                    values_per_chunk = max(1, (16 * 1024 * 1024) // max(source_dtype.itemsize, 1))
+                    for offset in range(0, output_flat.size, values_per_chunk):
+                        count = min(values_per_chunk, output_flat.size - offset)
+                        byte_count = count * source_dtype.itemsize
+                        blocks = []
+                        remaining = byte_count
+                        while remaining:
+                            block = handle.read(remaining)
+                            if not block:
+                                raise ValueError(f"Simulation cache member {member!r} ended before its NPY payload.")
+                            blocks.append(block)
+                            remaining -= len(block)
+                        source = np.frombuffer(b"".join(blocks), dtype=source_dtype, count=count)
+                        output_flat[offset:offset + count] = source
+                    return output
+
             forest = cls(
                 n_networks=meta.get("n_networks", 1),
                 n_trees_per_network=meta.get("n_trees_per_network", [2]),
@@ -200,8 +236,7 @@ class ForestCompatibilityMixin:
                     tree.parameters.length_exponent = params["length_exponent"]
                     tree.parameters.max_nonconvex_count = params["max_nonconvex_count"]
 
-                    with archive.open(tree_meta["data_member"], "r") as raw_handle:
-                        data_array = np.load(_SharedProgressReader(raw_handle, load_progress), allow_pickle=False)
+                    data_array = _read_npy_member(tree_meta["data_member"])
                     if data_array.ndim != 2:
                         data_array = np.atleast_2d(data_array)
                     n_rows = int(tree_meta.get("segment_count", data_array.shape[0]))
@@ -210,23 +245,16 @@ class ForestCompatibilityMixin:
                     if n_rows < data_array.shape[0]:
                         data_array = data_array[:n_rows, :]
 
-                    preallocation_step = cls._simulation_preallocation_step(n_rows, data_array.shape[0])
-                    if preallocation_step != tree.preallocation_step:
-                        tree.preallocation_step = preallocation_step
-                        tree.preallocate = TreeData((preallocation_step, data_array.shape[1]))
-                        tree.preallocate_midpoints = np.zeros((preallocation_step, 3))
-
                     tree_data = TreeData.from_array(np.asarray(data_array))
                     tree.data = tree_data
+                    tree.data_dtype = np.dtype(data_array.dtype)
+                    tree.index_dtype = resolved_index_dtype
                     tree.segment_count = n_rows
-                    if n_rows > 0:
-                        tree.preallocate[:n_rows, :] = tree_data[:n_rows, :]
-                        midpoints = (tree_data[:, 0:3] + tree_data[:, 3:6]) / 2
-                        tree.preallocate_midpoints[:n_rows, :] = midpoints
-                    else:
-                        midpoints = np.empty((0, 3), dtype=float)
-                    tree.midpoints = tree.preallocate_midpoints[:n_rows, :]
-                    tree.connectivity = np.nan_to_num(tree.data[:n_rows, 15:18], nan=-1.0).astype(int)
+                    tree.preallocation_step = n_rows
+                    tree.preallocate = tree.data
+                    tree.preallocate_midpoints = np.empty((0, 3), dtype=tree.data_dtype)
+                    tree.midpoints = tree.preallocate_midpoints
+                    tree.connectivity = None
                     tree.vessel_map = TreeMap()
                     tree.kdtm = None
                     tree.hnsw_tree = None
@@ -243,6 +271,7 @@ class ForestCompatibilityMixin:
                     tree.max_distal_node = int(tree_meta.get("max_distal_node", n_rows) or n_rows)
                     tree.tree_scale = tree_meta.get("tree_scale", None)
                     tree.times = tree_meta.get("times", tree.times)
+                    tree._analysis_only_load = True
                     if restore_progress is not None:
                         restore_progress.update(1)
 
@@ -669,7 +698,7 @@ class ForestCompatibilityMixin:
         return cache_path
 
     @classmethod
-    def load(cls, path: str, *, mode: str = "growth"):
+    def load(cls, path: str, *, mode: str = "growth", data_dtype=None, index_dtype=None):
         """
         Load a Forest from a .forest file.
 
@@ -713,7 +742,7 @@ class ForestCompatibilityMixin:
         if cls._is_simulation_cache(path):
             if mode != "simulation":
                 raise ValueError("Simulation cache archives can only be loaded with mode='simulation'.")
-            return cls._load_simulation_cache(path)
+            return cls._load_simulation_cache(path, data_dtype=data_dtype, index_dtype=index_dtype)
 
         show_progress = mode == "simulation"
         metadata, trees_data, connections_data = cls._load_archive_members(path, show_progress=show_progress)
@@ -742,7 +771,9 @@ class ForestCompatibilityMixin:
                 elif hasattr(data_arr, 'shape') and data_arr.shape[0] > max_rows:
                     max_rows = int(data_arr.shape[0])
         if mode == "simulation":
-            preallocation_step = cls._simulation_preallocation_step(max_rows, max_rows)
+            # The populated arrays replace these constructor buffers below.
+            # Starting at one row avoids a second multi-gigabyte allocation.
+            preallocation_step = 1
         else:
             preallocation_step = max(max_rows * 2, 1)
 
@@ -824,7 +855,17 @@ class ForestCompatibilityMixin:
                 data_array = np.asarray(tree_dict['data'])
                 if data_array.ndim != 2:
                     data_array = np.atleast_2d(data_array)
+                if data_dtype is not None:
+                    requested_data_dtype = np.dtype(data_dtype)
+                    if requested_data_dtype not in {np.dtype(np.float32), np.dtype(np.float64)}:
+                        raise ValueError("data_dtype must be float32 or float64.")
+                    data_array = np.asarray(data_array, dtype=requested_data_dtype)
+                requested_index_dtype = np.dtype(np.int64 if index_dtype is None else index_dtype)
+                if requested_index_dtype not in {np.dtype(np.int32), np.dtype(np.int64)}:
+                    raise ValueError("index_dtype must be int32 or int64.")
                 tree.data = TreeData.from_array(data_array)
+                tree.data_dtype = np.dtype(data_array.dtype)
+                tree.index_dtype = requested_index_dtype
 
                 # Determine the number of populated vessel rows.  Prefer the
                 # saved segment_count, but fall back to trimming trailing NaNs
@@ -850,21 +891,34 @@ class ForestCompatibilityMixin:
                     data_array = data_array[:n_rows, :]
                     tree.data = TreeData.from_array(data_array)
 
-                # Ensure the preallocation buffers are large enough, then seed
-                # them with the loaded vessel table so growth can continue.
-                if n_rows > tree.preallocate.shape[0]:
+                # Analysis-only loads alias the populated vessel table rather
+                # than retaining a second growth buffer. Growth-mode loads keep
+                # the expandable buffers and indices needed to add vessels.
+                if mode == "simulation":
+                    tree.preallocation_step = n_rows
+                    tree.preallocate = tree.data
+                    tree.preallocate_midpoints = np.empty((0, 3), dtype=tree.data_dtype)
+                    tree.midpoints = tree.preallocate_midpoints
+                elif n_rows > tree.preallocate.shape[0]:
                     new_size = max(n_rows * 2, tree.preallocate.shape[0])
                     tree.preallocation_step = int(new_size)
                     tree.preallocate = TreeData((new_size, tree.data.shape[1]))
                     tree.preallocate_midpoints = np.zeros((new_size, 3))
 
-                tree.preallocate[:n_rows, :] = tree.data[:n_rows, :]
-                midpoints = (tree.data[:n_rows, 0:3] + tree.data[:n_rows, 3:6]) / 2
-                tree.preallocate_midpoints[:n_rows, :] = midpoints
-                tree.midpoints = tree.preallocate_midpoints[:n_rows, :]
+                if mode != "simulation":
+                    tree.preallocate[:n_rows, :] = tree.data[:n_rows, :]
+                    midpoints = (tree.data[:n_rows, 0:3] + tree.data[:n_rows, 3:6]) / 2
+                    tree.preallocate_midpoints[:n_rows, :] = midpoints
+                    tree.midpoints = tree.preallocate_midpoints[:n_rows, :]
+                else:
+                    midpoints = np.empty((0, 3), dtype=tree.data_dtype)
 
                 # Rebuild connectivity/search structures derived from data.
-                tree.connectivity = np.nan_to_num(tree.data[:n_rows, 15:18], nan=-1.0).astype(int)
+                tree.connectivity = (
+                    None
+                    if mode == "simulation"
+                    else np.nan_to_num(tree.data[:n_rows, 15:18], nan=-1.0).astype(requested_index_dtype)
+                )
                 if mode == "simulation":
                     tree.kdtm = None
                     tree.hnsw_tree = None
@@ -902,6 +956,7 @@ class ForestCompatibilityMixin:
                 tree.convex = meta.get('convex', None)
                 # Segment count must align with the loaded data length.
                 tree.segment_count = n_rows
+                tree._analysis_only_load = mode == "simulation"
                 tree.domain_clearance = meta.get('domain_clearance', 0.0)
                 # Optional persisted values (older files may omit them).
                 if meta.get('max_distal_node') is not None:

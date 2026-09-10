@@ -1,0 +1,30 @@
+{
+  "fixture": "M2-CUBE-POINTS-1M",
+  "generator": "frozen legacy Domain.get_interior_points via TissueSim_cube_local.sample_domain_points",
+  "oracle_path": "/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/TissueSim_cube_local.py",
+  "oracle_sha256": "f2c4c89c8826b11246a239f7ae947872b955e5e47b44290033c13d1cef68bfda",
+  "domain": {
+    "type": "cube",
+    "side_length_cm": 1.0,
+    "random_seed": 42
+  },
+  "coordinate_units": "cm",
+  "shape": [
+    1000000,
+    3
+  ],
+  "dtype": "float64",
+  "minimum": [
+    -0.49999640705607573,
+    -0.49999756333484224,
+    -0.4999998749967671
+  ],
+  "maximum": [
+    0.4999999195190039,
+    0.4999997318752728,
+    0.4999997172035572
+  ],
+  "output_path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-staging_20744c8/fixtures/cube_seed42_points_1000000.npy",
+  "output_bytes": 24000128,
+  "output_sha256": "251ca61e9a082c3ae10f46a882a77fde7cacc0312faaf0b2834d14e72004e6b7"
+}

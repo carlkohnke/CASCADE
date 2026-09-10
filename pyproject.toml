@@ -52,4 +52,4 @@ where = ["src"]
 include = ["cascade*"]
 
 [tool.setuptools.package-data]
-cascade = ["gui/assets/*.svg"]
+cascade = ["gui/assets/*.svg", "assets/domains/*.stl"]

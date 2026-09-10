@@ -1,0 +1,26 @@
+# Fixture generation
+/home/carl/miniconda3/envs/svva2/bin/python validation/harness/generate_cube_points.py --oracle /home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/TissueSim_cube_local.py --oracle-sha256 f2c4c89c8826b11246a239f7ae947872b955e5e47b44290033c13d1cef68bfda --output validation/runs/2026-09-09_m2-staging_20744c8/fixtures/cube_seed42_points_1000000.npy --metadata validation/results/2026-09-09_m2-staging_20744c8/cube-points.json
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python validation/harness/freeze_heart_grid.py --domain src/cascade/assets/domains/bivent3.stl --domain-sha256 10fd497650eb881b37390861cb960db88e0c7e6f0b18267ffbb35d564c24a060 --output validation/results/2026-09-09_m2-staging_20744c8/heart-grid.json --size 200
+
+# Legacy CUBE-1, hash-checked external oracle, shared complete point pool, CPU backend
+/home/carl/miniconda3/envs/svva2/bin/python validation/harness/run_legacy_cube.py --oracle /home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/TissueSim_cube_local.py --oracle-sha256 f2c4c89c8826b11246a239f7ae947872b955e5e47b44290033c13d1cef68bfda --points validation/runs/2026-09-09_m2-staging_20744c8/fixtures/cube_seed42_points_1000000.npy --points-sha256 251ca61e9a082c3ae10f46a882a77fde7cacc0312faaf0b2834d14e72004e6b7 --target 1 --fluid both --solver topdown --tissue-backend cpu --output validation/runs/2026-09-09_m2-staging_20744c8/cube-1-legacy.csv --metadata validation/results/2026-09-09_m2-staging_20744c8/cube-1-legacy.json
+
+# CASCADE CUBE-1, run sequentially from /tmp through a fresh exact-wheel environment
+/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-py39/bin/python -m pip install --force-reinstall --no-deps /home/carl/svv_sweeps/GFM/validation/tmp/m2-staging-wheel-final2/cascade_vascular-0.1.0rc1-py3-none-any.whl
+/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-py39/bin/cascade run --settings /home/carl/svv_sweeps/GFM/validation/results/2026-09-09_m2-staging_20744c8/cube-1-blood-settings.json
+/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-py39/bin/cascade run --settings /home/carl/svv_sweeps/GFM/validation/results/2026-09-09_m2-staging_20744c8/cube-1-water-settings.json
+
+# Comparisons
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python validation/harness/compare_csv.py --legacy validation/runs/2026-09-09_m2-staging_20744c8/cube-1-legacy.csv --cascade validation/runs/2026-09-09_m2-staging_20744c8/cube-1-blood-cascade/summary.csv --fluid blood --output validation/results/2026-09-09_m2-staging_20744c8/cube-1-blood-comparison.json
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python validation/harness/compare_csv.py --legacy validation/runs/2026-09-09_m2-staging_20744c8/cube-1-legacy.csv --cascade validation/runs/2026-09-09_m2-staging_20744c8/cube-1-water-cascade/summary.csv --fluid water --output validation/results/2026-09-09_m2-staging_20744c8/cube-1-water-comparison.json
+
+# Verification
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python -m pytest -q
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python -m build --outdir validation/tmp/m2-staging-wheel-final2
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python -m twine check validation/tmp/m2-staging-wheel-final2/*
+sha256sum validation/tmp/m2-staging-wheel-final2/*
+stat -c '%n %s' validation/tmp/m2-staging-wheel-final2/*
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python -m zipfile -l validation/tmp/m2-staging-wheel-final2/cascade_vascular-0.1.0rc1-py3-none-any.whl
+tar -tzf validation/tmp/m2-staging-wheel-final2/cascade_vascular-0.1.0rc1.tar.gz
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python -m pytest -q tests/test_release_contract.py tests/test_m2_harness.py
+git diff --check

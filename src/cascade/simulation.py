@@ -15,6 +15,8 @@ from .growth import (
     flow_for_tree,
     inlet_concentration_for_tree,
     load_runtime_module,
+    _load_sample_points,
+    resolve_path,
     sync_tree_parameters_for_run,
     terminal_flow_for_target,
 )
@@ -189,6 +191,14 @@ def _sample_points(ts, domain, config: RunConfig, *, provided: np.ndarray | None
     if config.simulation.sample_mode == "grid":
         points, _ = sample_grid_points(domain, config.simulation.tissue_grid)
         return points
+    if config.simulation.sample_mode == "file":
+        path = resolve_path(
+            config.simulation.sample_points_path,
+            base_dir=config.settings_path.parent if config.settings_path else None,
+        )
+        if path is None:
+            raise ValueError("simulation.sample_points_path is required for file sampling.")
+        return _load_sample_points(path)
     n = int(config.simulation.distance_sample_count)
     if n <= 0:
         return np.empty((0, 3), dtype=float)
@@ -202,6 +212,13 @@ def _sample_meta_for_config(config: RunConfig, points: np.ndarray) -> dict[str, 
         meta = {"sample_mode": "grid", "points": int(np.asarray(points).shape[0])}
         meta.update(dict(config.simulation.tissue_grid or {}))
         return meta
+    if config.simulation.sample_mode == "file":
+        return {
+            "sample_mode": "file",
+            "points": int(np.asarray(points).shape[0]),
+            "path": config.simulation.sample_points_path,
+            "coordinate_units": "cm",
+        }
     return {
         "sample_mode": "random",
         "requested_points": int(config.simulation.distance_sample_count),

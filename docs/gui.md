@@ -16,13 +16,15 @@ Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `-
 ## Guided workflow
 
 1. **Project** names the study and reports detected CPU, RAM, GPU, and GPU memory.
-2. **Domain** creates a cube, box, or sphere, or references a mesh/`.dmn` file without copying it into the GUI.
+2. **Domain** creates a box or sphere, uses the packaged bivent3 heart surface, or references a mesh/legacy `.dmn` file without copying it into the GUI.
 3. **Network** grows a tree/forest with public svVascularize, loads a saved svVascularize object, builds a paper lattice, or creates a simple channel.
 4. **Physics** sets unit-aware flow/pressure boundary conditions, diffusivity, Vmax, Km, inlet oxygen, hematocrit, hemoglobin oxygen capacity, and an optional viability threshold.
 5. **Solver** selects the flow/concentration/Cext path, Graetz or well-mixed closure, finite-radius terms, quadrature, iterations, convergence, backend, and expert runtime overrides. Controls that do not apply are grayed out.
 6. **Outputs** chooses sampling and file products, creates Cartesian parameter sweeps, and shows a hardware estimate before queueing.
 7. **Run** saves a frozen settings file for every job and runs jobs sequentially in isolated Python processes, with stage, progress, cancellation, and logs.
 8. **Results** inspects summary data and scalar-colored vessel/tissue output in the shared interactive viewport. A separate full viewer remains available for unusually large or detailed views.
+
+The tissue-point selector supports random points, a structured Cartesian grid, or a fixed CSV/NPY/NPZ coordinate file. Fixed files make validation runs evaluate identical coordinates; CSV columns are `x,y,z` in centimetres, while NPZ uses `points` or `sample_points` with shape `(N, 3)`.
 
 The viewport remains the primary workspace through setup and analysis. Drag to rotate, scroll to zoom, and use **Home** to reset the camera. In Results, click a rendered vessel or tissue point to inspect its exported numeric fields in the right-side inspector.
 
@@ -44,6 +46,7 @@ Inlet and outlet locations are entered as one `x, y, z` point per line and snap 
 ## Memory behavior
 
 - Only one simulation worker is launched at a time.
+- A per-user operating-system lock also prevents a separately launched CASCADE CLI simulation from overlapping the Studio worker.
 - Full numerical arrays are never sent to the GUI.
 - A worker exits after its job, releasing its Python, CUDA, and allocator state.
 - Summary-only output is the default. Per-segment CSV, tissue CSV, and VTK output display a peak-memory warning.
@@ -60,7 +63,7 @@ CASCADE uses centralized visual tokens in `cascade/gui/theme.py` and reusable fo
 ## Current scientific boundaries
 
 - Pressure-only (inlet pressure plus outlet pressure) flow boundary conditions are shown but blocked because the current CASCADE solve path requires inlet flow plus a pressure reference.
-- A custom `q = κ(C-Cext)` law is displayed but disabled until the runtime exposes a reproducible user-law interface.
+- A custom wall-exchange `q = κ(C-Cext)` law is displayed but disabled until the runtime exposes a reproducible user-law interface. A separately configurable tissue oxygen-consumption law is a retained future TODO; the current contract is Michaelis-Menten Vmax/Km.
 - Primitive CSG combinations are not yet part of the backend. Explicit segment graphs can be loaded from CASCADE's documented CSV/NPZ schema, and uploaded svVascularize tree/forest objects are supported.
 - Lattice flow and intravascular oxygen are supported through the general graph solver; the existing top-down external-concentration solvers remain tree-specific.
 - Detailed 3D visualization requires VTK output to have been enabled before the run.

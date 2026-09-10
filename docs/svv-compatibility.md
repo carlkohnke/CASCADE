@@ -8,11 +8,12 @@ Several capabilities used by the research workflows are not yet exposed by the p
 | --- | --- | --- | --- |
 | Equal-bifurcation bulk growth | Not available through the required public API | Package-owned compatibility tree/forest methods and runtime settings | Open an upstream feature request with the deterministic geometry tests |
 | Bifurcation optimization with L-BFGS-B | Public growth uses a different optimization path | `cascade._svv_branch_bifurcation` supplies the internal L-BFGS-B behavior | Open an issue describing the performance motivation and constraint semantics |
-| Nearest-tree forest growth | Required heart-growth assignment is not available | `cascade.growth` performs exact candidate-to-segment assignment with collision handling | Open an upstream feature request with scheduled/nearest fixtures |
+| Nearest-tree forest growth | Required heart-growth assignment is not available | `cascade.growth` performs exact candidate-to-segment assignment with collision handling | Open an upstream high-scale primitive request; retain the CASCADE path until the replacement passes saved-fixture validation |
 | Incremental scheduled forest growth | Not available with the required checkpoint controls | `cascade.growth` schedules one-tree-at-a-time growth and checkpoints | Keep in CASCADE unless an inner-loop performance primitive is required |
 | Connectivity repair before solve/export | Public serialized forests can contain stale parent columns | `cascade.connectivity` repairs and validates topology | Keep in CASCADE |
 | Fast forest simulation cache | No stable public interchange contract | CASCADE reads/writes `.forest.simcache` through its adapter | Keep in CASCADE; request upstream only if cross-package interchange becomes necessary |
-| Legacy `.dmn` interchange | Format compatibility differs across public/internal versions | CASCADE has a local domain adapter; cross-version round trips require validation | Open a format/versioning issue |
+| Legacy `.dmn` load | Format compatibility differs across public/internal versions | CASCADE retains local load support for frozen validation inputs | No public interchange claim; use STL/PyVista-readable meshes as inputs and VTP/VTU as outputs |
+| Float32 heart/Cext memory path | Public growth is qualified here only with float64 tree arrays | CASCADE uses float32 accelerator work arrays/caches while retaining float64 at the public growth boundary | Revisit tree-array float32 only after M2 evidence |
 
 ## Optimizer note
 

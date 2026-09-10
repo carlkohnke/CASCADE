@@ -10,6 +10,7 @@ import numpy as np
 
 from .config import RunConfig, parse_config
 from .export import _summary_fieldnames, _write_csv
+from .execution import release_completed_case_memory
 from .growth import (
     NetworkBuildResult,
     _build_configured_trees,
@@ -171,6 +172,8 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                                 "simulation_s": float(sim_s),
                             }
                         )
+                        del result
+                        release_completed_case_memory(ts)
 
             if write_network:
                 save_network_if_requested(build, grow_config)

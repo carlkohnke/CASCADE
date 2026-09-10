@@ -1,0 +1,8 @@
+role,path,bytes,sha256
+cube_points,/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-staging_20744c8/fixtures/cube_seed42_points_1000000.npy,24000128,251ca61e9a082c3ae10f46a882a77fde7cacc0312faaf0b2834d14e72004e6b7
+cube_tree_1,/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/trees_cache/tree_a50c006ac491d07e399f94f1be37cfe0_t1.tree.npz,2905,8d0e6b8a3f6b9c0e28384337888d43c1df135d0a33292b4b7e98e426a63352be
+cube_oracle,/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/TissueSim_cube_local.py,894463,f2c4c89c8826b11246a239f7ae947872b955e5e47b44290033c13d1cef68bfda
+bivent3,/home/carl/svv_sweeps/GFM/src/cascade/assets/domains/bivent3.stl,652584,10fd497650eb881b37390861cb960db88e0c7e6f0b18267ffbb35d564c24a060
+heart_s,/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/FORESTS/heart_seed2_grown100000_t10000.forest,3998966,9c418f84ea4b6019c0b46fcfea7e019f38f15fc74edf974dbae44b611fd0972c
+candidate_wheel,/home/carl/svv_sweeps/GFM/validation/tmp/m2-staging-wheel-final2/cascade_vascular-0.1.0rc1-py3-none-any.whl,895982,76fa7d83fb2d11e7f9358ac51c20a731e7516d5e846c17c5ef2f1bb83ce53c79
+candidate_sdist,/home/carl/svv_sweeps/GFM/validation/tmp/m2-staging-wheel-final2/cascade_vascular-0.1.0rc1.tar.gz,913852,625060f9dabd9d49bbfd2e73fea91dd5bb8e3bd68abac32feaf46219efec78f3

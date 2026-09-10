@@ -1,0 +1,58 @@
+{
+  "campaign_id": "2026-09-09_m2-staging_20744c8",
+  "status": "m0_complete_m2_preflight_pass",
+  "tracker_ids": ["M0-07", "VAL-01", "VAL-02", "VAL-04", "PERF-01"],
+  "source_start_commit": "20744c89dcf1603d482a9c103cede0a8a27befa8",
+  "working_tree_changes_included": true,
+  "cube_points": {
+    "count": 1000000,
+    "dtype": "float64",
+    "coordinate_units": "cm",
+    "sha256": "251ca61e9a082c3ae10f46a882a77fde7cacc0312faaf0b2834d14e72004e6b7"
+  },
+  "heart_grid": {
+    "dimensions": [200, 200, 200],
+    "candidate_points": 8000000,
+    "combined_axes_sha256": "c5d4e4cac1caeab77b22f086d560dafaa59885776c485678f01cf8b8644ae2ca"
+  },
+  "heart_s_occlusion": {
+    "fraction_blocked": 1.0,
+    "global_segment_id": 1,
+    "tree_id": 0,
+    "local_segment_id": 1,
+    "blocked_downstream_segments": 6207
+  },
+  "environments": {
+    "legacy": {"python": "3.9.20", "svv": "0.0.43"},
+    "cascade": {
+      "python": "3.9.20",
+      "svv": "0.0.48",
+      "installation": "fresh isolated venv from candidate wheel",
+      "wheel_sha256": "76fa7d83fb2d11e7f9358ac51c20a731e7516d5e846c17c5ef2f1bb83ce53c79"
+    }
+  },
+  "preflight": {
+    "case": "CUBE-1 topdown, complete 1M-point pool",
+    "tree_growth_performed": false,
+    "execution_overlap": false,
+    "blood_summary_status": "pass",
+    "blood_max_relative_error": 1.8808720559403985e-16,
+    "water_cell_media_summary_status": "pass",
+    "water_cell_media_max_relative_error": 0.0,
+    "fields_compared_per_fluid": 13,
+    "first_water_attempt_status": "failed",
+    "first_water_attempt_reason": "CASCADE runtime used an inconsistent 0.165825 water inlet default instead of the oracle's 0.2211",
+    "fix": "Normalized CASCADE water/cell-media runtime, registry, and Studio fallback to 0.2211"
+  },
+  "verification": {
+    "full_tests": {"passed": 112, "warnings": 15},
+    "twine_check": "passed",
+    "wheel_entries": 77,
+    "sdist_entries": 149,
+    "package_forbidden_entries": [],
+    "bivent3_in_wheel": true,
+    "git_diff_check": "passed"
+  },
+  "scientific_certification_claimed": false,
+  "performance_certification_claimed": false
+}

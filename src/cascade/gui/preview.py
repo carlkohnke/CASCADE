@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from cascade.lattice import channel_count, generate_lattice
+from cascade.resources import resolve_domain_path
 
 from .widgets import ChoiceComboBox, IconButton
 
@@ -1211,7 +1212,9 @@ def domain_wireframe(domain: dict[str, Any]) -> np.ndarray:
         return np.asarray(lines, dtype=np.float32)
     if kind == "file" and domain.get("path"):
         try:
-            path = Path(domain["path"]).expanduser().resolve()
+            path = resolve_domain_path(domain["path"])
+            if path is None:
+                raise FileNotFoundError(domain["path"])
             stat = path.stat()
             return _cached_domain_wireframe(
                 str(path), int(stat.st_mtime_ns), int(stat.st_size)
@@ -1240,7 +1243,9 @@ def domain_surface_triangles(domain: dict[str, Any]) -> np.ndarray:
     kind = str(domain.get("type", domain.get("kind", "cube"))).lower()
     if kind == "file" and domain.get("path"):
         try:
-            path = Path(str(domain["path"])).expanduser().resolve()
+            path = resolve_domain_path(domain["path"])
+            if path is None:
+                raise FileNotFoundError(domain["path"])
             stat = path.stat()
             return _cached_domain_triangles(
                 str(path), int(stat.st_mtime_ns), int(stat.st_size)
@@ -1528,7 +1533,9 @@ def _sample_preview_domain_points(
     dims, center = _domain_dimensions(domain)
     surface = None
     if kind == "file" and domain.get("path"):
-        path = Path(str(domain["path"])).expanduser().resolve()
+        path = resolve_domain_path(domain["path"])
+        if path is None:
+            raise FileNotFoundError(domain["path"])
         stat = path.stat()
         surface = _cached_domain_surface(str(path), int(stat.st_mtime_ns), int(stat.st_size))
         bounds = np.asarray(surface.bounds, dtype=float).reshape(3, 2)

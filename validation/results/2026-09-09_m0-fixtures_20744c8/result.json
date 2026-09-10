@@ -1,0 +1,47 @@
+{
+  "campaign_id": "2026-09-09_m0-fixtures_20744c8",
+  "status": "partial_m0_ready_to_stage_m2",
+  "tracker_ids": ["M0-05", "M0-06", "M0-07", "M0-10", "VAL-01", "VAL-02", "PERF-01", "PERF-02"],
+  "source_start_commit": "20744c89f06437ad81703a53a758b8ce477f8d9e",
+  "cube_cache": {
+    "stored_family": "a50c006ac491d07e399f94f1be37cfe0",
+    "current_computed_key": "887b415362f2342df5e5c6f57aee9a33",
+    "legacy_compatibility_match": true,
+    "requested_terminal_counts": [1, 10, 100, 1000, 10000, 100000, 1000000, 5000000],
+    "highest_available_requested_terminals": 5000000,
+    "highest_available_total_segments": 10000001,
+    "ten_million_tree_found": false,
+    "tree_generation_performed": false
+  },
+  "heart_s": {"terminals": 10000, "segments": 19999, "trees": 2},
+  "heart_l": {"terminals": 12500000, "segments": 24999999, "preferred_input": "simulation-cache"},
+  "coordinate_units": "cm",
+  "shared_sample_input_supported": ["csv", "npy", "npz"],
+  "functional_relative_margin": 0.001,
+  "viability_fraction_absolute_margin": 0.001,
+  "host_memory_budget_bytes_approx": 50000000000,
+  "maximum_resident_simulations": 1,
+  "analysis_only_load": {
+    "growth_preallocation_retained": false,
+    "growth_spatial_indices_retained": false,
+    "simcache_stream_conversion": true,
+    "heart_working_float_dtype": "float32",
+    "heart_working_index_dtype": "int32"
+  },
+  "verification": {
+    "focused_tests_passed": 15,
+    "full_tests_passed": 109,
+    "warnings": 15,
+    "twine_check": "passed",
+    "wheel_entries": 77,
+    "sdist_entries": 149,
+    "wheel_sha256": "9ee7a7e0b49e1363f89629d02589f7faa3212789eef39cc948bed6859527da25",
+    "sdist_sha256": "6b44f05ce1ea12207c64124d7715b1448a0e940fb5915b70bc75c50f0a737e21",
+    "installed_cpu_wheel_smoke": "passed",
+    "installed_cuda13_wheel_smoke": "passed",
+    "cuda_device": "NVIDIA GeForce RTX 3080 Laptop GPU",
+    "cuda_fft_probe": "passed"
+  },
+  "scientific_certification_claimed": false,
+  "performance_certification_claimed": false
+}

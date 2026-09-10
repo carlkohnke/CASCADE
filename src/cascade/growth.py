@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 from time import perf_counter
@@ -20,9 +21,7 @@ from .grid import sample_grid_points
 from .settings import apply_settings, collect_config_settings
 from .simple import build_simple_network
 from .svv_adapter import Domain, Forest, Tree
-
-
-CASCADE_ROOT = Path(__file__).resolve().parents[2]
+from .resources import resolve_domain_path, resolve_path
 
 
 @dataclass
@@ -45,30 +44,6 @@ def load_runtime_module():
     from .runtime import tissuesim as ts
 
     return ts
-
-
-def resolve_path(value: str | Path | None, *, base_dir: Path | None = None) -> Path | None:
-    if value is None:
-        return None
-    path = Path(value).expanduser()
-    if not path.is_absolute() and base_dir is not None:
-        path = base_dir / path
-    return path.resolve()
-
-
-def resolve_domain_path(value: str | Path | None, *, base_dir: Path | None = None) -> Path | None:
-    path = resolve_path(value, base_dir=base_dir)
-    if path is None or path.exists():
-        return path
-
-    original = Path(value).expanduser()
-    if original.is_absolute():
-        return path
-
-    library_path = (CASCADE_ROOT / "domains" / original).resolve()
-    if library_path.exists():
-        return library_path
-    return path
 
 
 def apply_runtime_settings(ts, config: RunConfig) -> None:
@@ -191,7 +166,7 @@ def build_or_load_network(
         if bool(config.growth.resume_from_checkpoint) and checkpoint_path is not None and checkpoint_path.exists():
             input_path = checkpoint_path
         t0 = perf_counter()
-        trees, forest = _load_existing_network(input_path, domain, config)
+        trees, forest = _load_existing_network(input_path, domain, config, ts=ts)
         timings["network_load_s"] = perf_counter() - t0
         target_counts = _target_counts_for_config(config, len(trees), trees=trees)
         if config.growth.enabled:
@@ -389,12 +364,17 @@ def save_network_if_requested(result: NetworkBuildResult, config: RunConfig) -> 
     return saved
 
 
-def _load_existing_network(path: Path, domain, config: RunConfig) -> tuple[list[Any], Any | None]:
+def _load_existing_network(path: Path, domain, config: RunConfig, *, ts) -> tuple[list[Any], Any | None]:
     suffix = path.suffix.lower()
     if Forest._is_simulation_cache(str(path)):
         if config.growth.enabled:
             raise ValueError("Direct .forest simulation-cache inputs require growth.enabled=false.")
-        forest = Forest.load(str(path), mode="simulation")
+        forest = Forest.load(
+            str(path),
+            mode="simulation",
+            data_dtype=ts.TREE_DATA_DTYPE,
+            index_dtype=ts.TREE_INDEX_DTYPE,
+        )
         _attach_domain(forest, domain, simulation_only=True)
         trees = [tree for network in forest.networks for tree in network]
         return trees, forest
@@ -402,12 +382,23 @@ def _load_existing_network(path: Path, domain, config: RunConfig) -> tuple[list[
     if suffix == ".forest" or path.name.endswith(".forest"):
         mode = "simulation" if not config.growth.enabled else "growth"
         load_path = _forest_load_path(path, config, mode=mode)
-        forest = Forest.load(str(load_path), mode=mode)
+        forest = Forest.load(
+            str(load_path),
+            mode=mode,
+            data_dtype=ts.TREE_DATA_DTYPE if mode == "simulation" else None,
+            index_dtype=ts.TREE_INDEX_DTYPE,
+        )
         _attach_domain(forest, domain, simulation_only=(mode == "simulation"))
         trees = [tree for network in forest.networks for tree in network]
         return trees, forest
 
-    tree = Tree.load(str(path), domain=domain, data_dtype=np.float64, index_dtype=np.int64)
+    tree = Tree.load(
+        str(path),
+        domain=domain,
+        data_dtype=ts.TREE_DATA_DTYPE,
+        index_dtype=ts.TREE_INDEX_DTYPE,
+        analysis_only=not config.growth.enabled,
+    )
     _attach_tree_domain(tree, domain)
     return [tree], None
 
@@ -505,6 +496,27 @@ def _pre_sample_points(ts, domain, config: RunConfig) -> tuple[np.ndarray | None
         return np.empty((0, 3), dtype=float), {"sample_mode": "none"}
     if config.simulation.sample_mode == "grid":
         return sample_grid_points(domain, config.simulation.tissue_grid)
+    if config.simulation.sample_mode == "file":
+        path = resolve_path(
+            config.simulation.sample_points_path,
+            base_dir=config.settings_path.parent if config.settings_path else None,
+        )
+        if path is None:
+            raise ValueError("simulation.sample_points_path is required for file sampling.")
+        points = _load_sample_points(path)
+        requested = int(config.simulation.distance_sample_count)
+        if requested not in {0, int(points.shape[0])}:
+            raise ValueError(
+                "simulation.distance_sample_count must be 0 or match the fixed sample file "
+                f"({points.shape[0]} points)."
+            )
+        return points, {
+            "sample_mode": "file",
+            "points": int(points.shape[0]),
+            "path": str(path),
+            "sha256": _file_sha256(path),
+            "coordinate_units": "cm",
+        }
     n_points = int(config.simulation.distance_sample_count)
     if n_points <= 0:
         return np.empty((0, 3), dtype=float), {"sample_mode": "random", "requested_points": 0}
@@ -512,6 +524,47 @@ def _pre_sample_points(ts, domain, config: RunConfig) -> tuple[np.ndarray | None
         np.asarray(ts.sample_domain_points(domain, n_points), dtype=float),
         {"sample_mode": "random", "requested_points": int(n_points)},
     )
+
+
+def _load_sample_points(path: str | Path) -> np.ndarray:
+    """Load an explicit N-by-3 coordinate fixture without generating new points."""
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"Tissue sample file does not exist: {source}")
+    suffix = source.suffix.lower()
+    if suffix == ".npy":
+        points = np.load(source, allow_pickle=False)
+    elif suffix == ".npz":
+        with np.load(source, allow_pickle=False) as payload:
+            key = next((name for name in ("points", "sample_points") if name in payload), None)
+            if key is None:
+                raise ValueError("NPZ tissue sample file must contain 'points' or 'sample_points'.")
+            points = np.asarray(payload[key])
+    elif suffix == ".csv":
+        table = np.genfromtxt(source, delimiter=",", names=True, dtype=float, encoding="utf-8-sig")
+        if table.dtype.names is None:
+            raise ValueError("CSV tissue sample file must have x,y,z header columns.")
+        names = {name.strip().lower(): name for name in table.dtype.names}
+        if not all(axis in names for axis in ("x", "y", "z")):
+            raise ValueError("CSV tissue sample file must have x,y,z header columns in centimetres.")
+        table = np.atleast_1d(table)
+        points = np.column_stack([table[names[axis]] for axis in ("x", "y", "z")])
+    else:
+        raise ValueError("Tissue sample file must be CSV, NPY, or NPZ.")
+    points = np.asarray(points, dtype=float)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError(f"Tissue sample coordinates must have shape (N, 3); got {points.shape}.")
+    if not np.all(np.isfinite(points)):
+        raise ValueError("Tissue sample coordinates must all be finite.")
+    return points
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _extend_trees_to_targets(ts, trees: list[Any], domain, config: RunConfig, targets: list[int], *, forest=None) -> None:
@@ -701,6 +754,8 @@ def _grow_one_nearest_tree(
     *,
     ignore_intertree_collisions: bool,
 ) -> tuple[int, float]:
+    # TODO(upstream-svv): request a high-scale nearest-tree growth primitive.
+    # Keep this CASCADE implementation until an upstream replacement is validated.
     max_attempts = max(1, int(config.growth.collision_retry_limit))
     last_error: Exception | None = None
     for _attempt in range(max_attempts):

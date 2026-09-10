@@ -258,7 +258,7 @@ CEXT_FROZEN_ACCEL_MODE = "gpu"  # "cpu", "gpu", or "auto".
 CEXT_INIT_MODE = "decoupled_greens"  # "zero" or "decoupled_greens".
 CEXT_LAMBDA_SOURCE = os.environ.get("SVV_CEXT_LAMBDA_SOURCE", "lambda_t").strip().lower()
 CEXT_WINDOW_FACTOR = WINDOW_FACTOR
-CEXT_VESS_COUPLING_MAX_ITER = 5  # Local-only screened Cext needs the safer converged default.
+CEXT_VESS_COUPLING_MAX_ITER = 1
 CEXT_VESS_COUPLING_TOL = 1.0e-3
 CEXT_VESS_COUPLING_OMEGA = 1.0
 CEXT_VESS_COUPLING_REL_TOL = 0.0
@@ -517,7 +517,7 @@ SOLUTE_DIFFUSIVITY = 2.41e-5
 # TISSUE_DECAY_LENGTH = 0.2
 POROSITY = 0.9
 GL_ORDER = 5  # Gauss-Legendre points per segment for Greens integral (5, 9, or 20)
-GL_ORDER_CEXT = 5  # Gauss-Legendre points per segment for explicit vessel Cext coupling
+GL_ORDER_CEXT = 1  # Gauss-Legendre points per segment for explicit vessel Cext coupling
 
 HD_DISCHARGE = 0.42
 # Hemoglobin-bound O2 capacity in mol / m^3 blood per unit tube hematocrit.
@@ -1111,7 +1111,9 @@ def _compute_streaming_tissue_chunk(task: tuple[int, int, int, dict]) -> tuple[i
 
 
 CONCENTRATION_INLET_BY_FLUID = {
-    "water": 0.2211 * 0.75,
+    "water": 0.2211,
+    "cell media": 0.2211,
+    "media": 0.2211,
     "blood": 0.14,
 }
 
@@ -1384,7 +1386,7 @@ def _resolve_tissue_accel_mode(*, require_gpu: bool = False) -> str:
     if mode == "gpu" or require_gpu:
         raise RuntimeError(
             "Tissue GPU mode requested, but CuPy/CUDA is not available. "
-            "Verify `import cupy` and `cupy.cuda.runtime.getDeviceCount()` in the svva2 environment."
+            "Verify `import cupy` and `cupy.cuda.runtime.getDeviceCount()` in the CASCADE environment."
         )
     if SOLVER_TIMING_DETAILS:
         print("WARNING: tissue-accel=auto requested, but CuPy/CUDA is unavailable; using CPU tissue path.")
@@ -4619,7 +4621,7 @@ def _resolve_cext_accel_mode(*, require_gpu: bool = False) -> str:
         if require_gpu:
             raise RuntimeError(
                 "Cext GPU mode requested but no compatible CuPy CUDA device is available. "
-                "Verify `import cupy` in the svva2 environment."
+                "Verify `import cupy` in the CASCADE environment."
             )
         return "cpu"
     return mode
@@ -4637,7 +4639,7 @@ def _resolve_cext_frozen_accel_mode(*, require_gpu: bool = False) -> str:
         if require_gpu:
             raise RuntimeError(
                 "Frozen Cext GPU mode requested but no compatible CuPy CUDA device is available. "
-                "Verify `import cupy` in the svva2 environment."
+                "Verify `import cupy` in the CASCADE environment."
             )
         return "cpu"
     return mode

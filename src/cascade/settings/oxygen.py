@@ -8,13 +8,13 @@ DEFAULTS = {
     # Inlet oxygen concentration by fluid type, in the concentration units used by the solver.
     "CONCENTRATION_INLET_BY_FLUID": {
         # Inlet oxygen concentration for water-filled vessel simulations.
-        "water": 0.214,
+        "water": 0.2211,
         # Inlet oxygen concentration for blood simulations.
         "blood": 0.14,
         # Inlet oxygen concentration for cell-media simulations.
-        "cell media": 0.214,
+        "cell media": 0.2211,
         # Short alias for cell-media inlet oxygen concentration.
-        "media": 0.214,
+        "media": 0.2211,
     },
     # Reference concentration used to normalize output metrics such as C_tiss_over_Cmax.
     "CONC_MAX_FOR_NORMALIZATION": 0.14,
@@ -31,7 +31,7 @@ DEFAULTS = {
     # Number of Gauss-Legendre quadrature points per vessel segment for tissue Greens integrals.
     "GL_ORDER": 5,
     # Number of Gauss-Legendre quadrature points per segment for explicit Cext coupling.
-    "GL_ORDER_CEXT": 5,
+    "GL_ORDER_CEXT": 1,
     # Tissue porosity used by legacy transport calculations.
     "POROSITY": 0.9,
     # Finite-radius oxygen correction mode for vessel sources; "both" applies both supported corrections.

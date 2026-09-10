@@ -1,0 +1,19 @@
+{
+  "campaign_id": "2026-09-09_historical-audit_normalized",
+  "status": "historical_inconclusive",
+  "source_report": "docs/cascade_refactor_audit.md",
+  "raw_evidence": [
+    ".gfm_audit_runs/",
+    ".gfm_audit_runs_1000/"
+  ],
+  "reported_svv_for_full_runs": "0.0.43",
+  "public_svv_smoke_version": "0.0.48",
+  "cases": [
+    {"case": "cube-1", "legacy_s": 5.270, "cascade_s": 5.566, "aggregate_match": "exact"},
+    {"case": "cube-100", "legacy_s": 6.128, "cascade_s": 6.675, "aggregate_match": "exact"},
+    {"case": "cube-1000", "legacy_s": 13.471, "cascade_s": 13.877, "aggregate_match": "exact"},
+    {"case": "cext-tree-1", "legacy_s": 8.464, "cascade_s": 7.019, "aggregate_match": "exact"}
+  ],
+  "numerical_certification_claimed": false,
+  "performance_certification_claimed": false
+}

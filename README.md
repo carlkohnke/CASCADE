@@ -137,7 +137,7 @@ More configurations are provided in `examples/`.
 
 ## Custom domains
 
-File-backed domains can use `.dmn` files readable by the CASCADE adapter or surface/volume meshes readable by PyVista:
+File-backed domains use surface/volume meshes readable by PyVista. CASCADE Studio also includes the packaged `bivent3.stl` heart surface. Legacy `.dmn` loading remains available for frozen internal inputs, but `.dmn` is not a supported cross-version interchange format:
 
 ```json
 {
@@ -171,13 +171,13 @@ Use `network.mode="simple"` and `network.simple.mode="custom"` to load an explic
 }
 ```
 
-CSV coordinates and radii are in centimetres. Required columns are:
+CSV coordinates are in centimetres. Required columns are:
 
 ```text
-start_x,start_y,start_z,end_x,end_y,end_z,radius_cm
+start_x,start_y,start_z,end_x,end_y,end_z
 ```
 
-Optional `prox_id` and `dist_id` columns provide explicit node connectivity. Without them, CASCADE infers connectivity by matching endpoints after rounding to 12 decimal places. `inlet_nodes` and `outlet_nodes` can be supplied in JSON when they cannot be inferred from graph degree.
+Optional `radius_cm`, `prox_id`, and `dist_id` columns provide segment radius and explicit node connectivity. When `radius_cm` is absent, `network.simple.radius_cm` supplies it. Without node IDs, CASCADE infers connectivity by matching endpoints after rounding to 12 decimal places. `inlet_nodes` and `outlet_nodes` can be supplied in JSON when they cannot be inferred from graph degree.
 
 NPZ geometry uses `starts`, `ends`, and optional `radii`, `prox_ids`, and `dist_ids` arrays. Built-in simple modes are `onechannel`, `multichannel`, `snake`, and `lattice`.
 
@@ -202,6 +202,24 @@ Use structured sampling for regular ParaView grids:
   }
 }
 ```
+
+Use a frozen coordinate fixture when two runs must evaluate identical tissue points:
+
+```json
+{
+  "simulation": {
+    "sample_mode": "file",
+    "sample_points_path": "fixtures/tissue_points.npz",
+    "distance_sample_count": 0
+  }
+}
+```
+
+NPZ files contain `points` or `sample_points` with shape `(N, 3)`. NPY files contain the array directly. CSV files use `x,y,z` headers. Coordinates are in centimetres, paths resolve relative to the settings file, and the manifest records the resolved path and SHA-256.
+
+CASCADE permits one memory-intensive CLI simulation per user at a time. A second `run`, `sweep`, or `export-heart` command exits with a clear active-owner error instead of risking two resident simulations. Studio already processes its queue sequentially.
+
+When growth is disabled, existing tree and forest inputs load in analysis-only mode. CASCADE omits growth preallocation and spatial indexes, and `.forest.simcache` members stream directly into the selected working dtype (float32 by default for the heart workflow) to avoid retaining a second float64 vessel table.
 
 The heart exporter exposes shared forest Cext and heart-specific export controls:
 
@@ -238,12 +256,7 @@ python -m build
 
 The release smoke suite must also be run against an installed wheel from outside the source checkout.
 
-Legacy equivalence tools are retained for validation but are not installed with CASCADE:
-
-```bash
-python tests/cascade_refactor_audit.py --targets 1 100 --sample-count 1000 --skip-cext
-python tests/benchmark_tissuesim_vs_cascade.py --help
-```
+Legacy equivalence is run as an isolated, file-based comparison: install the CASCADE wheel in one clean environment and run the frozen external oracle in its own environment. CASCADE does not import or bundle the legacy scripts. The exact internal inventory and M2 protocol are tracked under `docs/internal/` and `validation/results/` in the Git repository; they are intentionally excluded from release archives.
 
 ## Reproducibility
 

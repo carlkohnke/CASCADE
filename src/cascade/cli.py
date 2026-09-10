@@ -9,6 +9,7 @@ from time import perf_counter
 from . import __version__
 from .config import example_config, load_config
 from .export import export_run
+from .execution import guard_simulation
 from .gpu import require_gpu_runtime
 from .growth import build_or_load_network
 from .simulation import run_simulation
@@ -75,6 +76,7 @@ def _init_settings(args: argparse.Namespace) -> int:
     return 0
 
 
+@guard_simulation("cascade run")
 def _run(args: argparse.Namespace) -> int:
     t0 = perf_counter()
     config = load_config(args.settings)
@@ -104,6 +106,7 @@ def _run(args: argparse.Namespace) -> int:
     return 0
 
 
+@guard_simulation("cascade sweep")
 def _sweep(args: argparse.Namespace) -> int:
     t0 = perf_counter()
     outputs = run_sweep(args.settings)

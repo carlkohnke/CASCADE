@@ -15,7 +15,7 @@ DEFAULTS = {
     # Spatial interaction cutoff measured in oxygen decay lengths for local Cext calculations.
     "CEXT_WINDOW_FACTOR": 6,
     # Maximum outer iterations coupling intravascular oxygen to extravascular concentration.
-    "CEXT_VESS_COUPLING_MAX_ITER": 5,
+    "CEXT_VESS_COUPLING_MAX_ITER": 1,
     # Absolute convergence tolerance for the maximum Cext update between outer iterations.
     "CEXT_VESS_COUPLING_TOL": 1.0e-3,
     # Base relaxation factor for vessel-Cext coupling updates before acceleration modifies it.

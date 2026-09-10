@@ -17,6 +17,8 @@ This directory is the internal source of truth for the CASCADE production-releas
 | `release-runbook.md` | Commands and procedures for building and validating a release | Whenever the tooling or environment changes |
 | `decision-log.md` | Durable technical and process decisions, including rejected alternatives | When a decision is made or reversed |
 | `work-log.md` | Chronological record of work performed and evidence produced | Every material work session |
+| `m0-legacy-inventory.md` | Frozen external oracle programs, environments, production inputs, hashes, and owner-approved M2 fixture contract | When an oracle/input is deliberately changed |
+| `m0-traceability.md` | Legacy capability/parameter/output mapping to CASCADE and M2 cases | When scope or implementation mapping changes |
 | `../../validation/README.md` | Storage and naming convention for test evidence | When evidence structure changes |
 
 Supporting public-facing or release-specific records remain in:

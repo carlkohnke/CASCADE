@@ -1,0 +1,5 @@
+/home/carl/miniconda3/envs/svva2/bin/python tests/cascade_refactor_audit.py --targets 1 100 --sample-count 1000 --timeout 3600
+/home/carl/miniconda3/envs/svva2/bin/python tests/cascade_refactor_audit.py --targets 1 100 --sample-count 1000 --timeout 3600 --skip-cext
+/home/carl/miniconda3/envs/svva2/bin/python tests/cascade_refactor_audit.py --work-dir .cascade_audit_runs_1000 --targets 1000 --sample-count 1000 --timeout 3600 --skip-cext
+
+The complete historical command list, including public-svv smoke and exporter commands, remains in docs/cascade_refactor_audit.md. These commands contain stale paths and are preserved as evidence, not recommended for rerun.

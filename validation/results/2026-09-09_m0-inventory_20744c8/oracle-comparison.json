@@ -1,0 +1,30 @@
+{
+  "comparison": "former tracked root cube solver versus frozen svva2/SCRIPTS cube oracle",
+  "root_revision": "20744c8:TissueSim_cube_local.py",
+  "root_bytes": 925598,
+  "root_lines": 21377,
+  "root_sha256": "658290689787f6fea16ed64a2145ddd0b5850d56eaa86f4a761afc283874a38b",
+  "scripts_path": "/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/TissueSim_cube_local.py",
+  "scripts_bytes": 894463,
+  "scripts_lines": 20666,
+  "scripts_sha256": "f2c4c89c8826b11246a239f7ae947872b955e5e47b44290033c13d1cef68bfda",
+  "line_similarity": 0.9699117570106796,
+  "functions_only_in_former_root": [
+    "_cext_fft_deposit_computed_moment_grid_gpu",
+    "_get_cext_fft_discrete_self_runtime_moment_kernel",
+    "_get_cext_fft_discrete_self_runtime_stencil_kernel",
+    "_get_cext_fft_moment_deposit_computed_runtime_stencil_kernel",
+    "_get_cext_fft_moment_deposit_runtime_stencil_kernel",
+    "_get_cext_hybrid_deposit_runtime_stencil_kernel",
+    "accumulate_runtime_moment",
+    "build_domain_from_pyvista"
+  ],
+  "functions_only_in_scripts": [],
+  "globals_only_in_scripts": [
+    "CEXT_DENSE_ALL_PAIRS_ENABLE",
+    "CEXT_HYBRID_FFT_LAMBDA_INTERPOLATION",
+    "CEXT_HYBRID_FFT_SELF_SUB_MODE",
+    "TISSUE_MASK_INSIDE_VESSELS"
+  ],
+  "disposition": "Use the hash-frozen SCRIPTS file as the external oracle. Keep CASCADE self-contained and retain the additional GPU and flexible-domain capabilities in CASCADE. Do not copy or import the oracle into CASCADE."
+}

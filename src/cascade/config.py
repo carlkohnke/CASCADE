@@ -129,6 +129,7 @@ class SimulationConfig:
     flow_source: str = "per_tree"
     inlet_conditions: list[dict[str, float]] = field(default_factory=list)
     sample_mode: str = "random"
+    sample_points_path: str | None = None
     tissue_grid: dict[str, Any] = field(default_factory=dict)
     geometry_only: bool = False
     skip_tissue_oxygen: bool = False
@@ -392,7 +393,8 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
         {
             "fluid", "build_fluid", "qin_target_ul_min", "qin_target", "total_qin_ul_min",
             "concentration_solver", "distance_sample_count", "flow_source", "inlet_conditions",
-            "sample_mode", "tissue_sample_mode", "tissue_grid", "grid", "geometry_only",
+            "sample_mode", "tissue_sample_mode", "sample_points_path", "sample_file",
+            "tissue_grid", "grid", "geometry_only",
             "skip_tissue_oxygen", "compute_avg_distance_to_channel", "tissue_accel",
             "tissue_gpu_validate_points", "viability_threshold", "infarction", "cext",
             "tissuesim", "overrides", "finite_radius_o2_terms", "lumen_wall_closure",
@@ -432,6 +434,7 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
         flow_source=str(data.get("flow_source", "per_tree")).strip().lower(),
         inlet_conditions=_parse_inlet_conditions(data.get("inlet_conditions", [])),
         sample_mode=str(data.get("sample_mode", data.get("tissue_sample_mode", "random"))).strip().lower(),
+        sample_points_path=data.get("sample_points_path", data.get("sample_file")),
         tissue_grid=dict(data.get("tissue_grid", data.get("grid", {})) or {}),
         geometry_only=_as_bool(data.get("geometry_only"), False),
         skip_tissue_oxygen=_as_bool(data.get("skip_tissue_oxygen"), False),
@@ -555,8 +558,10 @@ def _validate(network: NetworkConfig, growth: GrowthConfig, simulation: Simulati
             )
         if condition["inlet_concentration_mmol_l"] < 0:
             raise ValueError(f"Inlet {index + 1} oxygen concentration cannot be negative.")
-    if simulation.sample_mode not in {"random", "grid"}:
-        raise ValueError("simulation.sample_mode must be 'random' or 'grid'.")
+    if simulation.sample_mode not in {"random", "grid", "file"}:
+        raise ValueError("simulation.sample_mode must be 'random', 'grid', or 'file'.")
+    if simulation.sample_mode == "file" and not simulation.sample_points_path:
+        raise ValueError("simulation.sample_points_path is required when sample_mode is 'file'.")
     if growth.n_closest_vessels <= 0:
         raise ValueError("growth.n_closest_vessels must be positive.")
     if growth.n_points <= 0:

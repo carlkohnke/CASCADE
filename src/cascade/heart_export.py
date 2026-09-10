@@ -16,6 +16,7 @@ import pyvista as pv
 from tqdm import tqdm
 
 from .gpu import preload_cuda_component_libraries
+from .execution import guard_simulation
 from .svv_adapter import Domain, Forest
 
 
@@ -34,7 +35,7 @@ SOLUTE_DIFFUSIVITY_DEFAULT = 2.41e-5
 VMAX_MM_DEFAULT = 0.04
 K_M_MM_DEFAULT = 0.0069
 NEAREST_TISSUE_VESSELS_DEFAULT = 128
-WINDOW_FACTOR_DEFAULT = 4.0
+WINDOW_FACTOR_DEFAULT = 6.0
 GL_ORDER_DEFAULT = 5
 TISSUE_KDTREE_CANDIDATE_MULT_DEFAULT = 6
 AXIAL_BLOOD_STEPS_DEFAULT = 5
@@ -46,6 +47,8 @@ HEMATOCRIT_QTOL_NL_MIN_DEFAULT = 1.0e-3
 HEMATOCRIT_HDTOL_DEFAULT = 1.0e-3
 EXPORT_FLOAT_DTYPE_DEFAULT = "float32"
 EXPORT_INDEX_DTYPE_DEFAULT = "int64"
+WORKING_FLOAT_DTYPE_DEFAULT = "float32"
+WORKING_INDEX_DTYPE_DEFAULT = "int32"
 CEXT_FOREST_MODE_DEFAULT = "shared-global"
 CEXT_CONCENTRATION_SOLVER_DEFAULT = "topdown_ext_hybrid_bg"
 CEXT_ACCEL_MODE_DEFAULT = "gpu"
@@ -61,7 +64,7 @@ CEXT_GL_ORDER_DEFAULT = 1
 CEXT_BG_NEAR_RADIUS_MULT_DEFAULT = 0.0
 CEXT_BG_VCYCLES_DEFAULT = 2
 CEXT_HYBRID_BG_ENABLE_SOURCE_FREEZING_DEFAULT = False
-CEXT_VESS_COUPLING_MAX_ITER_DEFAULT = 5
+CEXT_VESS_COUPLING_MAX_ITER_DEFAULT = 1
 CEXT_VESS_COUPLING_TOL_DEFAULT = 1.0e-3
 CEXT_VESS_COUPLING_REL_TOL_DEFAULT = 0.0
 CEXT_VESS_COUPLING_OMEGA_DEFAULT = 1.0
@@ -1979,6 +1982,7 @@ def _save_domain_outputs(domain, out_dir: Path, prefix: str) -> dict:
     return outputs
 
 
+@guard_simulation("cascade export-heart")
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="cascade export-heart",
@@ -2191,6 +2195,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--connectivity-geometry-atol", type=float, default=1e-6)
     parser.add_argument("--no-fail-connectivity", action="store_true")
     parser.add_argument(
+        "--working-float-dtype",
+        default=WORKING_FLOAT_DTYPE_DEFAULT,
+        choices=("float32", "float64"),
+        help="In-memory dtype used while loading and solving the forest.",
+    )
+    parser.add_argument(
+        "--working-index-dtype",
+        default=WORKING_INDEX_DTYPE_DEFAULT,
+        choices=("int32", "int64"),
+        help="In-memory dtype used for reconstructed connectivity arrays.",
+    )
+    parser.add_argument(
         "--export-float-dtype",
         default=EXPORT_FLOAT_DTYPE_DEFAULT,
         choices=("float32", "float64"),
@@ -2203,6 +2219,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Integer dtype for user-facing exported ID arrays. Default keeps vessel IDs as int64.",
     )
     args = parser.parse_args(argv)
+    working_float_dtype = _float_dtype_from_name(args.working_float_dtype)
+    working_index_dtype = _int_dtype_from_name(args.working_index_dtype)
     export_float_dtype = _float_dtype_from_name(args.export_float_dtype)
     export_index_dtype = _int_dtype_from_name(args.export_index_dtype)
     cext_enabled = not bool(args.no_cext)
@@ -2283,7 +2301,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"Fast simulation-cache build failed ({exc}). "
                 "Aborting instead of falling back to the legacy forest loader."
             ) from exc
-    forest = Forest.load(str(load_source), mode="simulation")
+    forest = Forest.load(
+        str(load_source),
+        mode="simulation",
+        data_dtype=working_float_dtype,
+        index_dtype=working_index_dtype,
+    )
     _make_forest_analysis_only(forest)
     _log("Forest load mode: analysis-only (skipping build-time spatial indices)")
     if cache_enabled and load_source == forest_path:
@@ -2337,6 +2360,8 @@ def main(argv: list[str] | None = None) -> int:
         "solver_parameters": solver_parameters,
         "cext_parameters": cext_parameters,
         "input_tree_dtypes": input_dtype_summaries,
+        "working_float_dtype": str(working_float_dtype),
+        "working_index_dtype": str(working_index_dtype),
         "export_float_dtype": str(export_float_dtype),
         "export_index_dtype": str(export_index_dtype),
         "tree_summaries": [],

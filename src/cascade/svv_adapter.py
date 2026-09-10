@@ -30,13 +30,9 @@ _tree_module.add_vessel = _cascade_add_vessel
 
 
 def _resolve_tree_data_dtype(value: object | None) -> np.dtype:
-    dtype = _normalize_float_dtype(value, np.float64)
-    if dtype != np.dtype(np.float64):
-        # Public svv/svv-accelerated is reliable for float64. Float32 support
-        # lives in the local patched svv and is intentionally not part of this
-        # public-svv adapter pass.
-        return np.dtype(np.float64)
-    return dtype
+    # CASCADE may hold an existing simulation-only tree in float32. The growth
+    # methods themselves enforce float64 whenever true CCO work is requested.
+    return _normalize_float_dtype(value, np.float64)
 
 
 class Tree(TreeCompatibilityMixin, _BaseTree):

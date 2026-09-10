@@ -1,0 +1,18 @@
+git rev-parse HEAD
+git rev-parse v0.1.0rc1
+git show 20744c8:TissueSim_cube_local.py | sha256sum
+# Parsed both cube scripts with Python ast and compared split lines using difflib.SequenceMatcher(autojunk=False); exact results are in oracle-comparison.json.
+sha256sum <five frozen svva2/SCRIPTS program paths>
+stat -c '%n|%s|%y' <five frozen svva2/SCRIPTS program paths>
+/home/carl/miniconda3/envs/svva2/bin/python -c 'import sys,svv,numpy,scipy,cupy; ...'
+sha256sum <directly imported svv module paths>
+sha256sum <HEART-P forest> <HEART-P legacy .dmn> <bivent3 source STL>
+QT_QPA_PLATFORM=offscreen /home/carl/.venvs/cascade-0.1.0rc1/bin/python -m pytest -q tests/test_release_contract.py tests/test_gui_model.py tests/test_gui_interactions.py
+QT_QPA_PLATFORM=offscreen /home/carl/.venvs/cascade-0.1.0rc1/bin/python -m pytest -q
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python -m build --outdir validation/tmp/m0-package-build-complete
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python -m twine check validation/tmp/m0-package-build-complete/*.whl validation/tmp/m0-package-build-complete/*.tar.gz
+/home/carl/.venvs/cascade-0.1.0rc1/bin/python -m zipfile -l validation/tmp/m0-package-build-complete/cascade_vascular-0.1.0rc1-py3-none-any.whl
+tar -tzf validation/tmp/m0-package-build-complete/cascade_vascular-0.1.0rc1.tar.gz
+validation/tmp/m0-wheel-venv/bin/python -m pip install --no-deps --force-reinstall validation/tmp/m0-package-build-complete/cascade_vascular-0.1.0rc1-py3-none-any.whl
+# From /tmp, imported cascade.resources in the wheel-only environment and verified bivent3 size/hash.
+git diff --check

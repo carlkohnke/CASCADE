@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import zipfile
@@ -11,7 +12,18 @@ from cascade import __version__
 from cascade.cli import main as cli_main
 from cascade.config import example_config, parse_config
 from cascade.doctor import collect_diagnostics
-from cascade.heart_export import _load_tissuesim, _should_use_simulation_cache
+from cascade.heart_export import (
+    CEXT_BG_GRID_DEFAULT,
+    CEXT_GL_ORDER_DEFAULT,
+    CEXT_VESS_COUPLING_MAX_ITER_DEFAULT,
+    EXPORT_FLOAT_DTYPE_DEFAULT,
+    GL_ORDER_DEFAULT,
+    WINDOW_FACTOR_DEFAULT,
+    _load_tissuesim,
+    _should_use_simulation_cache,
+)
+from cascade.resources import resolve_domain_path
+from cascade.settings.oxygen import DEFAULTS as OXYGEN_DEFAULTS
 from cascade.simple import _load_custom_geometry
 
 
@@ -61,6 +73,26 @@ def test_packaged_heart_export_uses_packaged_runtime():
     assert runtime.__name__ == "cascade.runtime.tissuesim"
     assert callable(runtime.build_domain)
     assert callable(runtime.compute_tissue_samples_greens)
+
+
+def test_m2_heart_profile_defaults_are_frozen():
+    assert EXPORT_FLOAT_DTYPE_DEFAULT == "float32"
+    assert CEXT_BG_GRID_DEFAULT == 256
+    assert CEXT_GL_ORDER_DEFAULT == 1
+    assert GL_ORDER_DEFAULT == 5
+    assert CEXT_VESS_COUPLING_MAX_ITER_DEFAULT == 1
+    assert WINDOW_FACTOR_DEFAULT == 6.0
+    assert OXYGEN_DEFAULTS["CONCENTRATION_INLET_BY_FLUID"]["water"] == 0.2211
+    assert OXYGEN_DEFAULTS["CONCENTRATION_INLET_BY_FLUID"]["cell media"] == 0.2211
+
+
+def test_packaged_bivent3_domain_is_resolvable_and_frozen():
+    path = resolve_domain_path("bivent3.stl")
+    assert path is not None and path.is_file()
+    assert path.stat().st_size == 652_584
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == (
+        "10fd497650eb881b37390861cb960db88e0c7e6f0b18267ffbb35d564c24a060"
+    )
 
 
 def test_heart_export_recognizes_cascade_simulation_cache(tmp_path: Path):

@@ -211,6 +211,10 @@ def test_default_project_is_engine_compatible_and_memory_estimated():
     assert config["settings"]["oxygen"]["gl_order"] == 5
     assert config["settings"]["oxygen"]["gl_order_cext"] == 1
     assert config["settings"]["oxygen"]["axial_blood_steps"] == 5
+    assert config["settings"]["cext"]["vess_coupling_max_iter"] == 1
+    assert config["settings"]["cext"]["hybrid_bg_grid"] == 256
+    assert config["settings"]["cext"]["window_factor"] == 6
+    assert config["settings"]["cext"]["float_dtype"] == "float32"
     assert config["outputs"]["write_paraview"] is True
     report = validate_project(config)
     assert report.runnable

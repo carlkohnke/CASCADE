@@ -1,5 +1,0 @@
-1374:            "Verify `import cupy` and `cupy.cuda.runtime.getDeviceCount()` in the svva2 environment."
-4544:                "Verify `import cupy` in the svva2 environment."
-4562:                "Verify `import cupy` in the svva2 environment."
-19856:                if VIOLIN_DNC:
-20335:                    if VIOLIN_DNC:

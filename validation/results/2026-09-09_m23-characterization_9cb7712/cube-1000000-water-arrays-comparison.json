@@ -1,0 +1,318 @@
+{
+  "status": "pass",
+  "legacy_dir": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-1000000-water/legacy-arrays",
+  "cascade_dir": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-1000000-water/cascade-arrays",
+  "chunk_rows": 262144,
+  "comparisons": [
+    {
+      "array": "cin",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        2000001
+      ],
+      "candidate_shape": [
+        2000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.2211,
+      "absolute_tolerance": 2.211e-07,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 6.938893903907228e-17,
+      "max_relative_error": 9.80061338905021e-15,
+      "rmse": 1.4119304304266017e-18,
+      "finite_values": 2000001
+    },
+    {
+      "array": "cout",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        2000001
+      ],
+      "candidate_shape": [
+        2000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.21778999831022153,
+      "absolute_tolerance": 2.1778999831022151e-07,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 6.938893903907228e-17,
+      "max_relative_error": 9.80061338905021e-15,
+      "rmse": 9.983870735588917e-19,
+      "finite_values": 2000001
+    },
+    {
+      "array": "discharge_hematocrit",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        0
+      ],
+      "candidate_shape": [
+        0
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.0,
+      "absolute_tolerance": 0.0,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 0.0,
+      "max_relative_error": 0.0,
+      "rmse": 0.0,
+      "finite_values": 0
+    },
+    {
+      "array": "ends_cm",
+      "rule": "exact",
+      "reference_shape": [
+        2000001,
+        3
+      ],
+      "candidate_shape": [
+        2000001,
+        3
+      ],
+      "reference_dtype": "float32",
+      "candidate_dtype": "float32",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "flows_cm3_s",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        2000001
+      ],
+      "candidate_shape": [
+        2000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.015000000000000003,
+      "absolute_tolerance": 1.5000000000000002e-08,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 0.0,
+      "max_relative_error": 0.0,
+      "rmse": 0.0,
+      "finite_values": 2000001
+    },
+    {
+      "array": "left_child_id",
+      "rule": "exact",
+      "reference_shape": [
+        2000001
+      ],
+      "candidate_shape": [
+        2000001
+      ],
+      "reference_dtype": "int64",
+      "candidate_dtype": "int64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "lengths_cm",
+      "rule": "exact",
+      "reference_shape": [
+        2000001
+      ],
+      "candidate_shape": [
+        2000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "parent_id",
+      "rule": "exact",
+      "reference_shape": [
+        2000001
+      ],
+      "candidate_shape": [
+        2000001
+      ],
+      "reference_dtype": "int64",
+      "candidate_dtype": "int64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "pressures_pa",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        2000002
+      ],
+      "candidate_shape": [
+        2000002
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 66661.0,
+      "absolute_tolerance": 0.066661,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 1.4551915228366852e-11,
+      "max_relative_error": 2.2479119617910643e-16,
+      "rmse": 3.4227931191058427e-13,
+      "finite_values": 2000002
+    },
+    {
+      "array": "radii_cm",
+      "rule": "exact",
+      "reference_shape": [
+        2000001
+      ],
+      "candidate_shape": [
+        2000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "right_child_id",
+      "rule": "exact",
+      "reference_shape": [
+        2000001
+      ],
+      "candidate_shape": [
+        2000001
+      ],
+      "reference_dtype": "int64",
+      "candidate_dtype": "int64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "segment_id",
+      "rule": "exact",
+      "reference_shape": [
+        2000001
+      ],
+      "candidate_shape": [
+        2000001
+      ],
+      "reference_dtype": "int64",
+      "candidate_dtype": "int64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "starts_cm",
+      "rule": "exact",
+      "reference_shape": [
+        2000001,
+        3
+      ],
+      "candidate_shape": [
+        2000001,
+        3
+      ],
+      "reference_dtype": "float32",
+      "candidate_dtype": "float32",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "terminal_mask",
+      "rule": "exact",
+      "reference_shape": [
+        2000001
+      ],
+      "candidate_shape": [
+        2000001
+      ],
+      "reference_dtype": "uint8",
+      "candidate_dtype": "uint8",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "tissue_points_cm",
+      "rule": "exact",
+      "reference_shape": [
+        987545,
+        3
+      ],
+      "candidate_shape": [
+        987545,
+        3
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "tissue_values",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        987545
+      ],
+      "candidate_shape": [
+        987545
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.21172013878822327,
+      "absolute_tolerance": 2.1172013878822325e-07,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 0.0,
+      "max_relative_error": 0.0,
+      "rmse": 0.0,
+      "finite_values": 987545
+    },
+    {
+      "array": "tube_hematocrit",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        0
+      ],
+      "candidate_shape": [
+        0
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.0,
+      "absolute_tolerance": 0.0,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 0.0,
+      "max_relative_error": 0.0,
+      "rmse": 0.0,
+      "finite_values": 0
+    }
+  ]
+}

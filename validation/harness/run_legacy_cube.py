@@ -32,6 +32,8 @@ def main() -> int:
     parser.add_argument("--oracle-sha256", required=True)
     parser.add_argument("--points", type=Path, required=True)
     parser.add_argument("--points-sha256", required=True)
+    parser.add_argument("--tree", type=Path, required=True)
+    parser.add_argument("--tree-sha256", required=True)
     parser.add_argument("--target", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--metadata", type=Path, required=True)
@@ -43,12 +45,14 @@ def main() -> int:
 
     oracle = args.oracle.expanduser().resolve()
     points_path = args.points.expanduser().resolve()
+    tree_path = args.tree.expanduser().resolve()
     output = args.output.expanduser().resolve()
     metadata = args.metadata.expanduser().resolve()
     arrays_dir = args.arrays_dir.expanduser().resolve() if args.arrays_dir is not None else None
     expected = {
         oracle: args.oracle_sha256.lower(),
         points_path: args.points_sha256.lower(),
+        tree_path: args.tree_sha256.lower(),
     }
     for path, expected_hash in expected.items():
         actual = sha256(path)
@@ -80,6 +84,17 @@ def main() -> int:
         return np.asarray(points)
 
     module.sample_domain_points = shared_points
+
+    def fixed_tree_cache(_rows, _config_id: str, target_terminals: int):
+        if int(target_terminals) != int(args.target):
+            return None
+        return ({"validation_fixture": "explicit-hash-checked-tree"}, tree_path)
+
+    def no_lower_tree_cache(*_args, **_kwargs):
+        raise RuntimeError("Validation must not select or grow from a lower-count tree")
+
+    module._find_cached_tree = fixed_tree_cache
+    module._find_cached_tree_lower = no_lower_tree_cache
     array_manifests: list[str] = []
     original_summarize = module.summarize_tree
 
@@ -147,6 +162,8 @@ def main() -> int:
         "oracle_sha256": expected[oracle],
         "points_path": str(points_path),
         "points_sha256": expected[points_path],
+        "tree_path": str(tree_path),
+        "tree_sha256": expected[tree_path],
         "points": int(points.shape[0]),
         "target_terminals": int(args.target),
         "fluid": args.fluid,

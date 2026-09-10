@@ -1,0 +1,28 @@
+{
+  "settings_path": "/home/carl/svv_sweeps/GFM/validation/results/2026-09-09_m23-characterization_9cb7712/cube-1-blood-settings.json",
+  "cascade_version": "0.1.0rc1",
+  "cascade_module": "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-py39/lib/python3.9/site-packages/cascade/__init__.py",
+  "gpu": null,
+  "elapsed_process_s": 10.068527330000506,
+  "build_wall_s": 0.8846805480006878,
+  "solve_wall_s": 9.118061330000273,
+  "export_wall_s": 0.02285359900088224,
+  "build_timings": {
+    "domain_s": 0.8561747950006975,
+    "sample_points_s": 0.024284940998768434,
+    "network_load_s": 0.0035586080011853483
+  },
+  "simulation_timings": {
+    "sample_points_resolve_s": 1.6829999367473647e-06,
+    "tree_0_tissue_cache_s": 3.864555674001167,
+    "points_s": 1.1180000001331791e-06
+  },
+  "max_rss_bytes": 1459204096,
+  "array_manifests": [
+    "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-1-blood/cascade-arrays/manifest.json"
+  ],
+  "outputs": {
+    "summary_csv": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-1-blood/cascade-output/summary.csv",
+    "manifest_json": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-1-blood/cascade-output/manifest.json"
+  }
+}

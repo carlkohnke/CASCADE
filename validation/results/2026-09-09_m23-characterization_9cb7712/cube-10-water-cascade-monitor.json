@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "started_utc": "2026-09-10T05:24:50.029343+00:00",
+  "command": [
+    "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-py39/bin/python",
+    "/home/carl/svv_sweeps/GFM/validation/harness/run_cascade_cube.py",
+    "--settings",
+    "/home/carl/svv_sweeps/GFM/validation/results/2026-09-09_m23-characterization_9cb7712/cube-10-water-settings.json",
+    "--metadata",
+    "/home/carl/svv_sweeps/GFM/validation/results/2026-09-09_m23-characterization_9cb7712/cube-10-water-cascade.json",
+    "--arrays-dir",
+    "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-10-water/cascade-arrays"
+  ],
+  "cwd": "/home/carl/svv_sweeps/GFM",
+  "return_code": 0,
+  "elapsed_wall_s": 11.171904605000236,
+  "sample_interval_s": 0.25,
+  "samples": 35,
+  "peak_rss_bytes": 1030967296,
+  "peak_vms_bytes": 3610365952,
+  "peak_gpu_memory_bytes": 0,
+  "max_rss_bytes": 48318382080,
+  "aborted_for_memory": false,
+  "log_path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-10-water/cascade.log",
+  "log_sha256": "f1675bbc5a007826805fb9ac40d1e6130b35cbf027bd890432869b1e34484874",
+  "host": {
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.9.20 | packaged by conda-forge | (main, Sep 30 2024, 17:49:10) \n[GCC 13.3.0]",
+    "logical_cpus": 16,
+    "physical_cpus": 8,
+    "ram_bytes": 56855461888
+  },
+  "thread_environment": {
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null,
+    "NUMEXPR_NUM_THREADS": null,
+    "CUDA_VISIBLE_DEVICES": null
+  }
+}

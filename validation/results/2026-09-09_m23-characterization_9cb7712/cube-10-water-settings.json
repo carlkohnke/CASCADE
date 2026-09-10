@@ -1,0 +1,61 @@
+{
+  "domain": {
+    "type": "cube",
+    "side_length": 1.0,
+    "random_seed": 42
+  },
+  "network": {
+    "mode": "tree",
+    "input_path": "/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/trees_cache/tree_a50c006ac491d07e399f94f1be37cfe0_t10.tree.npz",
+    "target_terminal_count": 10
+  },
+  "growth": {
+    "enabled": false,
+    "n_equal_bifurcations": null
+  },
+  "simulation": {
+    "fluid": "water",
+    "build_fluid": "blood",
+    "qin_target_ul_min": 900.0,
+    "concentration_solver": "topdown",
+    "sample_mode": "file",
+    "sample_points_path": "../../runs/2026-09-09_m2-staging_20744c8/fixtures/cube_seed42_points_1000000.npy",
+    "distance_sample_count": 1000000,
+    "compute_avg_distance_to_channel": false,
+    "tissue_accel": "cpu",
+    "tissue_gpu_validate_points": 0,
+    "tissuesim": {
+      "finite_radius_o2_terms": "none",
+      "lumen_wall_closure": "wellmixed",
+      "window_factor": 6,
+      "kirchhoff_solver": "tree",
+      "kirchhoff_bc_mode": "legacy_equal_terminal_flow"
+    }
+  },
+  "settings": {
+    "numerics": {
+      "tree_data_dtype": "float32",
+      "tree_index_dtype": "int64"
+    },
+    "concentration": {
+      "gl_order": 5,
+      "gl_order_cext": 1
+    },
+    "cext": {
+      "window_factor": 6,
+      "vess_coupling_max_iter": 1,
+      "hybrid_bg_grid": 256
+    }
+  },
+  "outputs": {
+    "out_dir": "../../runs/2026-09-09_m23-characterization_9cb7712/cube-10-water/cascade-output",
+    "prefix": "cube_10_water",
+    "write_paraview": false,
+    "write_summary_csv": true,
+    "write_segments_csv": false,
+    "write_points_csv": false,
+    "save_network": false,
+    "use_cache": false,
+    "export_float_dtype": "float32"
+  }
+}

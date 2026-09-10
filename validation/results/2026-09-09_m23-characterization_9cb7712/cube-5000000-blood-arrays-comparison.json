@@ -1,0 +1,318 @@
+{
+  "status": "pass",
+  "legacy_dir": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-5000000-blood/legacy-arrays",
+  "cascade_dir": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-5000000-blood/cascade-arrays",
+  "chunk_rows": 262144,
+  "comparisons": [
+    {
+      "array": "cin",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.14,
+      "absolute_tolerance": 1.4e-07,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 4.163336342344337e-17,
+      "max_relative_error": 8.813899946138828e-15,
+      "rmse": 2.2957885295490023e-18,
+      "finite_values": 10000001
+    },
+    {
+      "array": "cout",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.13949740155597606,
+      "absolute_tolerance": 1.3949740155597606e-07,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 4.163336342344337e-17,
+      "max_relative_error": 8.813899946138828e-15,
+      "rmse": 2.1263682917321896e-18,
+      "finite_values": 10000001
+    },
+    {
+      "array": "discharge_hematocrit",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.7570250034332275,
+      "absolute_tolerance": 7.570250034332275e-07,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 0.0,
+      "max_relative_error": 0.0,
+      "rmse": 0.0,
+      "finite_values": 10000001
+    },
+    {
+      "array": "ends_cm",
+      "rule": "exact",
+      "reference_shape": [
+        10000001,
+        3
+      ],
+      "candidate_shape": [
+        10000001,
+        3
+      ],
+      "reference_dtype": "float32",
+      "candidate_dtype": "float32",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "flows_cm3_s",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.015000000000000001,
+      "absolute_tolerance": 1.5000000000000002e-08,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 0.0,
+      "max_relative_error": 0.0,
+      "rmse": 0.0,
+      "finite_values": 10000001
+    },
+    {
+      "array": "left_child_id",
+      "rule": "exact",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "int64",
+      "candidate_dtype": "int64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "lengths_cm",
+      "rule": "exact",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "parent_id",
+      "rule": "exact",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "int64",
+      "candidate_dtype": "int64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "pressures_pa",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        10000002
+      ],
+      "candidate_shape": [
+        10000002
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 452691.71546993946,
+      "absolute_tolerance": 0.4526917154699394,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 5.820766091346741e-11,
+      "max_relative_error": 9.689705942533644e-13,
+      "rmse": 1.438093618220459e-12,
+      "finite_values": 10000002
+    },
+    {
+      "array": "radii_cm",
+      "rule": "exact",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "right_child_id",
+      "rule": "exact",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "int64",
+      "candidate_dtype": "int64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "segment_id",
+      "rule": "exact",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "int64",
+      "candidate_dtype": "int64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "starts_cm",
+      "rule": "exact",
+      "reference_shape": [
+        10000001,
+        3
+      ],
+      "candidate_shape": [
+        10000001,
+        3
+      ],
+      "reference_dtype": "float32",
+      "candidate_dtype": "float32",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "terminal_mask",
+      "rule": "exact",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "uint8",
+      "candidate_dtype": "uint8",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "tissue_points_cm",
+      "rule": "exact",
+      "reference_shape": [
+        987859,
+        3
+      ],
+      "candidate_shape": [
+        987859,
+        3
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "mismatched_values": 0,
+      "first_mismatched_row": null
+    },
+    {
+      "array": "tissue_values",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        987859
+      ],
+      "candidate_shape": [
+        987859
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.13743625581264496,
+      "absolute_tolerance": 1.3743625581264496e-07,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 0.0,
+      "max_relative_error": 0.0,
+      "rmse": 0.0,
+      "finite_values": 987859
+    },
+    {
+      "array": "tube_hematocrit",
+      "rule": "relative_or_scale_floor",
+      "reference_shape": [
+        10000001
+      ],
+      "candidate_shape": [
+        10000001
+      ],
+      "reference_dtype": "float64",
+      "candidate_dtype": "float64",
+      "passed": true,
+      "reference_case_scale": 0.7854139804840088,
+      "absolute_tolerance": 7.854139804840087e-07,
+      "relative_tolerance": 0.001,
+      "finite_mask_mismatches": 0,
+      "tolerance_failures": 0,
+      "max_absolute_error": 0.0,
+      "max_relative_error": 0.0,
+      "rmse": 0.0,
+      "finite_values": 10000001
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "settings_path": "/home/carl/svv_sweeps/GFM/validation/results/2026-09-09_m23-characterization_9cb7712/cube-1-water-settings.json",
+  "cascade_version": "0.1.0rc1",
+  "cascade_module": "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-py39/lib/python3.9/site-packages/cascade/__init__.py",
+  "gpu": null,
+  "elapsed_process_s": 5.56108765099998,
+  "build_wall_s": 0.8438982219995523,
+  "solve_wall_s": 4.653971195999475,
+  "export_wall_s": 0.02010703499945521,
+  "build_timings": {
+    "domain_s": 0.8145601359992725,
+    "sample_points_s": 0.024748787000135053,
+    "network_load_s": 0.003913763001037296
+  },
+  "simulation_timings": {
+    "sample_points_resolve_s": 1.8075999832944945e-05,
+    "tree_0_tissue_cache_s": 4.011752843998693,
+    "points_s": 1.8029986676992849e-06
+  },
+  "max_rss_bytes": 1459355648,
+  "array_manifests": [
+    "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-1-water/cascade-arrays/manifest.json"
+  ],
+  "outputs": {
+    "summary_csv": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-1-water/cascade-output/summary.csv",
+    "manifest_json": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-characterization_9cb7712/cube-1-water/cascade-output/manifest.json"
+  }
+}

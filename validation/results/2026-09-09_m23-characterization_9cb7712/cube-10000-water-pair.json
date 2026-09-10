@@ -1,0 +1,18 @@
+{
+  "case": "CUBE-10000",
+  "fluid": "water",
+  "tissue_backend": "cpu",
+  "tree_path": "/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/trees_cache/tree_a50c006ac491d07e399f94f1be37cfe0_t10000.tree.npz",
+  "tree_sha256": "e5051e152e6ca0b2773e40f0305b8babfcb04c3f305cf59c59e390b3e057da35",
+  "settings_path": "/home/carl/svv_sweeps/GFM/validation/results/2026-09-09_m23-characterization_9cb7712/cube-10000-water-settings.json",
+  "array_status": "pass",
+  "summary_status": "pass",
+  "legacy_wall_s_with_evidence": 64.56545761899906,
+  "cascade_wall_s_with_evidence": 64.39836732799995,
+  "legacy_peak_rss_bytes": 3567710208,
+  "cascade_peak_rss_bytes": 3574165504,
+  "legacy_peak_gpu_memory_bytes": 0,
+  "cascade_peak_gpu_memory_bytes": 0,
+  "performance_certifying": false,
+  "performance_note": "Array-evidence writes are enabled; internal component timings are diagnostic only."
+}

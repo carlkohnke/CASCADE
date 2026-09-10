@@ -174,3 +174,35 @@ The current TissueSim cube script does not implement a general automatic float64
 ### Status
 
 - The first characterization artifact built from `1f262f7` is superseded before numerical use because the pressure-unit correction changes packaged production code. A new checkpoint and wheel are required before the array campaign begins.
+
+## 2026-09-09 — Frozen cube numerical matrix passed through five million terminals
+
+### Work performed
+
+- Checkpointed the pressure-corrected array harness at commit `9cb7712` and built an exact candidate wheel with SHA-256 `2bf57b8a39cfc39b2f18836c8c4eb83788698396a55693f7426311f13b0331ce`.
+- Installed that wheel into an isolated Python 3.9 environment using public `svv==0.0.48`; added the pinned CUDA 13 component wheels to both isolated solver environments and verified compiled CuPy execution. CASCADE also passed `cascade doctor --require-gpu`.
+- Strengthened the legacy runner to require an explicit tree path and SHA-256, override the oracle's cache lookup with only that file, and fail if any lower-count cache/growth path is requested.
+- Executed legacy then CASCADE sequentially for blood and water/cell media at 1, 10, 100, 1k, 10k, 100k, 1M, and 5M terminals using the same one-million-point coordinate fixture. CPU was used through 100k and CUDA at 1M/5M.
+- Captured 17 memory-mappable arrays and 23 summary fields per case. The 1-terminal cases were rerun in a separate append-only campaign after explicit-tree enforcement was added.
+- Reduced external GPU-memory polling to a two-second cadence while retaining quarter-second process-tree RSS sampling and the 45 GiB abort.
+- Added a deterministic campaign summarizer that consolidates pass/fail, exact mismatch counts, tolerance failures, evidence-enabled wall time, memory, and load time without treating those diagnostic walls as M3 certification.
+
+### Results
+
+- All 16 scale/fluid cases passed; there were zero exact mismatches and zero tolerance failures.
+- The largest comparison covered 10,000,001 segments plus 1,000,000 tissue samples in each fluid.
+- Peak CASCADE RSS was 16.65 GiB at 5M terminals, below the 45 GiB safety limit; legacy peak RSS was 6.20 GiB or less.
+- Large-tree end-to-end overhead was attributed primarily to CASCADE network loading/conversion: 56-62 s at 5M versus about 8 s in the oracle. The numerical solve remained much closer and must be separated from load cost in the clean M3 protocol.
+- `nvidia-smi` did not expose per-process WSL GPU allocation in these runs, so its recorded zero is not treated as proof of zero GPU memory use. Successful compiled kernels and solver GPU logs establish execution; host RSS remains the enforced safety metric.
+
+### Evidence
+
+- Consolidated report: `../../validation/results/2026-09-09_m23-characterization_9cb7712/cube-characterization.md` and `.json`.
+- Exact-tree CUBE-1 rerun: `../../validation/results/2026-09-09_m23-cube1-explicit_9cb7712/`.
+- Heavy arrays and logs: corresponding ignored directories under `../../validation/runs/`.
+
+### Verification
+
+- Each monitored record contains the exact command, environment, log hash, wall time, peak process-tree RSS, and memory-abort status.
+- Each legacy record contains the frozen oracle, point, and tree hashes; each CASCADE record identifies the installed wheel module path and version.
+- The report generator returned success only after all array and summary comparison files reported `pass`.

@@ -119,6 +119,7 @@ def main() -> int:
     parser.add_argument("--metadata", type=Path, required=True)
     parser.add_argument("--log", type=Path, required=True)
     parser.add_argument("--sample-seconds", type=float, default=0.25)
+    parser.add_argument("--gpu-sample-seconds", type=float, default=2.0)
     parser.add_argument("--max-rss-gib", type=float, default=45.0)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -174,14 +175,18 @@ def main() -> int:
         reader = threading.Thread(target=copy_output, daemon=True)
         reader.start()
         next_status = started + 30.0
+        next_gpu_sample = started
         while process.poll() is None:
             rss, vms, pids = _process_sample(root)
             peak_rss = max(peak_rss, rss)
             peak_vms = max(peak_vms, vms)
-            gpu = _gpu_memory_by_pid(pids)
-            if gpu is not None:
-                gpu_observed = True
-                peak_gpu = max(peak_gpu, gpu)
+            now = time.perf_counter()
+            if now >= next_gpu_sample:
+                gpu = _gpu_memory_by_pid(pids)
+                if gpu is not None:
+                    gpu_observed = True
+                    peak_gpu = max(peak_gpu, gpu)
+                next_gpu_sample = now + max(float(args.gpu_sample_seconds), 0.25)
             samples += 1
             if rss > memory_limit:
                 aborted_for_memory = True
@@ -191,7 +196,6 @@ def main() -> int:
                 )
                 _terminate_tree(root)
                 break
-            now = time.perf_counter()
             if now >= next_status:
                 print(
                     f"monitor: elapsed={now - started:.1f}s rss={rss / 1024**3:.2f}GiB "
@@ -212,6 +216,7 @@ def main() -> int:
         "return_code": int(return_code),
         "elapsed_wall_s": elapsed,
         "sample_interval_s": float(args.sample_seconds),
+        "gpu_sample_interval_s": float(args.gpu_sample_seconds),
         "samples": samples,
         "peak_rss_bytes": peak_rss,
         "peak_vms_bytes": peak_vms,

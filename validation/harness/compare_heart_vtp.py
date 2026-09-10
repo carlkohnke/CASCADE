@@ -20,7 +20,13 @@ IDENTITY_FIELDS = {
 COORDINATE_FIELDS = {"mesh_points", "x", "y", "z"}
 
 
-def _field_comparison(name: str, reference: np.ndarray, candidate: np.ndarray) -> dict:
+def _field_comparison(
+    name: str,
+    reference: np.ndarray,
+    candidate: np.ndarray,
+    *,
+    max_sparse_outlier_fraction: float = 0.0,
+) -> dict:
     reference = np.asarray(reference)
     candidate = np.asarray(candidate)
     result = {
@@ -55,6 +61,7 @@ def _field_comparison(name: str, reference: np.ndarray, candidate: np.ndarray) -
     absolute_error = np.abs(candidate[finite] - reference[finite])
     allowed = absolute_tolerance + 1.0e-3 * np.abs(reference[finite])
     failed = int(np.count_nonzero(absolute_error > allowed))
+    failure_fraction = float(failed / absolute_error.size) if absolute_error.size else 0.0
     result.update(
         {
             "rule": "rtol_1e-3_plus_max_case_scale_1e-6_or_field_1e-6",
@@ -63,7 +70,9 @@ def _field_comparison(name: str, reference: np.ndarray, candidate: np.ndarray) -
             "relative_tolerance": 1.0e-3,
             "max_absolute_error": float(np.max(absolute_error)) if absolute_error.size else 0.0,
             "failure_count": failed,
-            "passed": finite_equal and failed == 0,
+            "failure_fraction": failure_fraction,
+            "max_sparse_outlier_fraction": float(max_sparse_outlier_fraction),
+            "passed": finite_equal and failure_fraction <= float(max_sparse_outlier_fraction),
         }
     )
     return result
@@ -75,12 +84,52 @@ def _mesh_comparison(
     *,
     require_same_fields: bool,
     require_point_order: bool,
+    max_sparse_outlier_fraction: float,
+    align_by_coordinates: bool = False,
+    max_coordinate_set_difference_fraction: float = 0.0,
 ) -> dict:
     reference = pv.read(reference_path)
     candidate = pv.read(candidate_path)
     reference_points = np.asarray(reference.points)
     candidate_points = np.asarray(candidate.points)
-    if not require_point_order and reference_points.shape == candidate_points.shape:
+    aligned_reference_rows = None
+    aligned_candidate_rows = None
+    coordinate_alignment = None
+    if align_by_coordinates:
+        ref_contiguous = np.ascontiguousarray(reference_points)
+        cand_contiguous = np.ascontiguousarray(candidate_points)
+        if ref_contiguous.ndim != 2 or ref_contiguous.shape[1] != 3:
+            raise ValueError("Coordinate alignment requires three-component point arrays")
+        if ref_contiguous.dtype != cand_contiguous.dtype:
+            cand_contiguous = cand_contiguous.astype(ref_contiguous.dtype)
+        key_dtype = np.dtype((np.void, ref_contiguous.dtype.itemsize * 3))
+        ref_keys = ref_contiguous.view(key_dtype).reshape(-1)
+        cand_keys = cand_contiguous.view(key_dtype).reshape(-1)
+        if np.unique(ref_keys).size != ref_keys.size or np.unique(cand_keys).size != cand_keys.size:
+            raise ValueError("Coordinate alignment requires unique point coordinates")
+        _, aligned_reference_rows, aligned_candidate_rows = np.intersect1d(
+            ref_keys,
+            cand_keys,
+            assume_unique=True,
+            return_indices=True,
+        )
+        reference_only = int(ref_keys.size - aligned_reference_rows.size)
+        candidate_only = int(cand_keys.size - aligned_candidate_rows.size)
+        difference_fraction = float(
+            max(reference_only / max(ref_keys.size, 1), candidate_only / max(cand_keys.size, 1))
+        )
+        coordinate_alignment = {
+            "mode": "exact_coordinate_intersection",
+            "common_points": int(aligned_reference_rows.size),
+            "reference_only_points": reference_only,
+            "candidate_only_points": candidate_only,
+            "difference_fraction": difference_fraction,
+            "max_difference_fraction": float(max_coordinate_set_difference_fraction),
+            "passed": difference_fraction <= float(max_coordinate_set_difference_fraction),
+        }
+        reference_points = reference_points[aligned_reference_rows]
+        candidate_points = candidate_points[aligned_candidate_rows]
+    elif not require_point_order and reference_points.shape == candidate_points.shape:
         reference_points = reference_points[np.lexsort(reference_points.T[::-1])]
         candidate_points = candidate_points[np.lexsort(candidate_points.T[::-1])]
     result = {
@@ -93,14 +142,28 @@ def _mesh_comparison(
         "reference_cell_count": reference.n_cells,
         "candidate_cell_count": candidate.n_cells,
         "point_order_required": require_point_order,
+        "coordinate_alignment": coordinate_alignment,
         "points": _field_comparison("mesh_points", reference_points, candidate_points),
         "fields": [],
     }
     common = sorted(set(reference.point_data) & set(candidate.point_data))
     for name in common:
+        if align_by_coordinates and name == "point_id":
+            continue
+        reference_values = np.asarray(reference.point_data[name])
+        candidate_values = np.asarray(candidate.point_data[name])
+        if align_by_coordinates:
+            reference_values = reference_values[aligned_reference_rows]
+            candidate_values = candidate_values[aligned_candidate_rows]
         result["fields"].append(
-            _field_comparison(name, reference.point_data[name], candidate.point_data[name])
+            _field_comparison(
+                name,
+                reference_values,
+                candidate_values,
+                max_sparse_outlier_fraction=max_sparse_outlier_fraction,
+            )
         )
+    result["alignment_ignored_fields"] = ["point_id"] if align_by_coordinates else []
     result["reference_only_fields"] = sorted(set(reference.point_data) - set(candidate.point_data))
     result["candidate_only_fields"] = sorted(set(candidate.point_data) - set(reference.point_data))
     required_fields_equal = (
@@ -109,8 +172,8 @@ def _mesh_comparison(
     )
     result["same_field_set_required"] = require_same_fields
     result["passed"] = bool(
-        result["point_count_equal"]
-        and result["cell_count_equal"]
+        (coordinate_alignment["passed"] if align_by_coordinates else result["point_count_equal"])
+        and (result["cell_count_equal"] or align_by_coordinates)
         and result["points"]["passed"]
         and required_fields_equal
         and all(field["passed"] for field in result["fields"])
@@ -124,7 +187,40 @@ def main() -> int:
     parser.add_argument("--cascade-dir", type=Path, required=True)
     parser.add_argument("--prefix", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--allow-sparse-physical-outlier-fraction",
+        type=float,
+        default=0.0,
+        help=(
+            "Allow this fraction of physical-field values to exceed the pointwise "
+            "tolerance; identity fields, coordinates, finite masks, and fractions "
+            "remain strict. The default is zero."
+        ),
+    )
+    parser.add_argument(
+        "--skip-vessel-mesh",
+        action="store_true",
+        help=(
+            "Compare tissue and domain outputs only. Use for explicitly compact "
+            "production-scale campaigns after vessel schema is certified on HEART-S."
+        ),
+    )
+    parser.add_argument(
+        "--align-tissue-by-coordinates",
+        action="store_true",
+        help="Align tissue fields on their exact shared coordinates before comparison.",
+    )
+    parser.add_argument(
+        "--allow-tissue-coordinate-set-difference-fraction",
+        type=float,
+        default=0.0,
+        help="Allowed fraction of vessel-boundary tissue points present on only one side.",
+    )
     args = parser.parse_args()
+    if not 0.0 <= args.allow_sparse_physical_outlier_fraction <= 1.0:
+        raise ValueError("--allow-sparse-physical-outlier-fraction must be in [0, 1]")
+    if not 0.0 <= args.allow_tissue_coordinate_set_difference_fraction <= 1.0:
+        raise ValueError("--allow-tissue-coordinate-set-difference-fraction must be in [0, 1]")
 
     output = args.output.expanduser().resolve()
     if output.exists():
@@ -132,12 +228,22 @@ def main() -> int:
     suffixes = ("forest_vessels.vtp", "forest_oxygen_points.vtp", "domain_boundary.vtp")
     meshes = {}
     for suffix in suffixes:
+        if args.skip_vessel_mesh and suffix == "forest_vessels.vtp":
+            continue
         name = f"{args.prefix}_{suffix}"
         meshes[suffix] = _mesh_comparison(
             args.legacy_dir / name,
             args.cascade_dir / name,
             require_same_fields=suffix != "domain_boundary.vtp",
             require_point_order=suffix != "domain_boundary.vtp",
+            max_sparse_outlier_fraction=float(args.allow_sparse_physical_outlier_fraction),
+            align_by_coordinates=(
+                bool(args.align_tissue_by_coordinates)
+                and suffix == "forest_oxygen_points.vtp"
+            ),
+            max_coordinate_set_difference_fraction=float(
+                args.allow_tissue_coordinate_set_difference_fraction
+            ),
         )
 
     tissue_path = args.cascade_dir / f"{args.prefix}_forest_oxygen_points.vtp"
@@ -165,6 +271,17 @@ def main() -> int:
             "physical_fields": "rtol=1e-3, atol=max(1e-6 * reference case scale, 1e-6 field units)",
             "fractions": "absolute tolerance 0.001",
             "finite_masks": "exact",
+            "max_sparse_physical_outlier_fraction": float(
+                args.allow_sparse_physical_outlier_fraction
+            ),
+            "tissue_coordinate_alignment": (
+                "exact shared-coordinate intersection"
+                if args.align_tissue_by_coordinates
+                else "disabled"
+            ),
+            "max_tissue_coordinate_set_difference_fraction": float(
+                args.allow_tissue_coordinate_set_difference_fraction
+            ),
         },
         "meshes": meshes,
         "fractions": fractions,

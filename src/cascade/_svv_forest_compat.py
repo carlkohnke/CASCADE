@@ -170,7 +170,13 @@ class ForestCompatibilityMixin:
                     return getattr(self._raw, name)
 
             def _read_npy_member(member):
-                """Stream one NPY member directly into its requested working dtype."""
+                """Stream physical fields and retain exact integer identifiers.
+
+                SVV stores child, parent, and node identifiers in columns 15:20
+                of its floating vessel table. Float32 cannot represent every
+                integer above 2**24, so capture those columns from the source
+                dtype before downcasting the physical table.
+                """
                 with archive.open(member, "r") as raw_handle:
                     handle = _SharedProgressReader(raw_handle, load_progress)
                     version = np.lib.format.read_magic(handle)
@@ -179,12 +185,20 @@ class ForestCompatibilityMixin:
                     if source_dtype.hasobject:
                         raise ValueError(f"Simulation cache member {member!r} contains object data.")
                     target_dtype = resolved_data_dtype or source_dtype
-                    order = "F" if fortran_order else "C"
-                    output = np.empty(shape, dtype=target_dtype, order=order)
-                    output_flat = output.reshape(-1, order=order)
-                    values_per_chunk = max(1, (16 * 1024 * 1024) // max(source_dtype.itemsize, 1))
-                    for offset in range(0, output_flat.size, values_per_chunk):
-                        count = min(values_per_chunk, output_flat.size - offset)
+                    if len(shape) != 2 or int(shape[1]) < 20 or fortran_order:
+                        raise ValueError(
+                            f"Simulation cache member {member!r} must be a C-order vessel table with at least 20 columns."
+                        )
+                    n_rows, n_cols = (int(shape[0]), int(shape[1]))
+                    output = np.empty(shape, dtype=target_dtype, order="C")
+                    exact_ids = np.empty((n_rows, 5), dtype=resolved_index_dtype)
+                    rows_per_chunk = max(
+                        1,
+                        (16 * 1024 * 1024) // max(source_dtype.itemsize * n_cols, 1),
+                    )
+                    for row_offset in range(0, n_rows, rows_per_chunk):
+                        row_count = min(rows_per_chunk, n_rows - row_offset)
+                        count = row_count * n_cols
                         byte_count = count * source_dtype.itemsize
                         blocks = []
                         remaining = byte_count
@@ -194,9 +208,29 @@ class ForestCompatibilityMixin:
                                 raise ValueError(f"Simulation cache member {member!r} ended before its NPY payload.")
                             blocks.append(block)
                             remaining -= len(block)
-                        source = np.frombuffer(b"".join(blocks), dtype=source_dtype, count=count)
-                        output_flat[offset:offset + count] = source
-                    return output
+                        source = np.frombuffer(
+                            b"".join(blocks), dtype=source_dtype, count=count
+                        ).reshape((row_count, n_cols))
+                        output[row_offset:row_offset + row_count, :] = source
+                        raw_ids = source[:, 15:20]
+                        finite_ids = np.isfinite(raw_ids)
+                        if np.any(finite_ids):
+                            finite_values = raw_ids[finite_ids]
+                            if np.any(finite_values != np.rint(finite_values)):
+                                raise ValueError(
+                                    f"Simulation cache member {member!r} contains non-integral topology/node identifiers."
+                                )
+                            info = np.iinfo(resolved_index_dtype)
+                            if float(np.min(finite_values)) < info.min or float(np.max(finite_values)) > info.max:
+                                raise OverflowError(
+                                    f"Simulation cache member {member!r} identifiers do not fit {resolved_index_dtype}."
+                                )
+                        exact_chunk = np.full(raw_ids.shape, -1, dtype=resolved_index_dtype)
+                        exact_chunk[finite_ids] = raw_ids[finite_ids].astype(
+                            resolved_index_dtype, copy=False
+                        )
+                        exact_ids[row_offset:row_offset + row_count, :] = exact_chunk
+                    return output, exact_ids[:, 0:3], exact_ids[:, 3:5]
 
             forest = cls(
                 n_networks=meta.get("n_networks", 1),
@@ -236,7 +270,19 @@ class ForestCompatibilityMixin:
                     tree.parameters.length_exponent = params["length_exponent"]
                     tree.parameters.max_nonconvex_count = params["max_nonconvex_count"]
 
-                    data_array = _read_npy_member(tree_meta["data_member"])
+                    data_array, exact_connectivity, exact_node_ids = _read_npy_member(
+                        tree_meta["data_member"]
+                    )
+                    if "connectivity_member" in tree_meta:
+                        with archive.open(tree_meta["connectivity_member"], "r") as handle:
+                            exact_connectivity = np.asarray(
+                                np.load(handle, allow_pickle=False), dtype=resolved_index_dtype
+                            )
+                    if "node_ids_member" in tree_meta:
+                        with archive.open(tree_meta["node_ids_member"], "r") as handle:
+                            exact_node_ids = np.asarray(
+                                np.load(handle, allow_pickle=False), dtype=resolved_index_dtype
+                            )
                     if data_array.ndim != 2:
                         data_array = np.atleast_2d(data_array)
                     n_rows = int(tree_meta.get("segment_count", data_array.shape[0]))
@@ -244,6 +290,14 @@ class ForestCompatibilityMixin:
                         n_rows = int(data_array.shape[0])
                     if n_rows < data_array.shape[0]:
                         data_array = data_array[:n_rows, :]
+                    if exact_connectivity.ndim != 2 or exact_connectivity.shape[0] < n_rows or exact_connectivity.shape[1] != 3:
+                        raise ValueError(
+                            f"Simulation cache tree {i}/{j} has invalid connectivity shape {exact_connectivity.shape}."
+                        )
+                    if exact_node_ids.ndim != 2 or exact_node_ids.shape[0] < n_rows or exact_node_ids.shape[1] != 2:
+                        raise ValueError(
+                            f"Simulation cache tree {i}/{j} has invalid node-id shape {exact_node_ids.shape}."
+                        )
 
                     tree_data = TreeData.from_array(np.asarray(data_array))
                     tree.data = tree_data
@@ -254,7 +308,8 @@ class ForestCompatibilityMixin:
                     tree.preallocate = tree.data
                     tree.preallocate_midpoints = np.empty((0, 3), dtype=tree.data_dtype)
                     tree.midpoints = tree.preallocate_midpoints
-                    tree.connectivity = None
+                    tree.connectivity = exact_connectivity[:n_rows]
+                    tree._cascade_node_ids = exact_node_ids[:n_rows]
                     tree.vessel_map = TreeMap()
                     tree.kdtm = None
                     tree.hnsw_tree = None
@@ -357,7 +412,7 @@ class ForestCompatibilityMixin:
                     trimmed = _trim(tree)
                     with archive.open(data_member, "w", force_zip64=True) as handle:
                         np.save(handle, trimmed, allow_pickle=False)
-                    network_meta.append({
+                    tree_meta = {
                         "data_member": data_member,
                         "segment_count": int(trimmed.shape[0]),
                         "n_terminals": int(getattr(tree, "n_terminals", 0) or 0),
@@ -371,7 +426,28 @@ class ForestCompatibilityMixin:
                         "max_distal_node": int(getattr(tree, "max_distal_node", trimmed.shape[0]) or trimmed.shape[0]),
                         "tree_scale": getattr(tree, "tree_scale", None),
                         "parameters": self._serialize_tree_parameters(tree),
-                    })
+                    }
+                    exact_connectivity = getattr(tree, "connectivity", None)
+                    if exact_connectivity is not None:
+                        connectivity_member = f"tree_{i}_{j}_connectivity.npy"
+                        with archive.open(connectivity_member, "w", force_zip64=True) as handle:
+                            np.save(
+                                handle,
+                                np.asarray(exact_connectivity, dtype=getattr(tree, "index_dtype", np.int64)),
+                                allow_pickle=False,
+                            )
+                        tree_meta["connectivity_member"] = connectivity_member
+                    exact_node_ids = getattr(tree, "_cascade_node_ids", None)
+                    if exact_node_ids is not None:
+                        node_ids_member = f"tree_{i}_{j}_node_ids.npy"
+                        with archive.open(node_ids_member, "w", force_zip64=True) as handle:
+                            np.save(
+                                handle,
+                                np.asarray(exact_node_ids, dtype=getattr(tree, "index_dtype", np.int64)),
+                                allow_pickle=False,
+                            )
+                        tree_meta["node_ids_member"] = node_ids_member
+                    network_meta.append(tree_meta)
                 meta["trees"].append(network_meta)
             archive.writestr("simulation_meta.pkl", pickle.dumps(meta, protocol=pickle.HIGHEST_PROTOCOL))
 

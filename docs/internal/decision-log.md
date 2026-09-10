@@ -290,3 +290,24 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted from HEART-S occlusion comparison
 - Decision: Radius reduction or zero-radius subtree values are temporary solve boundary conditions. After flow/Cext calculation, restore the original radii both in the forest and in the solution arrays used for VTP/tissue geometry; retain effective radii and blocked IDs in infarction metadata.
 - Consequence: Healthy and occluded outputs preserve the exact frozen vascular anatomy while flow, concentration, source strength, and viability reflect the selected occlusion. This also prevents the temporary zero-radius subtree from changing the tissue finite mask.
+
+## D-042 — Treat vanishing GPU cell-boundary differences distributionally
+
+- Date: 2026-09-10
+- Status: accepted from HEART-S/L evidence; clarifies D-023 and D-039
+- Decision: Identity fields, shared coordinates, finite masks, and aggregate viability fractions remain strict. For GPU heart physical fields, at most `2e-4` of exact-coordinate-aligned values may exceed the ordinary `rtol=1e-3` plus float32 absolute-floor rule. At most `1e-5` of tissue output coordinates may differ because float32 versus float64 vessel geometry classifies a point exactly on a vessel/cell boundary differently. The maximum error and all outlier counts remain reported; this exception cannot relax topology or segment IDs.
+- Consequence: HEART-S has at most `3.2e-6` sparse physical outliers. HEART-L has six boundary-coordinate differences per side (`3.996e-6`), 151 normalized-field outliers among 1,501,705 common points (`1.006e-4`), and one differing viability value, while `FracAbove1pct` and `FracAbove5pct` differ by only `6.66e-7`.
+
+## D-043 — Store large-forest identifiers outside float32 physical tables
+
+- Date: 2026-09-10
+- Status: accepted from HEART-L failure attribution
+- Decision: Simulation-cache loading streams physical fields into float32 but captures SVV child, parent, proximal-node, and distal-node columns from the float64 source into separate int32 arrays before conversion. CASCADE flow, hematocrit, connectivity repair/validation, infarction traversal, and terminal detection use those exact integer arrays. Large identifiers are never written back into float32 columns.
+- Consequence: The 17,263,986-segment left HEART-L tree no longer corrupts IDs above `2**24`; the complete 24,999,999-segment forest solves in compact form while preserving the intended float32 memory reduction.
+
+## D-044 — Vectorize the production GL1-to-GL5 heart transition
+
+- Date: 2026-09-10
+- Status: accepted from HEART-L performance attribution
+- Decision: Resampling a one-node Cext field onto five tissue quadrature nodes uses vectorized constant replication and vectorized source-weight redistribution. It must not execute a Python loop per segment. The GL1 integrated source weight remains conserved exactly to the working float32 precision.
+- Consequence: A pathological approximately 175-million-iteration HEART-L preprocessing path was removed. The source candidate completes the full 25-million-segment/1.62-million-point production workflow in 132.83 seconds versus 179.24 seconds for the isolated legacy reference.

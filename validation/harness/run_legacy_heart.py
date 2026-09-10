@@ -115,6 +115,16 @@ def main() -> int:
             "calling the unmodified legacy GPU tissue evaluator."
         ),
     )
+    parser.add_argument(
+        "--skip-vessel-output",
+        action="store_true",
+        help=(
+            "Validation-only compact mode for older frozen exporters that lack "
+            "their own --skip-vessel-output flag. The solver and tissue output "
+            "remain unchanged; only the multi-million-segment vessel VTP is replaced "
+            "with an empty placeholder."
+        ),
+    )
     args, forwarded = parser.parse_known_args()
     if forwarded and forwarded[0] == "--":
         forwarded = forwarded[1:]
@@ -186,6 +196,16 @@ def main() -> int:
             return original_compute_tissue(ts, cext_ts, corrected, domain, exporter_args, **kwargs)
 
         module._compute_tissue = corrected_compute_tissue
+
+    if args.skip_vessel_output:
+        def compact_vessel_polydata(*_args, **_kwargs):
+            print(
+                "Validation wrapper suppressed legacy vessel VTP array construction",
+                flush=True,
+            )
+            return module.pv.PolyData()
+
+        module._build_vessel_polydata = compact_vessel_polydata
 
     previous_argv = sys.argv
     sys.argv = [str(oracle), *forwarded]

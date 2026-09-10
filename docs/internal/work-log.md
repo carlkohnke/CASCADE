@@ -405,3 +405,23 @@ The current TissueSim cube script does not implement a general automatic float64
 - The healthy production GL5 comparison passes every structural, field, finite-mask, and viability rule. The native effective-GL1 comparison is retained and shows the expected quadrature difference rather than being promoted to production evidence.
 - The first occlusion GL5 comparison passes viability fractions but exposed exactly 6,207 temporarily zeroed subtree radii (12,414 VTP points) and the resulting tissue-mask difference. D-041 records the source fix; rerun from an exact fresh wheel before closing VAL-07.
 - CASCADE full-grid healthy wall time was below the equivalent explicit-point legacy run despite performing five tissue nodes. All runs remained far below the 45 GiB RSS ceiling.
+## 2026-09-10 — HEART-S closure and HEART-L production attribution
+
+### Scope
+
+VAL-06, VAL-07, PERF-05, PERF-06, and PERF-07.
+
+### Work performed
+
+- Accepted the explicit sparse GPU boundary comparison policy after the exact `987c97e` HEART-S occlusion rerun preserved anatomy and finite masks.
+- Fixed HEART-L float32 connectivity corruption by streaming topology/node columns into exact int32 side arrays and routing analysis solvers through them.
+- Added compact legacy-oracle output suppression and coordinate-aligned tissue comparison to the validation harness.
+- Replaced the GL1-to-GL5 per-segment Python interpolation loop with vectorized constant interpolation.
+
+### Verification and next gate
+
+- Focused harness/loader tests pass.
+- A compact 24,999,999-segment source run completed in 75.60 s versus 80.93 s legacy and used 27.60 versus 29.95 GiB peak RSS.
+- The full 200-cubed-derived point campaign completed in 132.83 s versus 179.24 s legacy, used 33.76 versus 36.98 GiB peak RSS, and passed the D-042 field/fraction comparison.
+- Evidence is in `../../validation/results/2026-09-10_m2-heart-s-occlusion-987c97e/`, `../../validation/results/2026-09-10_m23-heart-l-connectivity-source/`, and `../../validation/results/2026-09-10_m23-heart-l-full-vectorized/`.
+- Final exact-wheel repetition remains before closing M2/M3.

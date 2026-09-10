@@ -3108,7 +3108,7 @@ def apply_fahraeus_lindqvist_resistance(tree, *, fluid: str | None = None, hd_ro
         return
 
     data = np.asarray(tree.data[:nseg], dtype=float)
-    idx = np.nan_to_num(data[:, 15:18], nan=-1.0).astype(np.int64, copy=False)
+    idx = _tree_exact_connectivity(tree, data)
     original_root_flow = float(data[0, 22]) if data.size else float("nan")
 
     try:
@@ -3138,8 +3138,8 @@ def apply_fahraeus_lindqvist_resistance(tree, *, fluid: str | None = None, hd_ro
             f_i = flows[i]
             left = idx[i, 0]
             right = idx[i, 1]
-            has_left = not np.isnan(data[i, 15])
-            has_right = not np.isnan(data[i, 16])
+            has_left = idx[i, 0] >= 0
+            has_right = idx[i, 1] >= 0
             if has_left and not has_right:
                 flows[left] = f_i
                 stack.append(left)
@@ -3340,7 +3340,18 @@ if _HAVE_NUMBA:
         return hd
 
 
-def _topdown_order_for_tree_data(data: np.ndarray, parents: np.ndarray | None = None) -> tuple[np.ndarray, str]:
+def _tree_exact_connectivity(tree, data: np.ndarray) -> np.ndarray:
+    conn = getattr(tree, "connectivity", None)
+    if conn is not None and np.asarray(conn).shape == (data.shape[0], 3):
+        return np.asarray(conn, dtype=np.int64)
+    return np.nan_to_num(data[:, 15:18], nan=-1.0).astype(np.int64)
+
+
+def _topdown_order_for_tree_data(
+    data: np.ndarray,
+    parents: np.ndarray | None = None,
+    children: np.ndarray | None = None,
+) -> tuple[np.ndarray, str]:
     nseg = int(data.shape[0])
     if parents is None:
         parents = np.nan_to_num(data[:, 17], nan=-1.0).astype(np.int64)
@@ -3349,8 +3360,12 @@ def _topdown_order_for_tree_data(data: np.ndarray, parents: np.ndarray | None = 
     if np.all(parents[nonroot] < parent_rows[nonroot]):
         return parent_rows, "index"
     if _HAVE_NUMBA:
-        left_child = np.nan_to_num(data[:, 15], nan=-1.0).astype(np.int64)
-        right_child = np.nan_to_num(data[:, 16], nan=-1.0).astype(np.int64)
+        if children is None:
+            left_child = np.nan_to_num(data[:, 15], nan=-1.0).astype(np.int64)
+            right_child = np.nan_to_num(data[:, 16], nan=-1.0).astype(np.int64)
+        else:
+            left_child = np.asarray(children[:, 0], dtype=np.int64)
+            right_child = np.asarray(children[:, 1], dtype=np.int64)
         roots = np.flatnonzero(parents < 0).astype(np.int64)
         order_candidate, n_order = _topdown_order_from_children_numba(left_child, right_child, roots, nseg)
         if int(n_order) == nseg:
@@ -3368,10 +3383,11 @@ def _hematocrit_context_for_tree(tree) -> dict[str, np.ndarray | str | int]:
         return cached
 
     data = np.asarray(tree.data[:nseg])
-    parents = np.nan_to_num(data[:, 17], nan=-1.0).astype(np.int64)
-    left_child = np.nan_to_num(data[:, 15], nan=-1.0).astype(np.int64)
-    right_child = np.nan_to_num(data[:, 16], nan=-1.0).astype(np.int64)
-    order, order_mode = _topdown_order_for_tree_data(data, parents)
+    conn = _tree_exact_connectivity(tree, data)
+    parents = conn[:, 2]
+    left_child = conn[:, 0]
+    right_child = conn[:, 1]
+    order, order_mode = _topdown_order_for_tree_data(data, parents, conn[:, 0:2])
     radii = np.asarray(data[:, 21], dtype=float)
     context: dict[str, np.ndarray | str | int] = {
         "nseg": int(nseg),
@@ -6615,6 +6631,11 @@ def _resample_cext_source_state_for_tissue(
         array = np.asarray(values, dtype=np.float32)
         if array.ndim != 2 or array.shape[1] != old_order:
             return array
+        # The production heart contract resamples Cext GL1 to tissue GL5.
+        # Linear interpolation from one source node is constant, so avoid a
+        # Python loop over tens of millions of vessel segments.
+        if old_order == 1:
+            return np.repeat(array, target_order, axis=1)
         out = np.empty((array.shape[0], target_order), dtype=np.float32)
         for segment_id in range(array.shape[0]):
             out[segment_id] = np.interp(new_t, old_t, array[segment_id]).astype(
@@ -17346,7 +17367,8 @@ def compute_concentration_metrics(
     terminals = [idx for idx in range(cout.size) if not vessel_map.get(idx, {}).get("downstream")] if vessel_map else []
     if not terminals:
         data = np.asarray(tree.data[: cout.size], dtype=float)
-        terminals = list(np.where(np.isnan(data[:, 15]) & np.isnan(data[:, 16]))[0])
+        conn = _tree_exact_connectivity(tree, data)
+        terminals = list(np.where((conn[:, 0] < 0) & (conn[:, 1] < 0))[0])
     target_concs = cout[terminals] if terminals else cout
     finite = target_concs[np.isfinite(target_concs)]
     c_lq = float(np.percentile(finite, 25.0)) if finite.size else float("nan")
@@ -18942,17 +18964,23 @@ def assemble_tree_segments(
     else:
         mu_arr = segment_viscosity_from_radius(radii_arr, mu_base, fluid)
 
-    prox_raw = np.asarray(data[:, 18], dtype=float).reshape(-1)
-    dist_raw = np.asarray(data[:, 19], dtype=float).reshape(-1)
-    have_node_ids = prox_raw.size == seg_count and dist_raw.size == seg_count and np.all(np.isfinite(prox_raw)) and np.all(np.isfinite(dist_raw))
+    exact_node_ids = getattr(tree, "_cascade_node_ids", None)
+    if exact_node_ids is not None and np.asarray(exact_node_ids).shape == (seg_count, 2):
+        exact_node_ids = np.asarray(exact_node_ids, dtype=np.int64)
+        prox_raw = exact_node_ids[:, 0]
+        dist_raw = exact_node_ids[:, 1]
+        have_node_ids = bool(np.all(prox_raw >= 0) and np.all(dist_raw >= 0))
+    else:
+        prox_raw = np.asarray(data[:, 18], dtype=float).reshape(-1)
+        dist_raw = np.asarray(data[:, 19], dtype=float).reshape(-1)
+        have_node_ids = prox_raw.size == seg_count and dist_raw.size == seg_count and np.all(np.isfinite(prox_raw)) and np.all(np.isfinite(dist_raw))
 
     if have_node_ids:
         prox_ids = prox_raw.astype(np.int64, copy=False)
         dist_ids = dist_raw.astype(np.int64, copy=False)
         inlet_nodes = [int(prox_ids[0])] if prox_ids.size else []
-        left_child = np.asarray(data[:, 15], dtype=float)
-        right_child = np.asarray(data[:, 16], dtype=float)
-        is_terminal = np.isnan(left_child) & np.isnan(right_child)
+        conn = _tree_exact_connectivity(tree, data)
+        is_terminal = (conn[:, 0] < 0) & (conn[:, 1] < 0)
         outlet_nodes = [int(v) for v in dist_ids[is_terminal]]
         return starts_arr, ends_arr, radii_arr, lengths_arr, mu_arr, inlet_nodes, outlet_nodes, prox_ids, dist_ids
 
@@ -18963,9 +18991,8 @@ def assemble_tree_segments(
     prox_ids, dist_ids, _ = _build_node_indices(geom)
     inlet_nodes = [int(prox_ids[0])] if prox_ids.size else []
 
-    left_child = np.asarray(data[:, 15], dtype=float)
-    right_child = np.asarray(data[:, 16], dtype=float)
-    is_terminal = np.isnan(left_child) & np.isnan(right_child)
+    conn = _tree_exact_connectivity(tree, data)
+    is_terminal = (conn[:, 0] < 0) & (conn[:, 1] < 0)
     outlet_nodes = [int(v) for v in dist_ids[is_terminal]]
 
     return starts_arr, ends_arr, radii_arr, lengths_arr, mu_arr, inlet_nodes, outlet_nodes, prox_ids, dist_ids
@@ -19364,9 +19391,8 @@ def summarize_tree(
     vessel_map = getattr(tree, "vessel_map", {}) or {}
     terminals = [idx for idx in range(cout.size) if not vessel_map.get(idx, {}).get("downstream")] if vessel_map else []
     if not terminals:
-        left_child = data[:, 15]
-        right_child = data[:, 16]
-        terminals = list(np.where(np.isnan(left_child) & np.isnan(right_child))[0])
+        conn = _tree_exact_connectivity(tree, data)
+        terminals = list(np.where((conn[:, 0] < 0) & (conn[:, 1] < 0))[0])
     target_concs = cout[terminals] if terminals else cout
     finite = target_concs[np.isfinite(target_concs)]
     c_lq = float(np.percentile(finite, 25.0)) if finite.size else float("nan")

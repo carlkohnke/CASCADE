@@ -494,7 +494,10 @@ def _make_tree_analysis_only(tree) -> None:
     tree.kdtm = None
     tree.hnsw_tree = None
     tree.hnsw_tree_id = None
-    tree.connectivity = None
+    # Keep compact exact integer topology from a simulation cache. It is the
+    # authority when float32 physical tables contain IDs above 2**24.
+    if conn is not None:
+        tree.connectivity = conn
     tree._analysis_only_load = True
 
 
@@ -509,12 +512,16 @@ def _repair_tree_parent_columns_from_children(tree) -> int:
         return 0
     data = np.asarray(tree.data[:seg_count])
     index_dtype = getattr(tree, "index_dtype", np.int64)
-    conn = np.nan_to_num(data[:, 15:18], nan=-1.0).astype(index_dtype)
+    existing_conn = getattr(tree, "connectivity", None)
+    if existing_conn is not None and np.asarray(existing_conn).shape == (seg_count, 3):
+        conn = np.asarray(existing_conn, dtype=index_dtype).copy()
+    else:
+        conn = np.nan_to_num(data[:, 15:18], nan=-1.0).astype(index_dtype)
     # Some older forest-export repairs wrote -1 into tree.data child slots.
     # SVV's solver code treats NaN child slots as terminal leaves, so keep -1
     # only in tree.connectivity and preserve/restore NaNs in tree.data.
     child_conn = conn[:, 0:2]
-    child_conn[data[:, 15:17] < 0] = -1
+    child_conn[child_conn < 0] = -1
     conn[:, 0:2] = child_conn
 
     rows = np.arange(seg_count, dtype=np.int64)
@@ -541,11 +548,16 @@ def _repair_tree_parent_columns_from_children(tree) -> int:
     conn[:, 2] = parent.astype(conn.dtype, copy=False)
     data_conn = conn.astype(float)
     data_conn[data_conn < 0] = np.nan
-    tree.data[:seg_count, 15:18] = data_conn.astype(np.asarray(tree.data).dtype, copy=False)
-    try:
-        tree.preallocate[:seg_count, 15:18] = data_conn.astype(np.asarray(tree.preallocate).dtype, copy=False)
-    except Exception:
-        pass
+    data_dtype = np.asarray(tree.data).dtype
+    can_embed_exactly = data_dtype == np.dtype(np.float64) or seg_count <= 2**24
+    if can_embed_exactly:
+        tree.data[:seg_count, 15:18] = data_conn.astype(data_dtype, copy=False)
+        try:
+            tree.preallocate[:seg_count, 15:18] = data_conn.astype(
+                np.asarray(tree.preallocate).dtype, copy=False
+            )
+        except Exception:
+            pass
     tree.connectivity = conn.astype(index_dtype, copy=False)
     return n_changed
 
@@ -562,7 +574,11 @@ def _connectivity_report(tree, *, geometry_atol: float = 1e-6) -> dict:
     data = np.asarray(tree.data[:n])
     if n == 0:
         return {"segments": 0, "roots": [], "reachable": 0, "bad_parent": 0, "bad_child": 0, "bad_geom": 0}
-    conn = np.nan_to_num(data[:, 15:18], nan=-1).astype(int)
+    exact_conn = getattr(tree, "connectivity", None)
+    if exact_conn is not None and np.asarray(exact_conn).shape == (n, 3):
+        conn = np.asarray(exact_conn, dtype=np.int64)
+    else:
+        conn = np.nan_to_num(data[:, 15:18], nan=-1).astype(np.int64)
     roots = np.flatnonzero(conn[:, 2] < 0)
     row_ids = np.arange(n, dtype=np.int64)
 

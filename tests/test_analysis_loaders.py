@@ -66,6 +66,49 @@ def test_forest_simcache_streams_into_requested_compact_dtypes(tmp_path):
     assert tree.preallocate is tree.data
     assert tree.preallocation_step == 3
     assert tree.preallocate_midpoints.shape == (0, 3)
-    assert tree.connectivity is None
+    np.testing.assert_array_equal(tree.connectivity, data[:, 15:18].astype(np.int32))
+    np.testing.assert_array_equal(tree._cascade_node_ids, data[:, 18:20].astype(np.int32))
     assert tree._analysis_only_load is True
     np.testing.assert_allclose(tree.data, data.astype(np.float32))
+
+
+def test_forest_simcache_preserves_ids_above_float32_exact_range(tmp_path):
+    source = Forest(n_networks=1, n_trees_per_network=[1], preallocation_step=2)
+    source_tree = source.networks[0][0]
+    data = np.zeros((2, 31), dtype=np.float64)
+    data[:, 15:18] = [
+        [16_777_217, 16_777_219, np.nan],
+        [np.nan, np.nan, 16_777_217],
+    ]
+    data[:, 18:20] = [
+        [16_777_217, 16_777_219],
+        [16_777_219, 16_777_221],
+    ]
+    source_tree.data = TreeData.from_array(data)
+    source_tree.segment_count = 2
+    source_tree.n_terminals = 1
+    path = tmp_path / "large-ids.forest.simcache"
+    source.save_simulation_cache(str(path))
+
+    loaded = Forest.load(
+        str(path), mode="simulation", data_dtype=np.float32, index_dtype=np.int32
+    )
+    tree = loaded.networks[0][0]
+
+    assert int(tree.data[0, 15]) == 16_777_216  # float32 rounds this value
+    np.testing.assert_array_equal(
+        tree.connectivity,
+        [[16_777_217, 16_777_219, -1], [-1, -1, 16_777_217]],
+    )
+    np.testing.assert_array_equal(
+        tree._cascade_node_ids,
+        [[16_777_217, 16_777_219], [16_777_219, 16_777_221]],
+    )
+
+    second_path = tmp_path / "large-ids-resaved.forest.simcache"
+    loaded.save_simulation_cache(str(second_path))
+    reloaded = Forest.load(
+        str(second_path), mode="simulation", data_dtype=np.float32, index_dtype=np.int32
+    ).networks[0][0]
+    np.testing.assert_array_equal(reloaded.connectivity, tree.connectivity)
+    np.testing.assert_array_equal(reloaded._cascade_node_ids, tree._cascade_node_ids)

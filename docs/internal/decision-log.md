@@ -234,3 +234,24 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Decision needed: Keep CASCADE's true five-node tissue integration after the shared Cext quadrature-1 solve, or add/use an effective-one-node legacy compatibility path for certification. The production recommendation is to retain the true five-node result and use effective-one-node only as a separately labeled oracle-compatibility diagnostic.
 - Evidence: `../../validation/results/2026-09-10_m2-heart-s-shared-e1cd36b/` passes geometry, flow, finite masks, and viability but fails six tissue values because the frozen exporter accepts tissue GL5 while reusing its GL1 Cext source nodes. CASCADE actually resamples 19,999 source segments from one to five nodes.
 - Consequence: Do not launch full 200-cubed HEART-S or HEART-L numerical/performance runs until the chosen semantics make the compared work explicit.
+
+## D-034 — Cext GL1 and tissue GL5 are independent production quadratures
+
+- Date: 2026-09-10
+- Status: accepted by owner; resolves D-033
+- Decision: CASCADE solves explicit vessel/Cext coupling with one Gauss-Legendre point per vessel segment (`GL_ORDER_CEXT=1`). Tissue oxygen then evaluates the converged vessel source distribution on an independently constructed five-point-per-segment quadrature (`GL_ORDER=5`). Reusing the Cext GL1 source node for tissue evaluation is retained only as an explicitly selected `legacy_cext` validation diagnostic.
+- Consequence: Production M2 heart conclusions and production-speed M3 measurements use independent GL5 tissue integration. A legacy-compatibility campaign may prove implementation lineage against the frozen oracle's effective-GL1 behavior, but it cannot certify the production tissue field or be presented as the CASCADE default.
+
+## D-035 — GPU-first cube validation and GPU-only heart validation
+
+- Date: 2026-09-10
+- Status: accepted by owner; narrows D-023
+- Decision: CPU cube comparisons stop after requested terminal counts 1, 10, and 100. GPU is the primary backend at every cube scale and the only release-target backend above 100 terminals. All HEART-S and HEART-L M2/M3 numerical, tissue, and performance runs use GPU; no CPU heart run is required for certification.
+- Consequence: The interrupted CPU 1k/10k extension is retained as superseded diagnostic evidence. The remaining paired scale matrix, heart parity, and production performance gates run strictly sequentially on the qualified CUDA 13 environment.
+
+## D-036 — Match the historical algorithm-time boundary separately from end-to-end time
+
+- Date: 2026-09-10
+- Status: accepted from recovered characterization data
+- Decision: The primary cube algorithm-speed comparison sums `t_assembly + t_kirchhoff + t_concentration + t_tissue`, matching the owner's June 2026 GPU characterization. CASCADE includes its separately timed tissue-cache construction in the corresponding assembly boundary. Fresh-process, input-load, domain/sample construction, and export times remain separately reported end-to-end measures.
+- Consequence: Seconds of Python startup or rebuilding a one-million-point domain cannot be mistaken for seconds of solver computation. Cold compilation and warmed persistent compile-cache observations remain separate under D-032.

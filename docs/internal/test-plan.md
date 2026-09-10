@@ -40,9 +40,9 @@ Final sizes and fixtures are selected before running. This is the proposed minim
 
 | Case | Structure/domain | Solver path | Purpose |
 | --- | --- | --- | --- |
-| CUBE-1 through CUBE-5M | Frozen cache-family trees at 1, 10, 100, 1k, 10k, 100k, 1M, and 5M requested terminals; one shared 1M-point cube pool | CPU/GPU through medium scale; GPU-only at 1M/5M | Blood and cell-media computational parity, scaling, performance, and memory gates without growth |
+| CUBE-1 through CUBE-5M | Frozen cache-family trees at 1, 10, 100, 1k, 10k, 100k, 1M, and 5M requested terminals; one shared 1M-point cube pool | CPU only at 1/10/100; GPU is primary at all scales and required above 100 | Blood and cell-media computational parity, scaling, performance, and memory gates without growth |
 | FOREST-S | Fixed two-tree cube forest | CPU, cache reload | Forest mapping/connectivity/cache parity |
-| HEART-S | Frozen `heart_seed2_grown100000_t10000.forest`: 10k terminals, 19,999 segments; healthy plus one frozen full downstream occlusion | CPU/GPU consistency plus shared-global CUDA FFT/Cext | Debuggable solver and exporter parity on one hash-frozen legacy-derived point set from the full 200-cubed candidate grid |
+| HEART-S | Frozen `heart_seed2_grown100000_t10000.forest`: 10k terminals, 19,999 segments; healthy plus one frozen full downstream occlusion | GPU-only shared-global CUDA FFT/Cext | Debuggable solver and exporter parity on one hash-frozen legacy-derived point set from the full 200-cubed candidate grid |
 | HEART-L | Frozen one-millimetre extended simulation cache: 12.5M terminals, 24,999,999 segments | GPU-only target configuration | Production solver/performance/memory gate on the full 200-cubed grid; full export only after those gates pass |
 | CUSTOM-Y | Explicit CSV Y channel in box domain | CPU tissue GFM | Custom topology/units/export correctness |
 | CUSTOM-DOMAIN | Fixed user-supplied VTP/STL domain and explicit network | Approved solver | File-path portability and enclosure behavior |
@@ -63,6 +63,8 @@ Unless a named case is explicitly testing a different control, both sides use:
 | Interaction window factor | 6 |
 
 The runtime-stencil and runtime-moment GPU paths remain in scope. Growth is not exercised here. A later growth campaign will retain public-SVV CCO in float64, transition to float32 at the default 300,000-terminal equal-bifurcation boundary, and test the upstream optimizer selector when available.
+
+Cext GL1 and tissue GL5 are separate integration stages. After the GL1 Cext solve converges, production CASCADE resamples the source state onto independent GL5 tissue nodes. The historical exporter's effective-GL1 tissue behavior is exercised only by a separately labeled `legacy_cext` diagnostic; it is never the production acceptance result.
 
 ## Functional checks
 
@@ -161,7 +163,9 @@ Report median, spread, minimum, maximum, and CASCADE/legacy ratio. The target is
 
 Report solver-only and end-to-end measurements separately. Solver-only starts from the already loaded identical structure. End-to-end includes explicit input load, float32 preparation, solve, and requested export. Both are release evidence; solver-only is the direct computational-method comparison and end-to-end identifies operational overhead.
 
-Measured repetitions alternate legacy/CASCADE while remaining strictly sequential: five paired runs for each cube scale through 100k terminals, three pairs at 1M, and one initial pair at 5M and HEART-L. Repeat a large-case pair when it fails, reports memory pressure, or its time ratio lies within 5% of the release threshold. Small and medium cases include CPU/GPU consistency; the 1M, 5M, and HEART-L production cases are GPU-only. Full export performance is measured on bounded cases first; a full HEART-L export is a separate monitored run after solver correctness and memory gates pass.
+Measured repetitions alternate legacy/CASCADE while remaining strictly sequential: five paired GPU runs for each cube scale through 100k terminals, three GPU pairs at 1M, and one initial GPU pair at 5M and HEART-L. Repeat a large-case pair when it fails, reports memory pressure, or its time ratio lies within 5% of the release threshold. CPU coverage is limited to cube targets 1, 10, and 100. Every heart certification run is GPU-only. Full export performance is measured on bounded cases first; a full HEART-L export is a separate monitored run after solver correctness and memory gates pass.
+
+The primary historical algorithm-time boundary is `t_assembly + t_kirchhoff + t_concentration + t_tissue`. CASCADE adds separately timed tissue-cache construction to its comparable assembly boundary. End-to-end process time, tree load/conversion, one-million-point domain/sample preparation, and export remain reported separately and do not replace the algorithm-time gate.
 
 Investigate rather than average away:
 

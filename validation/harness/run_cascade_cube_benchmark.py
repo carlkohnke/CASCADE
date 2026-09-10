@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 from pathlib import Path
 import resource
@@ -64,10 +65,17 @@ def main() -> int:
         {key: value for key, value in summary.items() if str(key).startswith("t_")}
         for summary in summaries
     ]
+    distribution = importlib.metadata.distribution("cascade-vascular")
+    direct_url_path = Path(distribution._path) / "direct_url.json"
+    direct_url = None
+    if direct_url_path.is_file():
+        direct_url = json.loads(direct_url_path.read_text(encoding="utf-8"))
     record = {
         "settings_path": str(settings_path),
         "cascade_version": cascade.__version__,
         "cascade_module": str(Path(cascade.__file__).resolve()),
+        "cascade_distribution": str(Path(distribution._path).resolve()),
+        "cascade_direct_url": direct_url,
         "gpu": None if gpu is None else gpu.summary,
         "elapsed_process_s": elapsed_s,
         "build_wall_s": build_wall_s,

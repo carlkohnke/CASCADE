@@ -11,6 +11,7 @@ from pathlib import Path
 import statistics
 import subprocess
 import sys
+from urllib.parse import unquote, urlparse
 
 
 ORACLE = Path("/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/TissueSim_cube_local.py")
@@ -39,9 +40,40 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _run(command: list[str], *, cwd: Path) -> None:
+def _run(
+    command: list[str],
+    *,
+    cwd: Path,
+    quiet: bool = False,
+    allowed_returncodes: tuple[int, ...] = (0,),
+) -> int:
     print("+", " ".join(command), flush=True)
-    subprocess.run(command, cwd=cwd, check=True)
+    completed = subprocess.run(
+        command,
+        cwd=cwd,
+        check=False,
+        capture_output=quiet,
+        text=quiet,
+    )
+    if completed.returncode not in allowed_returncodes:
+        if quiet:
+            print(completed.stdout, end="", flush=True)
+            print(completed.stderr, end="", file=sys.stderr, flush=True)
+        raise subprocess.CalledProcessError(completed.returncode, command)
+    return completed.returncode
+
+
+def _installed_wheel_path(cascade_meta: dict) -> Path | None:
+    direct_url = cascade_meta.get("cascade_direct_url")
+    if not isinstance(direct_url, dict):
+        return None
+    url = direct_url.get("url")
+    if not isinstance(url, str):
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme != "file":
+        return None
+    return Path(unquote(parsed.path)).resolve()
 
 
 def _legacy_components(path: Path) -> dict[str, float]:
@@ -75,6 +107,21 @@ def main() -> int:
     parser.add_argument("--repetitions", type=int, required=True)
     parser.add_argument("--fluid", choices=("blood", "water"), default="blood")
     parser.add_argument("--backend", choices=("cpu", "gpu"), required=True)
+    parser.add_argument("--solver", default="topdown")
+    parser.add_argument("--cext-grid", type=int, default=256)
+    parser.add_argument("--cext-window-factor", type=float, default=6.0)
+    parser.add_argument("--tissue-window-factor", type=float, default=6.0)
+    parser.add_argument(
+        "--cext-tissue-quadrature-mode",
+        choices=("independent", "legacy_cext"),
+        default="independent",
+    )
+    parser.add_argument(
+        "--comparison-policy",
+        choices=("required", "record"),
+        default="required",
+        help="Abort on a scientific comparison failure, or retain it and continue.",
+    )
     parser.add_argument("--legacy-python", type=Path, required=True)
     parser.add_argument("--cascade-python", type=Path, required=True)
     parser.add_argument("--wheel", type=Path, required=True)
@@ -84,6 +131,10 @@ def main() -> int:
 
     if args.repetitions <= 0:
         raise ValueError("--repetitions must be positive")
+    if args.cext_grid <= 0:
+        raise ValueError("--cext-grid must be positive")
+    if args.cext_window_factor <= 0 or args.tissue_window_factor <= 0:
+        raise ValueError("Cext and tissue window factors must be positive")
     unknown = sorted(set(args.targets) - set(TREE_HASHES))
     if unknown:
         raise ValueError(f"No frozen tree hash for targets: {unknown}")
@@ -119,7 +170,30 @@ def main() -> int:
             raw["network"]["input_path"] = str(tree)
             raw["network"]["target_terminal_count"] = int(target)
             raw["simulation"]["fluid"] = args.fluid
+            raw["simulation"]["concentration_solver"] = args.solver
             raw["simulation"]["tissue_accel"] = args.backend
+            raw["simulation"]["tissuesim"]["finite_radius_o2_terms"] = (
+                "none" if args.solver == "topdown" else "both"
+            )
+            raw["simulation"]["tissuesim"]["lumen_wall_closure"] = (
+                "wellmixed" if args.solver == "topdown" else "graetz"
+            )
+            raw["simulation"]["tissuesim"]["window_factor"] = float(args.tissue_window_factor)
+            raw["simulation"]["cext"] = {
+                "accel_mode": args.backend,
+                "frozen_accel_mode": args.backend,
+                "init_mode": "decoupled_greens",
+                "lambda_source": "lambda_t",
+                "vess_coupling_accel": "anderson",
+                "hybrid_bg_mode": "fft",
+                "hybrid_bg_solver": "fft",
+            }
+            raw["settings"]["cext"]["window_factor"] = float(args.cext_window_factor)
+            raw["settings"]["cext"]["vess_coupling_max_iter"] = 1
+            raw["settings"]["cext"]["hybrid_bg_grid"] = int(args.cext_grid)
+            raw["settings"].setdefault("tissue", {})["cext_tissue_quadrature_mode"] = (
+                args.cext_tissue_quadrature_mode
+            )
             raw["outputs"]["out_dir"] = str(run_dir / "cascade-output")
             raw["outputs"]["prefix"] = label.replace("-", "_")
             raw["outputs"]["write_paraview"] = False
@@ -143,8 +217,13 @@ def main() -> int:
                 "--oracle", str(ORACLE), "--oracle-sha256", ORACLE_SHA256,
                 "--points", str(POINTS), "--points-sha256", POINTS_SHA256,
                 "--tree", str(tree), "--tree-sha256", TREE_HASHES[target],
-                "--target", str(target), "--fluid", args.fluid, "--solver", "topdown",
+                "--target", str(target), "--fluid", args.fluid, "--solver", args.solver,
                 "--tissue-backend", args.backend, "--output", str(legacy_summary),
+                "--cext-grid", str(args.cext_grid),
+                "--cext-window-factor", str(args.cext_window_factor),
+                "--tissue-window-factor", str(args.tissue_window_factor),
+                "--cext-accel", args.backend,
+                "--cext-frozen-accel", args.backend,
                 "--metadata", str(legacy_record),
             ]
             cascade_command = [
@@ -162,10 +241,19 @@ def main() -> int:
                  "--cascade", str(run_dir / "cascade-output" / "summary.csv"), "--fluid", args.fluid,
                  "--output", str(comparison)],
                 cwd=repo,
+                quiet=True,
+                allowed_returncodes=(0, 1) if args.comparison_policy == "record" else (0,),
             )
 
             legacy_meta = json.loads(legacy_record.read_text(encoding="utf-8"))
             cascade_meta = json.loads(cascade_record.read_text(encoding="utf-8"))
+            installed_wheel = _installed_wheel_path(cascade_meta)
+            if installed_wheel != wheel:
+                raise RuntimeError(
+                    "CASCADE interpreter is not running the declared wheel: "
+                    f"expected {wheel}, installation metadata reports {installed_wheel}; "
+                    f"module={cascade_meta.get('cascade_module')}"
+                )
             legacy_resource = json.loads(legacy_monitor.read_text(encoding="utf-8"))
             cascade_resource = json.loads(cascade_monitor.read_text(encoding="utf-8"))
             comparison_data = json.loads(comparison.read_text(encoding="utf-8"))
@@ -189,6 +277,18 @@ def main() -> int:
                 "cascade_solve_wall_s": cascade_meta["solve_wall_s"],
                 "cascade_export_wall_s": cascade_meta["export_wall_s"],
             }
+            legacy_compute_fields = ("t_assembly_s", "t_kirchhoff_s", "t_concentration_s", "t_tissue_s")
+            pair["legacy_comparable_compute_s"] = sum(
+                float(pair["legacy_components"][name]) for name in legacy_compute_fields
+            )
+            cascade_summary = pair["cascade_components"][0]
+            pair["cascade_comparable_compute_s"] = (
+                float(cascade_meta["simulation_timings"].get("tree_0_tissue_cache_s", 0.0))
+                + sum(float(cascade_summary[name]) for name in legacy_compute_fields)
+            )
+            pair["comparable_compute_ratio_cascade_over_legacy"] = (
+                pair["cascade_comparable_compute_s"] / pair["legacy_comparable_compute_s"]
+            )
             pair["process_ratio_cascade_over_legacy"] = pair["cascade_process_s"] / pair["legacy_process_s"]
             pair["monitored_ratio_cascade_over_legacy"] = pair["cascade_monitored_wall_s"] / pair["legacy_monitored_wall_s"]
             pair_path = results / f"{label}-pair.json"
@@ -213,6 +313,13 @@ def main() -> int:
             "median_monitored_ratio": statistics.median(
                 [pair["monitored_ratio_cascade_over_legacy"] for pair in selected]
             ),
+            "median_comparable_compute_ratio": statistics.median(
+                [pair["comparable_compute_ratio_cascade_over_legacy"] for pair in selected]
+            ),
+            "comparable_compute_s": {
+                "legacy": _stats([pair["legacy_comparable_compute_s"] for pair in selected]),
+                "cascade": _stats([pair["cascade_comparable_compute_s"] for pair in selected]),
+            },
             "all_scientific_summaries_pass": all(pair["summary_status"] == "pass" for pair in selected),
         }
         warmed = [pair for pair in selected if pair["classification"] == "warmed_compile_cache"]
@@ -227,10 +334,18 @@ def main() -> int:
             summaries[str(target)]["warmed_median_monitored_ratio"] = statistics.median(
                 [pair["monitored_ratio_cascade_over_legacy"] for pair in warmed]
             )
+            summaries[str(target)]["warmed_median_comparable_compute_ratio"] = statistics.median(
+                [pair["comparable_compute_ratio_cascade_over_legacy"] for pair in warmed]
+            )
 
     report = {
         "schema_version": 1,
-        "tracker_ids": ["PERF-01", "PERF-02", "PERF-03", "PERF-07"],
+        "tracker_ids": [
+            "PERF-01",
+            "PERF-02",
+            "PERF-04" if args.backend == "gpu" else "PERF-03",
+            "PERF-07",
+        ],
         "campaign_id": args.campaign_id,
         "wheel_path": str(wheel),
         "wheel_sha256": actual_wheel_hash,
@@ -249,6 +364,16 @@ def main() -> int:
         "targets": args.targets,
         "fluid": args.fluid,
         "backend": args.backend,
+        "solver": args.solver,
+        "cext_grid": args.cext_grid,
+        "cext_window_factor": args.cext_window_factor,
+        "tissue_window_factor": args.tissue_window_factor,
+        "cext_tissue_quadrature_mode": args.cext_tissue_quadrature_mode,
+        "comparison_policy": args.comparison_policy,
+        "comparable_compute_definition": (
+            "legacy: t_assembly+t_kirchhoff+t_concentration+t_tissue; CASCADE: "
+            "tree tissue-cache build plus the same four solver fields"
+        ),
         "summaries": summaries,
         "pair_files": [f"cube-{p['target']}-{p['fluid']}-r{p['repetition']:02d}-pair.json" for p in pairs],
     }

@@ -111,6 +111,8 @@ Unless a case explicitly tests a different setting, the M2 heart/Cext profile is
 | Cext vessel-coupling iterations | 1 |
 | Window factor | 6 |
 
+Cext quadrature and tissue quadrature are independent stages. Production CASCADE uses GL1 to solve vessel/Cext coupling, then constructs GL5 source points for tissue oxygen integration. The frozen exporter historically reuses the GL1 Cext node during tissue evaluation even when passed tissue GL5; that behavior is retained only through an explicit validation diagnostic and is not the production default.
+
 The runtime-stencil and runtime-moment GPU functions, flexible mesh-backed domain construction, and automatic CUDA component-library discovery are required CASCADE capabilities.
 
 These are deliberately owner-frozen validation values, not an assertion that every current legacy file-level default already matches them. In particular, the frozen `TissueSim_cube_local.py` currently declares a 128 Cext grid and window factor 4; M2 must pass explicit overrides for grid 256 and window factor 6 to both sides and record those effective settings.
@@ -171,4 +173,26 @@ Pointwise oxygen comparisons use exactly the same coordinate array on both sides
 - Performance uses five paired runs through 100k terminals, three paired runs at 1M, and one initial paired run at 5M and HEART-L. A large-case pair is repeated when it fails, when either process reports memory pressure, or when its CASCADE/legacy ratio lies within 5% of the release threshold and therefore cannot support a stable conclusion.
 - Physical fields and nonzero summary metrics use relative tolerance `1e-3`. Near zero, absolute tolerance is `1e-6` times that field's frozen reference-case scale. Fractions such as `FracAbove1pct` use absolute tolerance `0.001`. Structure, IDs, shared coordinates, ordering/mapping, and finite/non-finite masks are exact.
 - CPU/GPU consistency is checked on small and medium cases. Production-scale 1M/5M/HEART-L work is GPU-only.
+- CPU certification is limited to cube targets 1, 10, and 100. GPU is primary at every cube size, mandatory above 100, and mandatory for every HEART-S/HEART-L validation and performance run.
 - Growth-only SLSQP/L-BFGS-B qualification and the ignored-constraint warning remain deferred until growth validation.
+
+## Frozen historical GPU timing reference
+
+The owner's June 2026 characterization is stored externally at
+`/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/Cube_Memory_Improvement.csv`
+(SHA-256 `fecf37597a34ac89533122b7563a36ddefb222a60bee5fd09e228517480b2016`).
+Its 74 rows use one million tissue samples, float32/int32 accelerated arrays,
+`topdown_ext_hybrid_bg`, GPU Cext and tissue, Cext GL1, tissue GL5, one Cext
+iteration, a 128-cubed FFT grid, and window factor 4. The plotted compute time is
+exactly `t_assembly + t_kirchhoff + t_concentration + t_tissue`; it excludes
+process startup, tree loading, domain construction, and export. Compact grouped
+evidence is retained in
+`../../validation/results/2026-09-10_m3-gpu-reference_fecf3759/`.
+
+The corresponding August benchmark snapshot is
+`C:/Users/carl/svVascularize/svVascularize/tools/_TissueSim_cube_local_benchmark.py`
+(SHA-256 `1c8225416f13b1d57b768fde6df6dc619b03f8a8c73aa44a2d268503b69f3a50`).
+It is functionally close but not byte-identical to the current frozen oracle.
+Certification executes the current hash-frozen oracle; the recovered CSV remains
+the historical performance target. Its 128/window-4 profile is not substituted
+for the owner-frozen production heart profile of 256/window-6.

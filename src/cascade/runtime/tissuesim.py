@@ -518,6 +518,7 @@ SOLUTE_DIFFUSIVITY = 2.41e-5
 POROSITY = 0.9
 GL_ORDER = 5  # Gauss-Legendre points per segment for Greens integral (5, 9, or 20)
 GL_ORDER_CEXT = 1  # Gauss-Legendre points per segment for explicit vessel Cext coupling
+CEXT_TISSUE_QUADRATURE_MODE = "independent"
 
 HD_DISCHARGE = 0.42
 # Hemoglobin-bound O2 capacity in mol / m^3 blood per unit tube hematocrit.
@@ -6659,6 +6660,24 @@ def _resample_cext_source_state_for_tissue(
     resampled["tissue_gl_order"] = target_order
     resampled["cext_gl_order"] = old_order
     return resampled
+
+
+def _prepare_cext_source_state_for_tissue(cext_state: dict, order: int) -> dict:
+    """Apply the explicit production/legacy tissue-quadrature policy."""
+    mode = str(CEXT_TISSUE_QUADRATURE_MODE).strip().lower()
+    if mode == "independent":
+        return _resample_cext_source_state_for_tissue(cext_state, order)
+    if mode == "legacy_cext":
+        legacy = dict(cext_state)
+        points = np.asarray(legacy.get("gl_points_si", np.empty((0, 0, 3))))
+        legacy["tissue_gl_order"] = int(points.shape[1]) if points.ndim == 3 else 0
+        legacy["cext_gl_order"] = legacy["tissue_gl_order"]
+        legacy["quadrature_compatibility_mode"] = "legacy_cext"
+        return legacy
+    raise ValueError(
+        "CEXT_TISSUE_QUADRATURE_MODE must be 'independent' or 'legacy_cext', "
+        f"got {CEXT_TISSUE_QUADRATURE_MODE!r}."
+    )
 
 
 def _set_last_cext_source_state(
@@ -16772,7 +16791,7 @@ def compute_tissue_samples_greens_from_cext_state(
     t_total = perf_counter()
     t0 = perf_counter()
     validation = validate_cext_tissue_flux_consistency(cext_state)
-    cext_state = _resample_cext_source_state_for_tissue(cext_state, GL_ORDER)
+    cext_state = _prepare_cext_source_state_for_tissue(cext_state, GL_ORDER)
     gl_points_si = np.asarray(cext_state["gl_points_si"], dtype=np.float32)
     lambda_iv_gl = np.asarray(cext_state["lambda_iv_gl"], dtype=np.float32)
     q_weighted_gl = np.asarray(cext_state["q_weighted_gl"], dtype=np.float32)

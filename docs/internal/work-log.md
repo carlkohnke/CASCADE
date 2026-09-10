@@ -343,3 +343,20 @@ The current TissueSim cube script does not implement a general automatic float64
 - HEART-S shared-point geometry, IDs, flows, radii, lengths, finite masks, viability, and fraction-above-1% agree. Field parity remains failed because the legacy shared-Cext path effectively performs tissue GL1 while CASCADE performs the requested tissue GL5; D-033 is pending before large heart work. Evidence: `../../validation/results/2026-09-10_m2-heart-s-shared-e1cd36b/`.
 - The clean five-pair CPU cube tranche passed all 15 scientific summary comparisons. Warm compile-cache median CASCADE/legacy process ratios were 1.035 at target 1, 1.018 at target 10, and 0.974 at target 100; maximum observed RSS was 2.78 GiB. Evidence: `../../validation/results/2026-09-10_m3-cube-cpu-small02-e1cd36b/`.
 - The superseded failed harness evidence remains at `../../validation/results/2026-09-10_m3-cube-cpu-small-e1cd36b/`.
+
+## 2026-09-10 — GPU timing contract recovered and quadrature semantics resolved
+
+### Work performed
+
+- Recovered the exact 74-row June GPU characterization from the external `Cube_Memory_Improvement.csv`, froze its SHA-256, profile, and timing-field definition, and added a compact grouped result under `../../validation/results/2026-09-10_m3-gpu-reference_fecf3759/`.
+- Verified that the plotted algorithm time is `t_assembly + t_kirchhoff + t_concentration + t_tissue`, not fresh-process wall time. The reference reports 0.880-1.031 seconds at 400,001 vessels and 18.09-23.19 seconds at 10,000,001 vessels.
+- Stopped the in-progress CPU extension after five target-1,000 and three target-10,000 pairs when the owner limited CPU certification to targets 1/10/100. The incomplete evidence is retained under `../../validation/results/2026-09-10_m3-cube-cpu-medium_9423771/`.
+- Added an explicit post-Cext quadrature policy. Production `independent` mode solves Cext with GL1 and resamples to independent tissue GL5; `legacy_cext` reproduces the oracle's effective-GL1 tissue evaluation only for diagnostics.
+- Tightened the benchmark harness to configure the Cext GPU profile explicitly, report the historical four-component algorithm boundary, retain scientific failures when requested, record installed-distribution provenance, and reject an interpreter that is not running the declared wheel.
+
+### Verification and evidence
+
+- Targeted Cext tests pass, including the independent GL1-to-GL5 resampling contract, legacy diagnostic mode, and invalid-mode rejection.
+- The production-GL5 target-1 preflight passed geometry, hemodynamics, vessel oxygen, and viability but failed mean tissue oxygen versus legacy effective GL1, as expected: `../../validation/results/2026-09-10_m23-gpu-reference-smoke_9423771/`.
+- A source-only `legacy_cext` preflight passed all 23 summaries, confirming the cause. It is explicitly non-certifying because its metadata proves that it invoked the editable checkout while the old header merely named a wheel: `../../validation/results/2026-09-10_m23-gpu-legacy-quadrature-source_9423771/`.
+- D-034 records the owner's final GL1/GL5 decision; D-035 records GPU-first cube and GPU-only heart certification; D-036 fixes the comparable timing boundary. A fresh exact wheel is required before the next GPU campaign.

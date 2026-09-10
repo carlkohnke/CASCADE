@@ -41,6 +41,11 @@ def main() -> int:
     parser.add_argument("--fluid", choices=("both", "blood", "water"), default="both")
     parser.add_argument("--solver", default="topdown")
     parser.add_argument("--tissue-backend", choices=("cpu", "gpu", "auto"), default="cpu")
+    parser.add_argument("--cext-grid", type=int, default=256)
+    parser.add_argument("--cext-window-factor", type=float, default=6.0)
+    parser.add_argument("--tissue-window-factor", type=float, default=6.0)
+    parser.add_argument("--cext-accel", choices=("cpu", "gpu", "auto"), default="gpu")
+    parser.add_argument("--cext-frozen-accel", choices=("cpu", "gpu", "auto"), default="gpu")
     args = parser.parse_args()
 
     oracle = args.oracle.expanduser().resolve()
@@ -129,10 +134,16 @@ def main() -> int:
         "--lumen-wall-closure", "wellmixed" if args.solver == "topdown" else "graetz",
         "--gl-order", "5",
         "--cext-gl-order", "1",
-        "--cext-hybrid-bg-grid", "256",
+        "--cext-accel", args.cext_accel,
+        "--cext-frozen-accel", args.cext_frozen_accel,
+        "--cext-init-mode", "decoupled_greens",
+        "--cext-lambda-source", "lambda_t",
+        "--cext-hybrid-bg-mode", "fft",
+        "--cext-hybrid-bg-solver", "fft",
+        "--cext-hybrid-bg-grid", str(int(args.cext_grid)),
         "--cext-vess-coupling-max-iter", "1",
-        "--cext-window-factor", "6",
-        "--window-factor", "6",
+        "--cext-window-factor", str(float(args.cext_window_factor)),
+        "--window-factor", str(float(args.tissue_window_factor)),
         "--kirchhoff-solver", "tree",
         "--kirchhoff-bc-mode", "legacy_equal_terminal_flow",
         "--tree-fast-cache", "false",

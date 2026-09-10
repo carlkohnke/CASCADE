@@ -212,6 +212,7 @@ def _apply_tissuesim_overrides(ts, args) -> dict:
         "NEAREST_TISSUE_VESSELS": int(args.nearest_tissue_vessels),
         "WINDOW_FACTOR": float(args.window_factor),
         "GL_ORDER": int(args.gl_order),
+        "CEXT_TISSUE_QUADRATURE_MODE": str(args.cext_tissue_quadrature_mode),
         "TISSUE_KDTREE_CANDIDATE_MULT": int(args.tissue_kdtree_candidate_mult),
         "AXIAL_BLOOD_STEPS": int(args.axial_blood_steps),
         "CONC_MAX_FOR_NORMALIZATION": float(args.conc_max_for_normalization),
@@ -259,6 +260,7 @@ def _apply_cext_overrides(cext_ts, ts, args) -> dict:
         "HEMATOCRIT_QTOL_NL_MIN": float(ts.HEMATOCRIT_QTOL_NL_MIN),
         "HEMATOCRIT_HDTOL": float(ts.HEMATOCRIT_HDTOL),
         "GL_ORDER_CEXT": int(args.cext_gl_order),
+        "CEXT_TISSUE_QUADRATURE_MODE": str(args.cext_tissue_quadrature_mode),
         "CEXT_ACCEL_MODE": str(args.cext_accel).strip().lower(),
         "CEXT_FROZEN_ACCEL_MODE": str(args.cext_frozen_accel).strip().lower(),
         "CEXT_INIT_MODE": str(args.cext_init_mode).strip().lower(),
@@ -2193,6 +2195,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--nearest-tissue-vessels", type=int, default=NEAREST_TISSUE_VESSELS_DEFAULT)
     parser.add_argument("--window-factor", type=float, default=WINDOW_FACTOR_DEFAULT)
     parser.add_argument("--gl-order", type=int, default=GL_ORDER_DEFAULT, choices=(5, 9, 20))
+    parser.add_argument(
+        "--cext-tissue-quadrature-mode",
+        default="independent",
+        choices=("independent", "legacy_cext"),
+        help=(
+            "Use independent tissue quadrature (production default), or reuse the "
+            "Cext source nodes to reproduce the historical oracle timing/field behavior."
+        ),
+    )
     parser.add_argument("--tissue-kdtree-candidate-mult", type=int, default=TISSUE_KDTREE_CANDIDATE_MULT_DEFAULT)
     parser.add_argument("--axial-blood-steps", type=int, default=AXIAL_BLOOD_STEPS_DEFAULT)
     parser.add_argument("--conc-max-for-normalization", type=float, default=CONC_MAX_FOR_NORMALIZATION_DEFAULT)

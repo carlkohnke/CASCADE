@@ -6,6 +6,7 @@
 - Reject invalid tissue-grid dimensions and controls instead of silently coercing them to a different simulation.
 - Fixed heart export to construct the requested STL/VTP domain through the packaged mesh adapter and to retain complete Cext wall/flux state for tissue validation.
 - Added an explicit hashed `.npy` tissue-point input to heart export so isolated legacy and CASCADE runs can evaluate identical coordinates without depending on version-specific domain-mask behavior.
+- Made post-Cext tissue quadrature explicit: production uses independent GL5 tissue nodes after the GL1 vessel/Cext solve, while an opt-in `legacy_cext` diagnostic reproduces the historical oracle's effective-GL1 tissue behavior.
 
 - Added the packaged bivent3 heart surface as a portable CASCADE Studio domain option.
 - Normalized default heart/Cext controls to float32 accelerator arrays, grid 256, Cext quadrature 1, tissue quadrature 5, one coupling iteration, and window factor 6.

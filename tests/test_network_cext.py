@@ -32,6 +32,30 @@ def test_cext_sources_are_reweighted_for_independent_tissue_quadrature():
     assert resampled["cext_gl_order"] == 1
 
 
+def test_cext_tissue_quadrature_mode_can_reproduce_legacy_source_nodes(monkeypatch):
+    state = {
+        "gl_points_si": np.asarray([[[0.5, 0.0, 0.0]]], dtype=np.float32),
+        "segment_vectors": np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32),
+        "q_weighted_gl": np.asarray([[2.0]], dtype=np.float32),
+    }
+    monkeypatch.setattr(ts, "CEXT_TISSUE_QUADRATURE_MODE", "legacy_cext")
+
+    prepared = ts._prepare_cext_source_state_for_tissue(state, 5)
+
+    assert prepared["gl_points_si"].shape == (1, 1, 3)
+    assert prepared["q_weighted_gl"].shape == (1, 1)
+    assert prepared["tissue_gl_order"] == 1
+    assert prepared["cext_gl_order"] == 1
+    assert prepared["quadrature_compatibility_mode"] == "legacy_cext"
+
+
+def test_cext_tissue_quadrature_mode_rejects_unknown_value(monkeypatch):
+    monkeypatch.setattr(ts, "CEXT_TISSUE_QUADRATURE_MODE", "mystery")
+
+    with pytest.raises(ValueError, match="independent.*legacy_cext"):
+        ts._prepare_cext_source_state_for_tissue({"gl_points_si": np.empty((0, 1, 3))}, 5)
+
+
 def test_network_fft_solver_identifier_is_accepted():
     assert ts._resolve_concentration_solver("network_ext_hybrid_bg") == "network_ext_hybrid_bg"
 

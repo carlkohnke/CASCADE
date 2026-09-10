@@ -36,6 +36,7 @@ This matrix defines what M2 will compare. “Supported” means implemented and 
 | Accelerator precision | legacy dtype/global/CLI | `settings.cext.float_dtype`, export dtype | float32 |
 | Tissue quadrature | `GL_ORDER` | `settings.oxygen.gl_order` | 5 |
 | Explicit Cext quadrature | `GL_ORDER_CEXT` | `settings.oxygen.gl_order_cext` | 1 |
+| Post-Cext tissue quadrature | legacy exporter effectively reuses GL1; requested tissue order is 5 | `settings.tissue.cext_tissue_quadrature_mode=independent` with `settings.oxygen.gl_order=5` | Independent GL5 is production; `legacy_cext` is diagnostic only |
 | FFT grid | Cext background grid | `settings.cext.hybrid_bg_grid` | 256 per axis |
 | Coupling work | vessel/Cext max iterations | `settings.cext.vess_coupling_max_iter` | 1 |
 | Interaction window | window factor | `settings.cext.window_factor` and tissue equivalent | 6 |

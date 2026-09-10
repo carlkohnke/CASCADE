@@ -24,6 +24,9 @@ DEFAULTS = {
     "NEAREST_TISSUE_VESSELS": 250,
     # Cutoff radius measured in oxygen decay lengths; farther vessels are ignored for tissue oxygen.
     "WINDOW_FACTOR": 6,
+    # Tissue quadrature after a Cext solve: independent resamples to GL_ORDER;
+    # legacy_cext reuses the Cext source nodes for oracle compatibility only.
+    "CEXT_TISSUE_QUADRATURE_MODE": "independent",
     # Candidate multiplier used while building tissue nearest-vessel caches.
     "TISSUE_KDTREE_CANDIDATE_MULT": 2,
     # Worker count for CPU tissue calculations that can run in parallel.
@@ -87,6 +90,8 @@ ALIASES = {
     "nearest_tissue_vessels": "NEAREST_TISSUE_VESSELS",
     "nearest_vessels": "NEAREST_TISSUE_VESSELS",
     "window_factor": "WINDOW_FACTOR",
+    "cext_quadrature_mode": "CEXT_TISSUE_QUADRATURE_MODE",
+    "cext_tissue_quadrature_mode": "CEXT_TISSUE_QUADRATURE_MODE",
     "accel": "TISSUE_ACCEL_MODE",
     "accel_mode": "TISSUE_ACCEL_MODE",
     "gpu_chunk_points": "TISSUE_GPU_CHUNK_POINTS",

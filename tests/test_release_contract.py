@@ -19,6 +19,8 @@ from cascade.heart_export import (
     EXPORT_FLOAT_DTYPE_DEFAULT,
     GL_ORDER_DEFAULT,
     WINDOW_FACTOR_DEFAULT,
+    _build_domain,
+    _concat_tree_solutions,
     _load_tissuesim,
     _should_use_simulation_cache,
 )
@@ -94,6 +96,60 @@ def test_m2_heart_profile_defaults_are_frozen():
     assert WINDOW_FACTOR_DEFAULT == 6.0
     assert OXYGEN_DEFAULTS["CONCENTRATION_INLET_BY_FLUID"]["water"] == 0.2211
     assert OXYGEN_DEFAULTS["CONCENTRATION_INLET_BY_FLUID"]["cell media"] == 0.2211
+
+
+def test_heart_export_passes_file_mesh_to_packaged_runtime(tmp_path: Path):
+    mesh_path = tmp_path / "domain.vtp"
+    mesh = __import__("pyvista").Cube()
+    mesh.save(mesh_path)
+
+    class Runtime:
+        received = None
+
+        @classmethod
+        def build_domain_from_pyvista(cls, value):
+            cls.received = value
+            return "domain"
+
+    assert _build_domain(Runtime, mesh_path, 123.0) == "domain"
+    assert Runtime.received is not None
+    assert Runtime.received.n_points == mesh.n_points
+
+
+def test_heart_cext_concat_preserves_flux_state():
+    shape = (2, 1)
+    state = {
+        "solver": "test",
+        "backend": "gpu",
+        "gl_points_si": np.zeros((2, 1, 3), dtype=np.float32),
+        "diffusivity_si": 1.0,
+        "window_factor": 6.0,
+        "c_iv_gl": np.full(shape, 4.0, dtype=np.float32),
+        "c_bulk_gl": np.full(shape, 3.0, dtype=np.float32),
+        "c_wall_gl": np.full(shape, 2.0, dtype=np.float32),
+        "c_ext_gl": np.full(shape, 1.0, dtype=np.float32),
+        "lambda_iv_gl": np.full(shape, 5.0, dtype=np.float32),
+        "k_if_gl": np.full(shape, 6.0, dtype=np.float32),
+        "q_line_gl": np.full(shape, 7.0, dtype=np.float32),
+        "q_weighted_gl": np.full(shape, 8.0, dtype=np.float32),
+        "seg_cap_gl": np.full((2,), 9.0, dtype=np.float32),
+        "segment_vectors": np.zeros((2, 3), dtype=np.float32),
+    }
+    sol = {
+        "starts": np.zeros((2, 3)),
+        "ends": np.ones((2, 3)),
+        "radii": np.ones(2),
+        "lengths": np.ones(2),
+        "flows": np.ones(2),
+        "cin": np.ones(2),
+        "cout": np.ones(2),
+        "cext_context": None,
+        "cext_state": state,
+    }
+    combined = _concat_tree_solutions([sol], index_dtype=np.dtype(np.int64))["cext_state"]
+    np.testing.assert_array_equal(combined["c_bulk_gl"], state["c_bulk_gl"])
+    np.testing.assert_array_equal(combined["c_wall_gl"], state["c_wall_gl"])
+    np.testing.assert_array_equal(combined["k_if_gl"], state["k_if_gl"])
 
 
 def test_packaged_bivent3_domain_is_resolvable_and_frozen():

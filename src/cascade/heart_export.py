@@ -373,6 +373,11 @@ def _build_domain(ts, domain_path: Path, side_length: float):
     suffix = str(domain_path.suffix).strip().lower()
     if suffix == ".dmn":
         return Domain.load(str(domain_path))
+    if hasattr(ts, "build_domain_from_pyvista"):
+        mesh = pv.read(str(domain_path))
+        if not isinstance(mesh, pv.PolyData):
+            mesh = mesh.extract_surface()
+        return ts.build_domain_from_pyvista(mesh)
     if hasattr(ts, "DEFAULT_STL"):
         ts.DEFAULT_STL = str(domain_path)
     if hasattr(ts, "DOMAIN_CACHE_PATH"):
@@ -1624,8 +1629,11 @@ def _compact_cext_state_for_concat(sol: dict) -> dict:
         "diffusivity_si": diffusivity_si,
         "window_factor": float(state.get("window_factor", WINDOW_FACTOR_DEFAULT)),
         "c_iv_gl": np.asarray(state["c_iv_gl"], dtype=np.float32),
+        "c_bulk_gl": np.asarray(state.get("c_bulk_gl", state["c_iv_gl"]), dtype=np.float32),
+        "c_wall_gl": np.asarray(state.get("c_wall_gl", state["c_iv_gl"]), dtype=np.float32),
         "c_ext_gl": np.asarray(state["c_ext_gl"], dtype=np.float32),
         "lambda_iv_gl": np.asarray(state["lambda_iv_gl"], dtype=np.float32),
+        "k_if_gl": np.asarray(state["k_if_gl"], dtype=np.float32),
         "q_line_gl": np.asarray(state["q_line_gl"], dtype=np.float32),
         "q_weighted_gl": q_weighted,
         "mono2_weight_gl": np.asarray(state.get("mono2_weight_gl", np.zeros_like(q_weighted)), dtype=np.float32),
@@ -1648,8 +1656,11 @@ def _concat_tree_solutions(solutions: list[dict], *, index_dtype: np.dtype) -> d
             "diffusivity_si": float(compact[0]["diffusivity_si"]),
             "window_factor": float(compact[0]["window_factor"]),
             "c_iv_gl": np.concatenate([s["c_iv_gl"] for s in compact], axis=0),
+            "c_bulk_gl": np.concatenate([s["c_bulk_gl"] for s in compact], axis=0),
+            "c_wall_gl": np.concatenate([s["c_wall_gl"] for s in compact], axis=0),
             "c_ext_gl": np.concatenate([s["c_ext_gl"] for s in compact], axis=0),
             "lambda_iv_gl": np.concatenate([s["lambda_iv_gl"] for s in compact], axis=0),
+            "k_if_gl": np.concatenate([s["k_if_gl"] for s in compact], axis=0),
             "q_line_gl": np.concatenate([s["q_line_gl"] for s in compact], axis=0),
             "q_weighted_gl": np.concatenate([s["q_weighted_gl"] for s in compact], axis=0),
             "mono2_weight_gl": np.concatenate([s["mono2_weight_gl"] for s in compact], axis=0),

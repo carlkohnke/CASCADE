@@ -24,6 +24,7 @@ All paths below are under `/home/carl/miniconda3/envs/svva2/lib/python3.9/site-p
 | --- | --- | ---: | --- | --- |
 | Primary cube oracle | `TissueSim_cube_local.py` | 894,463 | `f2c4c89c8826b11246a239f7ae947872b955e5e47b44290033c13d1cef68bfda` | Required for M2/M3 |
 | Primary heart/export oracle | `export_paraview_heart_forest_grid_cext_gfm.py` | 130,114 | `cc916e26217bc64af23a2f25ff6a9306c2264dbe165bc4007b66de4c310df0a3` | Required for M2/M3 |
+| Tissue-capable heart/export oracle | `export_paraview_heart_forest_grid_cext_gfm.py.pre_cext_state_slim.bak` | 128,371 | `3fed343b3c2bbce84b021f55f8b174fe618a21267a6edc074c91680ee6848165` | Required for HEART-S/L tissue comparison because the newer state-slim exporter omits fields required by the current cube runtime |
 | Heart growth oracle | `TissueSim_heart_forest.py` | 143,919 | `a2f07948c38397509fb98d87af66117ebccf8cbddac1117e0c7df3ca40b39dbc` | Capability/reference input for nearest-tree growth |
 | Heart runtime used by growth/export | `TissueSim_heart_accel.py` | 360,718 | `d5a180932a6fef944f7ebcd3ca37edaa83ad076fafcae88d556e46708e170a9e` | Required supporting oracle module |
 | Older accelerated path | `TissueSim_accel.py` | 191,051 | `edd22973542d41766d36a4e7d29b1d4c6c751ad26987ab660d78cf0bdea96f9d` | Deferred/lower priority |
@@ -31,6 +32,8 @@ All paths below are under `/home/carl/miniconda3/envs/svva2/lib/python3.9/site-p
 The Cext exporter does not import `TissueSim_heart_forest.py`. It imports the heart accelerator for per-tree behavior and dynamically loads a cube TissueSim module for shared Cext. `TissueSim_heart_forest.py` is retained as a separate oracle for the heart growth capabilities that produced the production structure.
 
 The external Cext exporter is byte-identical to the version stored in Git history at pre-CASCADE commit `3c040c8`. The exact cube module used by the June 2026 production export cannot be proven from that run: its JSON names the now-missing `/home/carl/GFM/TissueSim_cube_local.py` but does not record its hash. M2 must use the frozen `svva2/SCRIPTS/TissueSim_cube_local.py` above and label this as a new comparison baseline, not a recreation of the June run.
+
+HEART-S preflight established that the primary June-23 exporter is not tissue-compatible with the current August-10 SCRIPTS cube runtime: shared Cext completes, but its slim concatenated state omits `k_if_gl` and tissue evaluation raises `KeyError`. The retained June-17 pre-state-slim backup completes the identical case and is therefore the frozen tissue-capable oracle. CASCADE does not import either file; the legacy environment executes the selected oracle as its own subprocess.
 
 ## Legacy environment
 

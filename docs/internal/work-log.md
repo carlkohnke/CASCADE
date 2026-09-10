@@ -278,3 +278,36 @@ The current TissueSim cube script does not implement a general automatic float64
 - Seven of ten initial harness checks passed. Two more commands failed correctly but used different message wording than the harness expected; the expectations were corrected.
 - The invalid-grid case was a genuine product failure and its successful manifest is retained under ignored raw evidence. The compact failed result is `../../validation/results/2026-09-09_m2-negative-fa2c958/negative-matrix-initial.json`.
 - `tests/test_release_contract.py` passed 12 tests after the source fix. A fresh committed wheel rerun remains required before VAL-11 completes.
+
+## 2026-09-09 — Negative and reproducibility gates completed
+
+### Work performed
+
+- Ran the full source suite after the invalid-grid fix: 118 passed with the 15 already-classified warnings.
+- Built wheel SHA-256 `51f75bf6accb916f1aa6b86861ef43d76491107bd0dbbd5f2622850fdd077608` and sdist SHA-256 `a010c72273063d33854f796e6e5d116fad5e2fa106da0912db1bc8be06a2571f` from clean commit `128c6fc`; both passed `twine check`.
+- Installed that wheel into two independent Python 3.9 CPU environments using the frozen constraints.
+- Reran all ten adversarial cases, then ran CUBE-100 blood with the same fixed tree and one-million tissue points once in each environment.
+- Added a manifest comparator that explicitly removes only declared volatile fields before comparing every remaining leaf.
+
+### Results and evidence
+
+- Negative matrix: 10/10 pass, non-zero exits, expected root causes, no successful manifests. Evidence: `../../validation/results/2026-09-09_m2-negative-128c6fc/`.
+- Reproducibility: all 17 arrays, 23 summaries, and 90 stable manifest leaves matched exactly. Evidence: `../../validation/results/2026-09-09_m2-repro-128c6fc/`.
+- VAL-11 and VAL-12 are complete. Raw outputs remain under matching ignored `../../validation/runs/` directories.
+
+## 2026-09-10 — HEART-S preflight exposed domain and state regressions
+
+### Work performed
+
+- Ran the primary legacy exporter, its retained pre-state-slim backup, and the exact installed `128c6fc` CASCADE wheel sequentially on HEART-S with a 16-cubed tissue grid and the full frozen 256-cubed shared Cext configuration.
+- Preserved the primary exporter's `k_if_gl` failure and hash-froze the tissue-capable June-17 backup.
+- Traced CASCADE's incorrect 4,096/4,096 inside-point count to the heart exporter calling the packaged runtime's default cube builder instead of its mesh constructor.
+- Added the mesh-domain route and retained `c_bulk_gl`, `c_wall_gl`, and `k_if_gl` in the compact combined Cext state, with regression tests.
+
+### Results and evidence
+
+- Primary legacy exporter: failed after shared Cext, as expected from the newly identified SCRIPTS mismatch.
+- Pre-state-slim legacy exporter: completed, retaining 684/4,096 bivent3 points and passing its flux consistency check.
+- Initial CASCADE wheel: completed but was scientifically invalid because it retained all bounding-cube points and skipped the flux check.
+- Evidence: `../../validation/results/2026-09-09_m2-heart-s-preflight-128c6fc/`; raw VTK/log products are in the matching ignored runs directory.
+- VAL-07 remains partial until a fresh committed wheel passes this bounded comparison and the full 200-cubed healthy/occlusion cases.

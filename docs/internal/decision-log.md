@@ -191,3 +191,24 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted from M2 negative testing
 - Decision: Reject non-positive grid dimensions/resolutions/chunk sizes, unknown tissue-grid keys, invalid combine modes, and non-finite or negative enclosed-point tolerances during configuration validation. Do not silently clamp invalid user input to a different simulation.
 - Consequence: The initial negative campaign's successful `nx=0` run is retained as failed evidence. A fresh committed wheel must pass the unchanged failure-path case before VAL-11 can close.
+
+## D-028 — Compare stable manifest content separately from run-local metadata
+
+- Date: 2026-09-09
+- Status: accepted from M2 reproducibility testing
+- Decision: Reproducibility requires equality of all stable manifest leaves and separately checks scientific outputs. Timestamps, measured timings, environment-specific executable/output paths, output labels, and settings hashes changed solely by those paths are explicitly classified as volatile rather than falsely expected to be byte-identical.
+- Consequence: The clean-environment CUBE-100 rerun matched all 90 stable leaves and every scientific array/summary exactly. Future manifest comparisons use the same explicit exclusion list and report any new leaf.
+
+## D-029 — Use the retained pre-state-slim exporter for heart tissue parity
+
+- Date: 2026-09-10
+- Status: accepted from HEART-S preflight
+- Decision: Keep the June-23 exporter hash as the primary historical oracle, but execute its June-17 `pre_cext_state_slim` backup for tissue-capable HEART-S/L comparisons against the current frozen cube runtime. The newer exporter may still supply pre-tissue flow/Cext evidence, but it cannot complete tissue evaluation because it omits `k_if_gl` from its compact combined state.
+- Consequence: Both files remain external and hash-frozen. The fallback is a documented historical oracle selection, not a CASCADE runtime dependency or an unrecorded patch to legacy code.
+
+## D-030 — Heart file domains and complete Cext state are mandatory
+
+- Date: 2026-09-10
+- Status: accepted from HEART-S preflight
+- Decision: `cascade export-heart --domain <mesh>` must pass the requested mesh through the packaged runtime's PyVista-domain constructor. Combined Cext tissue state must retain bulk concentration, wall concentration, and interfacial transfer coefficient in addition to the previously retained fields.
+- Consequence: Silently substituting a cube or skipping the flux-consistency diagnostic is a failed scientific run even if files are emitted. Regression tests cover both contracts before the bounded HEART-S comparison is repeated from a fresh wheel.

@@ -92,8 +92,12 @@ def guard_simulation(operation: str) -> Callable[[_F], _F]:
     return decorator
 
 
-def release_completed_case_memory(runtime_module: Any | None = None) -> dict[str, Any]:
-    """Release module-held accelerator state between sequential sweep cases."""
+def release_completed_case_memory(
+    runtime_module: Any | None = None,
+    *,
+    trim_accelerator_pools: bool = True,
+) -> dict[str, Any]:
+    """Release result state, optionally retaining accelerator pools for reuse."""
     released: dict[str, Any] = {
         "module_attrs_cleared": [],
         "cupy_pool_trimmed": False,
@@ -112,15 +116,16 @@ def release_completed_case_memory(runtime_module: Any | None = None) -> dict[str
                 cp.cuda.Stream.null.synchronize()
             except Exception:
                 pass
-            try:
-                cp.get_default_memory_pool().free_all_blocks()
-                released["cupy_pool_trimmed"] = True
-            except Exception:
-                pass
-            try:
-                cp.get_default_pinned_memory_pool().free_all_blocks()
-            except Exception:
-                pass
+            if trim_accelerator_pools:
+                try:
+                    cp.get_default_memory_pool().free_all_blocks()
+                    released["cupy_pool_trimmed"] = True
+                except Exception:
+                    pass
+                try:
+                    cp.get_default_pinned_memory_pool().free_all_blocks()
+                except Exception:
+                    pass
     gc.collect()
     return released
 

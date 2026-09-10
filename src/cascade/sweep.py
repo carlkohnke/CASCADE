@@ -18,6 +18,7 @@ from .growth import (
     _make_forest,
     _pre_sample_points,
     apply_runtime_settings,
+    build_or_load_network,
     build_domain,
     load_runtime_module,
     resolve_path,
@@ -81,18 +82,37 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         ts = load_runtime_module()
         apply_runtime_settings(ts, build_config)
 
-        t0 = perf_counter()
-        domain = build_domain(build_config, ts=ts)
-        domain_s = perf_counter() - t0
+        explicit_input = bool(build_config.network.input_path)
+        loaded_target_counts: list[int] | None = None
+        if explicit_input:
+            loaded = build_or_load_network(build_config)
+            domain = loaded.domain
+            sample_points = np.asarray(
+                loaded.sample_points if loaded.sample_points is not None else np.empty((0, 3)),
+                dtype=float,
+            )
+            sample_meta = loaded.sample_meta
+            domain_s = float(loaded.build_timings.get("domain_s", 0.0))
+            sample_s = float(loaded.build_timings.get("sample_points_s", 0.0))
+            trees = loaded.trees
+            forest = loaded.forest
+            loaded_target_counts = list(loaded.target_counts)
+            previous_target = int(targets[0])
+        else:
+            t0 = perf_counter()
+            domain = build_domain(build_config, ts=ts)
+            domain_s = perf_counter() - t0
 
-        t0 = perf_counter()
-        sample_points, sample_meta = _pre_sample_points(ts, domain, build_config)
-        sample_s = perf_counter() - t0
-        sample_points = np.asarray(sample_points if sample_points is not None else np.empty((0, 3)), dtype=float)
-
-        trees: list[Any] | None = None
-        forest = None
-        previous_target = 0
+            t0 = perf_counter()
+            sample_points, sample_meta = _pre_sample_points(ts, domain, build_config)
+            sample_s = perf_counter() - t0
+            sample_points = np.asarray(
+                sample_points if sample_points is not None else np.empty((0, 3)),
+                dtype=float,
+            )
+            trees = None
+            forest = None
+            previous_target = 0
 
         for target_raw in targets:
             target = max(int(target_raw), 1)
@@ -107,9 +127,17 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
             grow_config.outputs.out_dir = str(work_dir / f"side_{_label(side_len)}" / f"target_{target:08d}")
 
             t0 = perf_counter()
+            if explicit_input and target != int(targets[0]):
+                raise ValueError(
+                    "A sweep with network.input_path can repeat its frozen target but cannot "
+                    "reinterpret one input structure as a different target. Use a separate "
+                    "settings file for each explicit cached structure."
+                )
             if trees is None:
                 trees = _build_configured_trees(ts, domain, grow_config)
                 forest = _make_forest(grow_config, domain, trees) if grow_config.network_mode == "forest" else None
+            elif explicit_input:
+                pass
             elif target < previous_target:
                 raise ValueError("sweep target_terminal_counts must be non-decreasing for in-memory growth reuse.")
             elif target > previous_target:
@@ -120,7 +148,7 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
             if trees is None:
                 raise RuntimeError("Sweep failed to build any trees.")
 
-            target_counts = [target] * len(trees)
+            target_counts = list(loaded_target_counts) if loaded_target_counts is not None else [target] * len(trees)
             build = NetworkBuildResult(
                 domain=domain,
                 trees=trees,
@@ -173,7 +201,10 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                             }
                         )
                         del result
-                        release_completed_case_memory(ts)
+                        # Keep the allocator pools inside this strictly sequential
+                        # worker. This matches the accelerated legacy sweep's warm
+                        # execution model without retaining completed result arrays.
+                        release_completed_case_memory(ts, trim_accelerator_pools=False)
 
             if write_network:
                 save_network_if_requested(build, grow_config)

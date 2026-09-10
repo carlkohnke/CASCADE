@@ -206,3 +206,26 @@ The current TissueSim cube script does not implement a general automatic float64
 - Each monitored record contains the exact command, environment, log hash, wall time, peak process-tree RSS, and memory-abort status.
 - Each legacy record contains the frozen oracle, point, and tree hashes; each CASCADE record identifies the installed wheel module path and version.
 - The report generator returned success only after all array and summary comparison files reported `pass`.
+
+## 2026-09-09 — Large simulation-only tree-load regression resolved
+
+### Finding and change
+
+- The cube matrix showed that CASCADE network loading grew to 16.6 seconds at 1M and 61.6 seconds at 5M terminals, versus 1.8 and 7.8 seconds for the frozen oracle.
+- Inspection confirmed that CASCADE's analysis-only path still read and unpickled the archive payload, which can contain a many-million-entry growth vessel-map object graph. The oracle intentionally reads only `data`.
+- Implemented D-026 at commit `fa2c958`: simulation-only `.tree.npz` loading reads only the vessel table, infers terminal count from child columns, and constructs compact state. Growth-enabled loading still restores the payload.
+- Added a regression test with deliberately inconsistent payload counts to prove that analysis-only loading uses the stored numerical table rather than payload metadata.
+
+### Fresh-wheel verification
+
+- Full source suite before build: 115 passed, 15 known warnings.
+- Built exact wheel SHA-256 `de21614b728dd3963db83176e3c7c99ed45b8f2342ea83a6c59985f24565f8cf` and sdist SHA-256 `15181a83dee50f1354d2f2e52428b8be05f0d0309285f1ef3b00df5a23344be9`; both passed `twine check`.
+- Installed the wheel with pinned CUDA 13 dependencies in a new Python 3.9 environment; `cascade doctor --require-gpu` passed.
+- At 1M terminals, network load fell from 16.602 to 2.052 seconds and peak RSS from 5.15 to 2.05 GiB.
+- At 5M terminals, network load fell from 61.559 to 8.124 seconds and peak RSS from 16.65 to 6.48 GiB.
+- Both optimized blood runs reproduced all 17 legacy arrays and 23 summary fields with zero exact mismatches and zero tolerance failures.
+
+### Evidence
+
+- `../../validation/results/2026-09-09_m23-loadfix-fa2c958/`.
+- Heavy emitted arrays/logs remain under the corresponding ignored `../../validation/runs/` directory.

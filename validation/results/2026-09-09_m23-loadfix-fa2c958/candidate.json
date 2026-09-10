@@ -1,0 +1,19 @@
+{
+  "git_commit": "fa2c958",
+  "version": "0.1.0rc1",
+  "python": "3.9.20",
+  "svv": "0.0.48",
+  "wheel": {
+    "path": "validation/tmp/m23-candidate-fa2c958/cascade_vascular-0.1.0rc1-py3-none-any.whl",
+    "sha256": "de21614b728dd3963db83176e3c7c99ed45b8f2342ea83a6c59985f24565f8cf"
+  },
+  "sdist": {
+    "path": "validation/tmp/m23-candidate-fa2c958/cascade_vascular-0.1.0rc1.tar.gz",
+    "sha256": "15181a83dee50f1354d2f2e52428b8be05f0d0309285f1ef3b00df5a23344be9"
+  },
+  "twine_check": "pass",
+  "gpu_extra": "gpu-cu13",
+  "gpu_doctor": "pass",
+  "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+  "cupy": "13.6.0"
+}

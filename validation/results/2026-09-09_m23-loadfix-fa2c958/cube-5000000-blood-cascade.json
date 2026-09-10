@@ -1,0 +1,28 @@
+{
+  "settings_path": "/home/carl/svv_sweeps/GFM/validation/results/2026-09-09_m23-loadfix-fa2c958/cube-5000000-blood-settings.json",
+  "cascade_version": "0.1.0rc1",
+  "cascade_module": "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/__init__.py",
+  "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU (cupy=13.6.0)",
+  "elapsed_process_s": 54.55241806400045,
+  "build_wall_s": 10.614762262999648,
+  "solve_wall_s": 38.55550094099999,
+  "export_wall_s": 1.1545631119988684,
+  "build_timings": {
+    "domain_s": 0.9529318410004635,
+    "sample_points_s": 0.023185448000731412,
+    "network_load_s": 8.124406910999824
+  },
+  "simulation_timings": {
+    "sample_points_resolve_s": 8.654998964630067e-06,
+    "tree_0_tissue_cache_s": 1.1230866450005124,
+    "points_s": 1.8029986676992849e-06
+  },
+  "max_rss_bytes": 6962769920,
+  "array_manifests": [
+    "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-loadfix-fa2c958/cube-5000000-blood/cascade-arrays/manifest.json"
+  ],
+  "outputs": {
+    "summary_csv": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-loadfix-fa2c958/cube-5000000-blood/cascade-output/summary.csv",
+    "manifest_json": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m23-loadfix-fa2c958/cube-5000000-blood/cascade-output/manifest.json"
+  }
+}

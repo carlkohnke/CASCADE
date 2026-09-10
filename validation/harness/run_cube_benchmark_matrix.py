@@ -108,6 +108,12 @@ def main() -> int:
     parser.add_argument("--fluid", choices=("blood", "water"), default="blood")
     parser.add_argument("--backend", choices=("cpu", "gpu"), required=True)
     parser.add_argument("--solver", default="topdown")
+    parser.add_argument(
+        "--finite-radius-o2-terms",
+        choices=("none", "intravascular", "extravascular", "both"),
+        default=None,
+    )
+    parser.add_argument("--lumen-wall-closure", choices=("wellmixed", "graetz"), default=None)
     parser.add_argument("--cext-grid", type=int, default=256)
     parser.add_argument("--cext-window-factor", type=float, default=6.0)
     parser.add_argument("--tissue-window-factor", type=float, default=6.0)
@@ -147,6 +153,12 @@ def main() -> int:
         raise FileExistsError(f"Refusing to overwrite campaign {args.campaign_id}")
     results.mkdir(parents=True)
     base = json.loads(args.base_settings.read_text(encoding="utf-8"))
+    finite_radius_o2_terms = args.finite_radius_o2_terms or (
+        "none" if args.solver == "topdown" else "both"
+    )
+    lumen_wall_closure = args.lumen_wall_closure or (
+        "wellmixed" if args.solver == "topdown" else "graetz"
+    )
 
     wheel = args.wheel.expanduser().resolve()
     actual_wheel_hash = _sha256(wheel)
@@ -172,12 +184,8 @@ def main() -> int:
             raw["simulation"]["fluid"] = args.fluid
             raw["simulation"]["concentration_solver"] = args.solver
             raw["simulation"]["tissue_accel"] = args.backend
-            raw["simulation"]["tissuesim"]["finite_radius_o2_terms"] = (
-                "none" if args.solver == "topdown" else "both"
-            )
-            raw["simulation"]["tissuesim"]["lumen_wall_closure"] = (
-                "wellmixed" if args.solver == "topdown" else "graetz"
-            )
+            raw["simulation"]["tissuesim"]["finite_radius_o2_terms"] = finite_radius_o2_terms
+            raw["simulation"]["tissuesim"]["lumen_wall_closure"] = lumen_wall_closure
             raw["simulation"]["tissuesim"]["window_factor"] = float(args.tissue_window_factor)
             raw["simulation"]["cext"] = {
                 "accel_mode": args.backend,
@@ -224,6 +232,8 @@ def main() -> int:
                 "--tissue-window-factor", str(args.tissue_window_factor),
                 "--cext-accel", args.backend,
                 "--cext-frozen-accel", args.backend,
+                "--finite-radius-o2-terms", finite_radius_o2_terms,
+                "--lumen-wall-closure", lumen_wall_closure,
                 "--metadata", str(legacy_record),
             ]
             cascade_command = [
@@ -365,6 +375,8 @@ def main() -> int:
         "fluid": args.fluid,
         "backend": args.backend,
         "solver": args.solver,
+        "finite_radius_o2_terms": finite_radius_o2_terms,
+        "lumen_wall_closure": lumen_wall_closure,
         "cext_grid": args.cext_grid,
         "cext_window_factor": args.cext_window_factor,
         "tissue_window_factor": args.tissue_window_factor,

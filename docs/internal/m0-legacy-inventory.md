@@ -153,7 +153,7 @@ Pointwise oxygen comparisons use exactly the same coordinate array on both sides
 - Legacy and CASCADE comparisons run sequentially as isolated subprocesses and are compared only after each subprocess exits.
 - CASCADE CLI run, sweep, and heart-export entry points use a per-user operating-system lock to reject overlapping CASCADE simulations.
 - Studio already uses a sequential child-process queue. The process exit releases all host/GPU allocations before the next job starts.
-- Sequential in-process sweeps delete completed result arrays, clear module-held Cext/tissue state, synchronize CUDA, trim CuPy pools, and run garbage collection between cases.
+- Sequential in-process sweeps delete completed result arrays, clear module-held Cext/tissue state, synchronize CUDA, and run garbage collection between cases. A single bounded worker retains CuPy allocator pools for warm reuse; process exit releases them before an unrelated or large case begins.
 - Large computational cases default to compact summaries and validation statistics. Per-segment CSV/VTK materialization is tested separately at an approved size because Python row dictionaries can dominate memory.
 
 ## Interchange boundary

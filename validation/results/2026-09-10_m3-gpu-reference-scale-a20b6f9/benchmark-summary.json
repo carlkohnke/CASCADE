@@ -1,0 +1,433 @@
+{
+  "schema_version": 1,
+  "tracker_ids": [
+    "PERF-01",
+    "PERF-02",
+    "PERF-04",
+    "PERF-07"
+  ],
+  "campaign_id": "2026-09-10_m3-gpu-reference-scale-a20b6f9",
+  "wheel_path": "/home/carl/svv_sweeps/GFM/validation/tmp/m23-candidate-a20b6f9/cascade_vascular-0.1.0rc1-py3-none-any.whl",
+  "wheel_sha256": "c1f1f8dc7f12d0e7e1389a8e6c518a6e7b2f37a35717dd87969415c83140f37f",
+  "oracle_path": "/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/TissueSim_cube_local.py",
+  "oracle_sha256": "f2c4c89c8826b11246a239f7ae947872b955e5e47b44290033c13d1cef68bfda",
+  "points_path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-staging_20744c8/fixtures/cube_seed42_points_1000000.npy",
+  "points_sha256": "251ca61e9a082c3ae10f46a882a77fde7cacc0312faaf0b2834d14e72004e6b7",
+  "repetitions_per_target": 5,
+  "first_pair_policy": "The first pair in the campaign is labeled cold_compile; later pairs use the persistent Numba/CUDA compile cache. Every pair is an isolated fresh process.",
+  "strictly_sequential": true,
+  "alternating_order": true,
+  "array_evidence_writes": false,
+  "targets": [
+    10,
+    100,
+    1000,
+    10000,
+    100000
+  ],
+  "fluid": "blood",
+  "backend": "gpu",
+  "solver": "topdown_ext_hybrid_bg",
+  "finite_radius_o2_terms": "none",
+  "lumen_wall_closure": "wellmixed",
+  "cext_grid": 128,
+  "cext_window_factor": 4.0,
+  "tissue_window_factor": 4.0,
+  "cext_tissue_quadrature_mode": "legacy_cext",
+  "comparison_policy": "required",
+  "comparable_compute_definition": "legacy: t_assembly+t_kirchhoff+t_concentration+t_tissue; CASCADE: tree tissue-cache build plus the same four solver fields",
+  "summaries": {
+    "10": {
+      "all_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 2.7496786720003,
+          "min": 2.7294827779987827,
+          "max": 2.928623155999958,
+          "spread": 0.19914037800117512
+        },
+        "cascade": {
+          "count": 5,
+          "median": 2.7778550920011185,
+          "min": 2.64617543300119,
+          "max": 3.2352382659992145,
+          "spread": 0.5890628329980245
+        }
+      },
+      "all_monitored_wall_s": {
+        "legacy": {
+          "count": 5,
+          "median": 5.63290822899944,
+          "min": 5.378116460000456,
+          "max": 5.712372138998035,
+          "spread": 0.3342556789975788
+        },
+        "cascade": {
+          "count": 5,
+          "median": 5.846088892001717,
+          "min": 5.375538861000678,
+          "max": 6.086225947001367,
+          "spread": 0.7106870860006893
+        }
+      },
+      "median_process_ratio": 0.9858278142253696,
+      "median_monitored_ratio": 1.0393815467182543,
+      "median_comparable_compute_ratio": 0.3160746794945426,
+      "comparable_compute_s": {
+        "legacy": {
+          "count": 5,
+          "median": 1.7256639439874562,
+          "min": 1.651148775974434,
+          "max": 1.7649932749991422,
+          "spread": 0.11384449902470806
+        },
+        "cascade": {
+          "count": 5,
+          "median": 0.5442422330124828,
+          "min": 0.517677756070043,
+          "max": 1.1326389070018195,
+          "spread": 0.6149611509317765
+        }
+      },
+      "all_scientific_summaries_pass": true,
+      "warmed_process_s": {
+        "legacy": {
+          "count": 4,
+          "median": 2.7682187860009435,
+          "min": 2.7294827779987827,
+          "max": 2.928623155999958,
+          "spread": 0.19914037800117512
+        },
+        "cascade": {
+          "count": 4,
+          "median": 2.734327566500724,
+          "min": 2.64617543300119,
+          "max": 2.828542598999775,
+          "spread": 0.18236716599858482
+        }
+      },
+      "warmed_median_process_ratio": 0.9758272845482308,
+      "warmed_median_monitored_ratio": 1.038613561937927,
+      "warmed_median_comparable_compute_ratio": 0.3155644275799123
+    },
+    "100": {
+      "all_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 2.681025828998827,
+          "min": 2.6215794939998887,
+          "max": 2.9693562440006644,
+          "spread": 0.3477767500007758
+        },
+        "cascade": {
+          "count": 5,
+          "median": 2.695441349002067,
+          "min": 2.614274526000372,
+          "max": 2.9675483730025007,
+          "spread": 0.3532738470021286
+        }
+      },
+      "all_monitored_wall_s": {
+        "legacy": {
+          "count": 5,
+          "median": 5.578233634998469,
+          "min": 5.380586749997747,
+          "max": 5.646107484000822,
+          "spread": 0.26552073400307563
+        },
+        "cascade": {
+          "count": 5,
+          "median": 5.801071145000606,
+          "min": 5.525897006999003,
+          "max": 5.856959028998972,
+          "spread": 0.33106202199996915
+        }
+      },
+      "median_process_ratio": 1.025572972001949,
+      "median_monitored_ratio": 1.0373445857337347,
+      "median_comparable_compute_ratio": 0.33130392945008524,
+      "comparable_compute_s": {
+        "legacy": {
+          "count": 5,
+          "median": 1.650387262008735,
+          "min": 1.6261659970150504,
+          "max": 1.9228618940105662,
+          "spread": 0.2966958969955158
+        },
+        "cascade": {
+          "count": 5,
+          "median": 0.5572103800004697,
+          "min": 0.5327052829816239,
+          "max": 0.5777579360074014,
+          "spread": 0.045052653025777545
+        }
+      },
+      "all_scientific_summaries_pass": true,
+      "warmed_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 2.681025828998827,
+          "min": 2.6215794939998887,
+          "max": 2.9693562440006644,
+          "spread": 0.3477767500007758
+        },
+        "cascade": {
+          "count": 5,
+          "median": 2.695441349002067,
+          "min": 2.614274526000372,
+          "max": 2.9675483730025007,
+          "spread": 0.3532738470021286
+        }
+      },
+      "warmed_median_process_ratio": 1.025572972001949,
+      "warmed_median_monitored_ratio": 1.0373445857337347,
+      "warmed_median_comparable_compute_ratio": 0.33130392945008524
+    },
+    "1000": {
+      "all_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 2.7247520420023648,
+          "min": 2.6922911840010784,
+          "max": 2.7463393400030327,
+          "spread": 0.05404815600195434
+        },
+        "cascade": {
+          "count": 5,
+          "median": 2.8348230619994865,
+          "min": 2.5754098659999727,
+          "max": 3.2962690419990395,
+          "spread": 0.7208591759990668
+        }
+      },
+      "all_monitored_wall_s": {
+        "legacy": {
+          "count": 5,
+          "median": 5.376807139000448,
+          "min": 5.344967886998347,
+          "max": 5.618399756000144,
+          "spread": 0.27343186900179717
+        },
+        "cascade": {
+          "count": 5,
+          "median": 5.640656867999496,
+          "min": 5.562574537998444,
+          "max": 6.094285839000804,
+          "spread": 0.5317113010023604
+        }
+      },
+      "median_process_ratio": 1.0403967107099525,
+      "median_monitored_ratio": 1.0490718231429996,
+      "median_comparable_compute_ratio": 0.38224817127927985,
+      "comparable_compute_s": {
+        "legacy": {
+          "count": 5,
+          "median": 1.6974134129741287,
+          "min": 1.6460149589256616,
+          "max": 1.7553497799744946,
+          "spread": 0.10933482104883296
+        },
+        "cascade": {
+          "count": 5,
+          "median": 0.6345809379745333,
+          "min": 0.5710989749786677,
+          "max": 1.1595507319798344,
+          "spread": 0.5884517570011667
+        }
+      },
+      "all_scientific_summaries_pass": true,
+      "warmed_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 2.7247520420023648,
+          "min": 2.6922911840010784,
+          "max": 2.7463393400030327,
+          "spread": 0.05404815600195434
+        },
+        "cascade": {
+          "count": 5,
+          "median": 2.8348230619994865,
+          "min": 2.5754098659999727,
+          "max": 3.2962690419990395,
+          "spread": 0.7208591759990668
+        }
+      },
+      "warmed_median_process_ratio": 1.0403967107099525,
+      "warmed_median_monitored_ratio": 1.0490718231429996,
+      "warmed_median_comparable_compute_ratio": 0.38224817127927985
+    },
+    "10000": {
+      "all_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 2.797570294998877,
+          "min": 2.739478399998916,
+          "max": 2.852617051001289,
+          "spread": 0.11313865100237308
+        },
+        "cascade": {
+          "count": 5,
+          "median": 2.7525322530018457,
+          "min": 2.6469235379991005,
+          "max": 2.885575158001302,
+          "spread": 0.23865162000220153
+        }
+      },
+      "all_monitored_wall_s": {
+        "legacy": {
+          "count": 5,
+          "median": 5.577920605002873,
+          "min": 5.575926282999717,
+          "max": 5.887170457001048,
+          "spread": 0.311244174001331
+        },
+        "cascade": {
+          "count": 5,
+          "median": 5.560545985998033,
+          "min": 5.4960864419990685,
+          "max": 5.804844022000907,
+          "spread": 0.3087575800018385
+        }
+      },
+      "median_process_ratio": 0.9839010150781395,
+      "median_monitored_ratio": 0.997241660628015,
+      "median_comparable_compute_ratio": 0.3704632497213915,
+      "comparable_compute_s": {
+        "legacy": {
+          "count": 5,
+          "median": 1.7437704589719942,
+          "min": 1.6807348599977558,
+          "max": 1.7839757850306341,
+          "spread": 0.1032409250328783
+        },
+        "cascade": {
+          "count": 5,
+          "median": 0.6516242690231593,
+          "min": 0.6082802009732404,
+          "max": 0.7433517640129139,
+          "spread": 0.1350715630396735
+        }
+      },
+      "all_scientific_summaries_pass": true,
+      "warmed_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 2.797570294998877,
+          "min": 2.739478399998916,
+          "max": 2.852617051001289,
+          "spread": 0.11313865100237308
+        },
+        "cascade": {
+          "count": 5,
+          "median": 2.7525322530018457,
+          "min": 2.6469235379991005,
+          "max": 2.885575158001302,
+          "spread": 0.23865162000220153
+        }
+      },
+      "warmed_median_process_ratio": 0.9839010150781395,
+      "warmed_median_monitored_ratio": 0.997241660628015,
+      "warmed_median_comparable_compute_ratio": 0.3704632497213915
+    },
+    "100000": {
+      "all_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 3.575124434999452,
+          "min": 3.507408296001813,
+          "max": 3.8787457760008692,
+          "spread": 0.3713374799990561
+        },
+        "cascade": {
+          "count": 5,
+          "median": 3.57895159599866,
+          "min": 3.370503420002933,
+          "max": 3.785463352000079,
+          "spread": 0.41495993199714576
+        }
+      },
+      "all_monitored_wall_s": {
+        "legacy": {
+          "count": 5,
+          "median": 6.397839199998998,
+          "min": 6.362072834999708,
+          "max": 7.0471353129978525,
+          "spread": 0.6850624779981445
+        },
+        "cascade": {
+          "count": 5,
+          "median": 6.415941961000499,
+          "min": 6.312631538003188,
+          "max": 6.717111952999403,
+          "spread": 0.4044804149962147
+        }
+      },
+      "median_process_ratio": 1.0086407316854926,
+      "median_monitored_ratio": 1.0004796489389374,
+      "median_comparable_compute_ratio": 0.5131109410318457,
+      "comparable_compute_s": {
+        "legacy": {
+          "count": 5,
+          "median": 2.335529555020912,
+          "min": 2.1901705579621193,
+          "max": 2.3642202359660587,
+          "spread": 0.17404967800393933
+        },
+        "cascade": {
+          "count": 5,
+          "median": 1.1545854179712478,
+          "min": 1.1238004760161857,
+          "max": 1.2326791150517238,
+          "spread": 0.10887863903553807
+        }
+      },
+      "all_scientific_summaries_pass": true,
+      "warmed_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 3.575124434999452,
+          "min": 3.507408296001813,
+          "max": 3.8787457760008692,
+          "spread": 0.3713374799990561
+        },
+        "cascade": {
+          "count": 5,
+          "median": 3.57895159599866,
+          "min": 3.370503420002933,
+          "max": 3.785463352000079,
+          "spread": 0.41495993199714576
+        }
+      },
+      "warmed_median_process_ratio": 1.0086407316854926,
+      "warmed_median_monitored_ratio": 1.0004796489389374,
+      "warmed_median_comparable_compute_ratio": 0.5131109410318457
+    }
+  },
+  "pair_files": [
+    "cube-10-blood-r01-pair.json",
+    "cube-10-blood-r02-pair.json",
+    "cube-10-blood-r03-pair.json",
+    "cube-10-blood-r04-pair.json",
+    "cube-10-blood-r05-pair.json",
+    "cube-100-blood-r01-pair.json",
+    "cube-100-blood-r02-pair.json",
+    "cube-100-blood-r03-pair.json",
+    "cube-100-blood-r04-pair.json",
+    "cube-100-blood-r05-pair.json",
+    "cube-1000-blood-r01-pair.json",
+    "cube-1000-blood-r02-pair.json",
+    "cube-1000-blood-r03-pair.json",
+    "cube-1000-blood-r04-pair.json",
+    "cube-1000-blood-r05-pair.json",
+    "cube-10000-blood-r01-pair.json",
+    "cube-10000-blood-r02-pair.json",
+    "cube-10000-blood-r03-pair.json",
+    "cube-10000-blood-r04-pair.json",
+    "cube-10000-blood-r05-pair.json",
+    "cube-100000-blood-r01-pair.json",
+    "cube-100000-blood-r02-pair.json",
+    "cube-100000-blood-r03-pair.json",
+    "cube-100000-blood-r04-pair.json",
+    "cube-100000-blood-r05-pair.json"
+  ]
+}

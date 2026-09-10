@@ -1,0 +1,54 @@
+{
+  "domain": {"type": "cube", "side_length": 1.0, "random_seed": 42},
+  "network": {
+    "mode": "tree",
+    "input_path": "/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/trees_cache/tree_a50c006ac491d07e399f94f1be37cfe0_t1.tree.npz",
+    "target_terminal_count": 1
+  },
+  "growth": {"enabled": false, "n_equal_bifurcations": null},
+  "simulation": {
+    "fluid": "blood",
+    "build_fluid": "blood",
+    "qin_target_ul_min": 900.0,
+    "concentration_solver": "topdown_ext_hybrid_bg",
+    "sample_mode": "file",
+    "sample_points_path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-staging_20744c8/fixtures/cube_seed42_points_1000000.npy",
+    "distance_sample_count": 1000000,
+    "compute_avg_distance_to_channel": false,
+    "tissue_accel": "gpu",
+    "tissue_gpu_validate_points": 0,
+    "tissuesim": {
+      "finite_radius_o2_terms": "both",
+      "lumen_wall_closure": "graetz",
+      "window_factor": 6.0,
+      "kirchhoff_solver": "tree",
+      "kirchhoff_bc_mode": "legacy_equal_terminal_flow"
+    },
+    "cext": {
+      "accel_mode": "gpu",
+      "frozen_accel_mode": "gpu",
+      "init_mode": "decoupled_greens",
+      "lambda_source": "lambda_t",
+      "vess_coupling_accel": "anderson",
+      "hybrid_bg_mode": "fft",
+      "hybrid_bg_solver": "fft"
+    }
+  },
+  "settings": {
+    "numerics": {"tree_data_dtype": "float32", "tree_index_dtype": "int64"},
+    "concentration": {"gl_order": 5, "gl_order_cext": 1},
+    "cext": {"window_factor": 6.0, "vess_coupling_max_iter": 1, "hybrid_bg_grid": 256},
+    "tissue": {"cext_tissue_quadrature_mode": "independent"}
+  },
+  "outputs": {
+    "out_dir": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-10_m3-gpu-inprocess-production-a20b6f9"
+  },
+  "sweep": {
+    "target_terminal_counts": [1],
+    "fluids": ["blood"],
+    "qin_target_ul_min_values": [900, 900, 900, 900, 900, 900],
+    "distance_sample_counts": [1000000],
+    "work_dir": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-10_m3-gpu-inprocess-production-a20b6f9",
+    "output_csv": "/home/carl/svv_sweeps/GFM/validation/results/2026-09-10_m3-gpu-inprocess-production-a20b6f9/summary.csv"
+  }
+}

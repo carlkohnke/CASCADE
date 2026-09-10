@@ -255,3 +255,24 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted from recovered characterization data
 - Decision: The primary cube algorithm-speed comparison sums `t_assembly + t_kirchhoff + t_concentration + t_tissue`, matching the owner's June 2026 GPU characterization. CASCADE includes its separately timed tissue-cache construction in the corresponding assembly boundary. Fresh-process, input-load, domain/sample construction, and export times remain separately reported end-to-end measures.
 - Consequence: Seconds of Python startup or rebuilding a one-million-point domain cannot be mistaken for seconds of solver computation. Cold compilation and warmed persistent compile-cache observations remain separate under D-032.
+
+## D-037 — Reuse compile and allocator state in a bounded sequential worker
+
+- Date: 2026-09-10
+- Status: accepted from M3 regression attribution
+- Decision: Cache the retained Numba flow/ordering helpers on disk across isolated CLI processes. Within one explicitly sequential `cascade sweep` worker, release completed result arrays and module-held solver state but retain the CuPy allocator pools for the next case. An explicit cached network may be repeated only at its own target count and is never silently reinterpreted as a different tree.
+- Consequence: The historical-profile target-10 long-lived path reaches `0.123-0.148 s` warmed solve wall time and approximately `0.103 s` comparable compute, while all scientific summaries remain unchanged. Process isolation and the 45 GiB monitor remain mandatory for unrelated or large cases.
+
+## D-038 — Cache file-backed heart domains by content and SVV version
+
+- Date: 2026-09-10
+- Status: accepted from HEART-S performance attribution
+- Decision: `cascade export-heart` stores reusable `.dmn` domain products in the CASCADE user cache, keyed by the complete source-file SHA-256, cache schema, and installed public-`svv` version. `CASCADE_DOMAIN_CACHE_DIR` or `--domain-cache-dir` may select the location; `--no-domain-cache` forces a rebuild. Tree/forest discovery remains explicit and is not affected.
+- Consequence: The first STL use may perform the required tetrahedralization, but later isolated healthy/occlusion/benchmark runs avoid the observed 33.5-second rebuild. Cache incompatibility causes a logged rebuild rather than an incorrect silent reuse.
+
+## D-039 — Use an absolute float32 field floor for heart comparisons
+
+- Date: 2026-09-10
+- Status: accepted; clarifies D-023 for heart VTP accelerator fields
+- Decision: Heart physical arrays retain the `1e-3` relative rule and the `1e-6`-of-case-scale floor, with an additional literal `1e-6` field-unit minimum absolute tolerance. Identity, coordinates, finite masks, and fractions retain their existing exact/absolute rules.
+- Consequence: A repeated GPU result with maximum `cext_mean` difference `6.51e-7` is classified as float32 ordering noise instead of a scientific failure. The original stricter failed comparator artifact is retained beside the corrected result.

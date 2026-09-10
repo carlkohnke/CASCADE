@@ -5,8 +5,10 @@ import argparse
 import datetime as _dt
 import gc
 import hashlib
+import importlib.metadata
 import importlib.util
 import json
+import os
 import sys
 import types
 from pathlib import Path
@@ -372,22 +374,72 @@ def _log(message: str) -> None:
     print(message, flush=True)
 
 
-def _build_domain(ts, domain_path: Path, side_length: float):
+def _domain_cache_dir() -> Path:
+    override = os.environ.get("CASCADE_DOMAIN_CACHE_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    root = Path(xdg).expanduser() if xdg else Path.home() / ".cache"
+    return (root / "cascade" / "domains").resolve()
+
+
+def _domain_cache_path(domain_path: Path, cache_dir: Path) -> Path:
+    digest = hashlib.sha256()
+    with domain_path.open("rb") as handle:
+        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    try:
+        svv_version = importlib.metadata.version("svv")
+    except importlib.metadata.PackageNotFoundError:
+        svv_version = "unknown"
+    safe_version = "".join(ch if ch.isalnum() or ch in ".-_" else "_" for ch in svv_version)
+    return cache_dir / f"surface-v1-{digest.hexdigest()}-svv-{safe_version}.dmn"
+
+
+def _build_domain(
+    ts,
+    domain_path: Path,
+    side_length: float,
+    *,
+    cache_dir: Path | None = None,
+):
     suffix = str(domain_path.suffix).strip().lower()
     if suffix == ".dmn":
         return Domain.load(str(domain_path))
+    cache_path = None if cache_dir is None else _domain_cache_path(domain_path, cache_dir)
+    if cache_path is not None and cache_path.is_file():
+        try:
+            domain = Domain.load(str(cache_path))
+            _log(f"Using CASCADE domain cache: {cache_path}")
+            return domain
+        except Exception as exc:
+            _log(f"Warning: could not load CASCADE domain cache {cache_path} ({exc}); rebuilding.")
     if hasattr(ts, "build_domain_from_pyvista"):
         mesh = pv.read(str(domain_path))
         if not isinstance(mesh, pv.PolyData):
             mesh = mesh.extract_surface()
-        return ts.build_domain_from_pyvista(mesh)
-    if hasattr(ts, "DEFAULT_STL"):
-        ts.DEFAULT_STL = str(domain_path)
-    if hasattr(ts, "DOMAIN_CACHE_PATH"):
-        # The heart forest can use arbitrary imported root geometry; avoid accidentally
-        # reusing an incompatible single-tree domain cache.
-        ts.DOMAIN_CACHE_PATH = None
-    return ts.build_domain(float(side_length))
+        domain = ts.build_domain_from_pyvista(mesh)
+    else:
+        if hasattr(ts, "DEFAULT_STL"):
+            ts.DEFAULT_STL = str(domain_path)
+        if hasattr(ts, "DOMAIN_CACHE_PATH"):
+            # The heart forest can use arbitrary imported root geometry; avoid accidentally
+            # reusing an incompatible single-tree domain cache.
+            ts.DOMAIN_CACHE_PATH = None
+        domain = ts.build_domain(float(side_length))
+    if cache_path is not None:
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            domain.save(
+                str(cache_path),
+                include_boundary=True,
+                include_mesh=True,
+                include_patch_normals=False,
+            )
+            _log(f"Saved CASCADE domain cache: {cache_path}")
+        except Exception as exc:
+            _log(f"Warning: could not save CASCADE domain cache {cache_path} ({exc}).")
+    return domain
 
 
 def _attach_domain(forest: Forest, domain) -> None:
@@ -2051,6 +2103,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-simulation-cache", action="store_true", help="Disable automatic simulation-cache read/write.")
     parser.add_argument("--domain", dest="domain_path", required=True, help="Heart domain path (.stl or .dmn).")
     parser.add_argument("--domain-stl", dest="domain_path", help="Deprecated alias for --domain.")
+    parser.add_argument(
+        "--domain-cache-dir",
+        default=None,
+        help=(
+            "Directory for reusable CASCADE .dmn caches of STL/VTP domains. "
+            "Defaults to CASCADE_DOMAIN_CACHE_DIR or the platform user cache."
+        ),
+    )
+    parser.add_argument(
+        "--no-domain-cache",
+        action="store_true",
+        help="Rebuild a file-backed domain instead of reading or writing the CASCADE user cache.",
+    )
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="Output directory.")
     parser.add_argument("--prefix", default=None, help="Output filename prefix. Defaults to forest stem plus _cext when Cext is enabled.")
     parser.add_argument("--side-length", type=float, default=1.0)
@@ -2396,7 +2461,19 @@ def main(argv: list[str] | None = None) -> int:
 
     _log(f"Building/loading domain: {args.domain_path}")
     t0 = perf_counter()
-    domain = _build_domain(ts, _normalize_path(args.domain_path), float(args.side_length))
+    configured_domain_cache = None
+    if not bool(args.no_domain_cache):
+        configured_domain_cache = (
+            _normalize_path(args.domain_cache_dir)
+            if args.domain_cache_dir is not None
+            else _domain_cache_dir()
+        )
+    domain = _build_domain(
+        ts,
+        _normalize_path(args.domain_path),
+        float(args.side_length),
+        cache_dir=configured_domain_cache,
+    )
     _log(f"Domain loaded in {perf_counter() - t0:.2f}s")
     t0 = perf_counter()
     _attach_domain(forest, domain)

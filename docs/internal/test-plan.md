@@ -139,7 +139,7 @@ Before tests are called certifying, document for every field:
 - dtype conversion policy.
 - Whether ordering is significant or an ID mapping is applied.
 
-The approved functional rule is 0.1% agreement for the physical conclusion: oxygenation statistics/percentiles, segment and total flow, pressures, viability, and `FracAbove1pct`. Fractions use an absolute 0.001 limit (0.1 percentage points). Other nonzero physical values use relative tolerance `1e-3`; near zero they use absolute tolerance `1e-6` times the field's frozen reference-case scale. The comparison report records that scale and resulting absolute tolerance per field. Exact topology, IDs, shared coordinates, ordering/mapping, and finite/non-finite masks are not relaxed.
+The approved functional rule is 0.1% agreement for the physical conclusion: oxygenation statistics/percentiles, segment and total flow, pressures, viability, and `FracAbove1pct`. Fractions use an absolute 0.001 limit (0.1 percentage points). Other nonzero physical values use relative tolerance `1e-3`; near zero they use absolute tolerance `1e-6` times the field's frozen reference-case scale. Float32 heart VTP fields additionally use a literal `1e-6` field-unit minimum absolute floor (D-039). The comparison report records the scale and resulting absolute tolerance per field. Exact topology, IDs, shared coordinates, ordering/mapping, and finite/non-finite masks are not relaxed.
 
 Kirchhoff solver arrays on both sides use `dyn/cm^2`. Array evidence converts them to pascals before comparison, and CASCADE public summary/CSV/VTK pressure fields are also converted to pascals. Resistance metrics retain their documented legacy cgs interpretation unless a separately named SI field is added.
 

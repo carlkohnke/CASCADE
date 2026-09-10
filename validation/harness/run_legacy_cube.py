@@ -35,11 +35,23 @@ def main() -> int:
     parser.add_argument("--tree", type=Path, required=True)
     parser.add_argument("--tree-sha256", required=True)
     parser.add_argument("--target", type=int, required=True)
+    parser.add_argument(
+        "--repetitions",
+        type=int,
+        default=1,
+        help="Repeat the same frozen target inside one oracle process to characterize warm execution.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--metadata", type=Path, required=True)
     parser.add_argument("--arrays-dir", type=Path)
     parser.add_argument("--fluid", choices=("both", "blood", "water"), default="both")
     parser.add_argument("--solver", default="topdown")
+    parser.add_argument(
+        "--finite-radius-o2-terms",
+        choices=("none", "intravascular", "extravascular", "both"),
+        default=None,
+    )
+    parser.add_argument("--lumen-wall-closure", choices=("wellmixed", "graetz"), default=None)
     parser.add_argument("--tissue-backend", choices=("cpu", "gpu", "auto"), default="cpu")
     parser.add_argument("--cext-grid", type=int, default=256)
     parser.add_argument("--cext-window-factor", type=float, default=6.0)
@@ -47,6 +59,10 @@ def main() -> int:
     parser.add_argument("--cext-accel", choices=("cpu", "gpu", "auto"), default="gpu")
     parser.add_argument("--cext-frozen-accel", choices=("cpu", "gpu", "auto"), default="gpu")
     args = parser.parse_args()
+    if args.repetitions <= 0:
+        raise ValueError("--repetitions must be positive")
+    if args.repetitions > 1 and args.arrays_dir is not None:
+        raise ValueError("Array capture is only supported for one oracle repetition")
 
     oracle = args.oracle.expanduser().resolve()
     points_path = args.points.expanduser().resolve()
@@ -126,12 +142,12 @@ def main() -> int:
     transient = oracle.parent / unique_name
     cli_args = [
         str(oracle),
-        "--target-counts", str(int(args.target)),
+        "--target-counts", ",".join([str(int(args.target))] * int(args.repetitions)),
         "--distance-sample-count", str(int(points.shape[0])),
         "--compute-avg-distance-to-channel", "false",
         "--concentration-solver", str(args.solver),
-        "--finite-radius-o2-terms", "none" if args.solver == "topdown" else "both",
-        "--lumen-wall-closure", "wellmixed" if args.solver == "topdown" else "graetz",
+        "--finite-radius-o2-terms", args.finite_radius_o2_terms or ("none" if args.solver == "topdown" else "both"),
+        "--lumen-wall-closure", args.lumen_wall_closure or ("wellmixed" if args.solver == "topdown" else "graetz"),
         "--gl-order", "5",
         "--cext-gl-order", "1",
         "--cext-accel", args.cext_accel,
@@ -177,6 +193,7 @@ def main() -> int:
         "tree_sha256": expected[tree_path],
         "points": int(points.shape[0]),
         "target_terminals": int(args.target),
+        "repetitions": int(args.repetitions),
         "fluid": args.fluid,
         "solver": args.solver,
         "tissue_backend": args.tissue_backend,

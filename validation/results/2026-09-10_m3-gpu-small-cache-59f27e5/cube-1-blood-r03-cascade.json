@@ -1,0 +1,73 @@
+{
+  "settings_path": "/home/carl/svv_sweeps/GFM/validation/results/2026-09-10_m3-gpu-small-cache-59f27e5/cube-1-blood-r03-settings.json",
+  "cascade_version": "0.1.0rc1",
+  "cascade_module": "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/__init__.py",
+  "cascade_distribution": "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade_vascular-0.1.0rc1.dist-info",
+  "cascade_direct_url": {
+    "archive_info": {},
+    "url": "file:///home/carl/svv_sweeps/GFM/validation/tmp/m23-candidate-59f27e5/cascade_vascular-0.1.0rc1-py3-none-any.whl"
+  },
+  "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU (cupy=13.6.0)",
+  "elapsed_process_s": 2.9004421230019943,
+  "build_wall_s": 0.9266163870015589,
+  "solve_wall_s": 1.1524423689988907,
+  "export_wall_s": 0.02566874799958896,
+  "build_timings": {
+    "domain_s": 0.9003892059990903,
+    "sample_points_s": 0.02410567300103139,
+    "network_load_s": 0.0012494279981183354
+  },
+  "simulation_timings": {
+    "sample_points_resolve_s": 3.9429978642147034e-06,
+    "tree_0_tissue_cache_s": 0.06814365299942438,
+    "points_s": 1.6449994291178882e-06
+  },
+  "component_timings": [
+    {
+      "t_load_s": 0.0,
+      "t_assembly_s": 0.21178578803301207,
+      "t_kirchhoff_s": 0.010350153999752365,
+      "t_hematocrit_flow_iteration_s": 0.0035861319993273355,
+      "t_concentration_s": 0.47998116400049184,
+      "t_cext_total_s": 0.479877067002235,
+      "t_cext_hct_setup_s": 3.17270023515448e-05,
+      "t_cext_context_build_s": 0.007568457000161288,
+      "t_cext_solver_setup_s": 0.17686533800224424,
+      "t_cext_query_s": 0.0,
+      "t_cext_kernel_s": 0.059761103002529126,
+      "t_cext_gpu_transfer_s": 4.90019992867019e-05,
+      "t_cext_hybrid_deposit_s": 0.00017716000002110377,
+      "t_cext_hybrid_fft_s": 0.010555988003034145,
+      "t_cext_hybrid_o2_terms_s": 0.04701220399874728,
+      "t_cext_hybrid_self_subtract_s": 0.0020227259992680047,
+      "t_cext_hybrid_local_corr_s": 0.0,
+      "t_cext_hybrid_sample_s": 0.00017018500147969462,
+      "t_cext_frozen_gpu_transfer_s": 0.0008557319997635204,
+      "t_cext_init_s": 0.23113992099752068,
+      "t_cext_init_kernel_s": 0.13892535300328746,
+      "t_cext_init_gpu_transfer_s": 6.274699990171939e-05,
+      "t_cext_init_frozen_gpu_transfer_s": 0.0014697849983349442,
+      "t_cext_init_frozen_kernel_s": 0.0008493080022162758,
+      "t_cext_init_cache_s": 0.00014813700181548484,
+      "t_cext_init_hybrid_call_s": 0.18368911699872115,
+      "t_cext_final_frozen_gpu_transfer_s": 0.00041991799662355334,
+      "t_cext_final_frozen_kernel_s": 0.000190155999007402,
+      "t_cext_final_cache_s": 0.00013007899906369857,
+      "t_cext_final_source_state_s": 4.258899934939109e-05,
+      "t_cext_backend": "gpu",
+      "t_tissue_s": 0.01115245701657841,
+      "t_tissue_geometry_s": 0.027009270033886423,
+      "t_tissue_oxygen_s": 0.01115245701657841,
+      "t_tissue_total_s": 0.05558518700127024,
+      "t_tissue_kdtree_query_s": 0.0,
+      "t_tissue_gpu_refine_s": 0.0,
+      "t_tissue_gpu_transfer_s": 0.026501191034185467,
+      "t_tissue_backend": "cext_gpu_cell_list"
+    }
+  ],
+  "max_rss_bytes": 1517301760,
+  "outputs": {
+    "summary_csv": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-10_m3-gpu-small-cache-59f27e5/cube-1-blood-r03/cascade-output/summary.csv",
+    "manifest_json": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-10_m3-gpu-small-cache-59f27e5/cube-1-blood-r03/cascade-output/manifest.json"
+  }
+}

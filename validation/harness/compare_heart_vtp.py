@@ -48,13 +48,16 @@ def _field_comparison(name: str, reference: np.ndarray, candidate: np.ndarray) -
 
     finite = np.isfinite(reference) & np.isfinite(candidate)
     reference_scale = float(np.max(np.abs(reference[finite]))) if np.any(finite) else 0.0
-    absolute_tolerance = 1.0e-6 * reference_scale
+    # Heart concentration fields are float32 accelerator products.  A literal
+    # 1e-6 field-unit floor keeps sub-micro-unit GPU ordering noise from being
+    # promoted into a scientific mismatch when the reference value is zero.
+    absolute_tolerance = max(1.0e-6 * reference_scale, 1.0e-6)
     absolute_error = np.abs(candidate[finite] - reference[finite])
     allowed = absolute_tolerance + 1.0e-3 * np.abs(reference[finite])
     failed = int(np.count_nonzero(absolute_error > allowed))
     result.update(
         {
-            "rule": "rtol_1e-3_plus_case_scale_1e-6",
+            "rule": "rtol_1e-3_plus_max_case_scale_1e-6_or_field_1e-6",
             "reference_case_scale": reference_scale,
             "absolute_tolerance": absolute_tolerance,
             "relative_tolerance": 1.0e-3,
@@ -159,7 +162,7 @@ def main() -> int:
         "tracker_ids": ["VAL-06", "VAL-07"],
         "rules": {
             "identity_and_coordinates": "exact",
-            "physical_fields": "rtol=1e-3, atol=1e-6 * reference case scale",
+            "physical_fields": "rtol=1e-3, atol=max(1e-6 * reference case scale, 1e-6 field units)",
             "fractions": "absolute tolerance 0.001",
             "finite_masks": "exact",
         },

@@ -360,3 +360,33 @@ The current TissueSim cube script does not implement a general automatic float64
 - The production-GL5 target-1 preflight passed geometry, hemodynamics, vessel oxygen, and viability but failed mean tissue oxygen versus legacy effective GL1, as expected: `../../validation/results/2026-09-10_m23-gpu-reference-smoke_9423771/`.
 - A source-only `legacy_cext` preflight passed all 23 summaries, confirming the cause. It is explicitly non-certifying because its metadata proves that it invoked the editable checkout while the old header merely named a wheel: `../../validation/results/2026-09-10_m23-gpu-legacy-quadrature-source_9423771/`.
 - D-034 records the owner's final GL1/GL5 decision; D-035 records GPU-first cube and GPU-only heart certification; D-036 fixes the comparable timing boundary. A fresh exact wheel is required before the next GPU campaign.
+
+## 2026-09-10 — GPU cube speed restored and verified through ten million vessels
+
+### Work performed
+
+- Enabled persistent Numba caches for retained flow/ordering helpers and corrected `cascade sweep` so an explicit cached structure is loaded once and may be repeated only at its actual target count.
+- Kept completed result/state cleanup between sequential sweep cases while retaining CuPy allocator pools inside the same bounded worker.
+- Extended the alternating exact-wheel harness to name finite-radius and lumen-wall settings explicitly and added an in-process legacy repetition mode.
+- Ran five alternating GPU pairs at every frozen target from 10 through 5M terminals, always one process at a time under the 45 GiB monitor.
+
+### Results and evidence
+
+- All scientific summaries passed at every scale. CASCADE comparable compute was faster than the current frozen oracle at every target. At 10,000,001 vessels, median CASCADE/oracle compute was `26.16/27.65 s` (ratio `0.947`) and peak RSS remained about 11-12 GiB.
+- A six-run target-10 sequential check reached `0.123-0.148 s` warmed CASCADE solve wall time and approximately `0.103 s` comparable compute, confirming the fractions-of-a-second regime behind the historical figure.
+- Compact evidence: `../../validation/results/2026-09-10_m3-gpu-reference-scale-a20b6f9/`, `../../validation/results/2026-09-10_m3-gpu-reference-large-a20b6f9/`, and the before/after cache campaigns in `../../validation/results/2026-09-10_m3-gpu-small-legacy-c0db166/` and `../../validation/results/2026-09-10_m3-gpu-small-cache-59f27e5/`.
+
+## 2026-09-10 — HEART-S diagnostic exposed and fixed repeated domain setup
+
+### Work performed
+
+- Repeated the bounded HEART-S GPU comparison from the exact installed `a20b6f9` wheel in explicit legacy-GL1 diagnostic mode.
+- Retained the original strict comparator failure and clarified the float32 near-zero floor after the only failed field contained 66 `cext_mean` values with maximum absolute difference `6.51e-7`.
+- Attributed roughly 33.5 seconds of CASCADE heart wall time to rebuilding the identical STL-backed public-`svv` domain on every isolated run.
+- Added a source-hash/cache-schema/`svv`-version-keyed CASCADE user domain cache with explicit location and disable controls.
+
+### Verification and next gate
+
+- The corrected diagnostic passes structure, flow, concentration, tissue oxygen, viability, coordinates, and finite masks in `../../validation/results/2026-09-10_m2-heart-s-quadrature-a20b6f9/`.
+- Targeted release/sweep/execution tests pass: 22 passed with only the known third-party warnings.
+- Build a fresh exact wheel, verify cold cache creation and warm reuse, then execute production-independent-GL5 HEART-S full-grid healthy/occlusion followed by the monitored HEART-L gate.

@@ -13,7 +13,7 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 | M0 — Legacy inventory and initial parity audit | COMPLETE | Relevant scripts, inputs, outputs, assumptions, and gaps identified | `m0-legacy-inventory.md`, `m0-traceability.md`, and `../../validation/results/2026-09-09_m2-staging_20744c8/`; M2 starts from frozen inputs and rules |
 | M1 — Reproducible release candidate | COMPLETE | Git baseline, installable CLI/GUI, pinned CPU/GPU environments, artifacts, basic workflows, and release report | `v0.1.0rc1`; `../release-0.1.0rc1.md` |
 | M2 — Numerical and functional certification | IN PROGRESS | All agreed reference cases pass structural and numerical acceptance criteria on fixed inputs | Cube, custom geometry/domain, CPU/GPU, negative, and reproducibility gates pass; D-034 fixes production Cext GL1/tissue GL5 semantics, so proceed with GPU-only HEART-S/L cases |
-| M3 — Performance certification | IN PROGRESS | CASCADE is not slower than the agreed `TissueSim_cube_local` baseline under the approved protocol, or every regression is resolved/accepted | Historical GPU algorithm-time reference is frozen; CPU 1/10/100 diagnostics pass; run the exact-wheel GPU matrix at every available scale and all heart cases |
+| M3 — Performance certification | IN PROGRESS | CASCADE is not slower than the agreed `TissueSim_cube_local` baseline under the approved protocol, or every regression is resolved/accepted | GPU cube matrix now passes through 10,000,001 vessels and warmed small solves reach fractions of a second; finish exact-wheel GPU heart cases |
 | M4 — Public-release readiness | BLOCKED | License selected, remote/CI operational, supported-platform statement finalized, M2/M3 disposition recorded | Owner license decision and GitHub repository URL required |
 
 ## Step 0: frozen legacy baseline
@@ -72,11 +72,11 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 | ID | Work item | Status | Required result | Evidence / next action |
 | --- | --- | --- | --- | --- |
 | PERF-01 | Freeze benchmark protocol | COMPLETE | Same process isolation, geometry, arrays, settings, hardware state, warmups, run count, and timing boundaries | D-023/D-032/D-035/D-036: sequential alternating GPU pairs, cold compile separated, historical four-component algorithm boundary plus end-to-end reporting |
-| PERF-02 | Cube scale matrix | IN PROGRESS | Compare every available decade and the highest cached target | Historical 74-row GPU reference is normalized; run exact-wheel GPU pairs for 1 through 5M terminals, with CPU limited to the completed 1/10/100 diagnostic tranche |
+| PERF-02 | Cube scale matrix | COMPLETE | Compare every available decade and the highest cached target | Exact-wheel GPU scientific comparisons pass from 10 through 5M terminals; earlier exact-wheel target-1 and CPU 1/10/100 tranches pass; `../../validation/results/2026-09-10_m3-gpu-reference-scale-a20b6f9/` and `../../validation/results/2026-09-10_m3-gpu-reference-large-a20b6f9/` |
 | PERF-03 | Tissue oxygen CPU benchmark | COMPLETE for approved scope | Component and end-to-end timings versus `TissueSim_cube_local` | Five pairs each at 1/10/100 pass all summaries; the interrupted 1k/10k CPU extension is retained but superseded by D-035 |
-| PERF-04 | Tissue oxygen CUDA benchmark | IN PROGRESS | Kernel/component and end-to-end timings with synchronization | Recovered historical algorithm reference: 0.880-1.031 s at 400,001 vessels and 18.09-23.19 s at 10,000,001; exact-wheel harness now reports the same four-component boundary and verifies installation provenance |
+| PERF-04 | Tissue oxygen CUDA benchmark | COMPLETE | Kernel/component and end-to-end timings with synchronization | All GPU cube summaries pass; warmed target-10 solve wall is 0.123-0.148 s; at 10,000,001 vessels median comparable compute is 26.16 s CASCADE versus 27.65 s current oracle (ratio 0.947); historical June blood was 23.19 s |
 | PERF-05 | Heart forest/export benchmark | PLANNED | GPU-only load/cache, flow, Cext, tissue, and VTK timings at representative scale | Frozen HEART-S/HEART-L and 200-cubed grid; D-034/D-035 remove CPU and quadrature blockers, so stage after the bounded exact-wheel GPU preflight |
-| PERF-06 | Profile regressions | IN PROGRESS | Attribute any statistically meaningful slowdown and implement or disposition fixes | D-026 verified on exact wheel `fa2c958`: 1M/5M load improved 8.1x/7.6x and peak RSS fell 60%/61%, with all 17 arrays and 23 summaries passing; continue only for regressions found by clean benchmarks |
+| PERF-06 | Profile regressions | IN PROGRESS | Attribute any statistically meaningful slowdown and implement or disposition fixes | Cube Numba/allocator/sweep regressions fixed by D-037; HEART-S then exposed a 33.5 s repeated STL-domain build and D-038 adds a reusable content-keyed cache; verify from fresh wheel and continue heart attribution |
 | PERF-07 | Equivalent-or-faster release gate | PLANNED | CASCADE meets agreed performance criterion against `TissueSim_cube_local` | No performance claim until PERF-01 through PERF-06 are complete |
 
 ## Usability, CI, and governance
@@ -93,8 +93,8 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 
 ## Immediate next actions
 
-1. Build and install a fresh exact wheel containing D-034 and rerun the bounded GPU diagnostic in both production-independent GL5 and explicitly labeled legacy-GL1 modes.
-2. Execute the clean alternating GPU cube benchmark at every cached decade, reporting the historical four-component algorithm boundary separately from cold end-to-end, load/conversion, and export.
-3. Stage GPU-only HEART-S healthy and full-occlusion ID 1 against one hash-frozen point set derived from the full 200-cubed grid; advance to HEART-L only after bounded GPU/memory and numerical gates pass.
+1. Build and install a fresh exact wheel containing the heart domain cache, then verify cold creation and warm reuse plus both production-independent GL5 and explicitly labeled legacy-GL1 bounded modes.
+2. Execute GPU-only HEART-S healthy and full-occlusion ID 1 against one hash-frozen point set derived from the full 200-cubed grid; advance to HEART-L only after bounded GPU/memory and numerical gates pass.
+3. Run HEART-L from the frozen simcache under the 45 GiB monitor, first with compact outputs and then at most one approved full export.
 4. Run only one solver subprocess at a time, retain failed/inconclusive evidence, and keep every heavy array or export under ignored `validation/runs/`.
 5. Defer GitHub remote, license, and publication work until M4 becomes active.

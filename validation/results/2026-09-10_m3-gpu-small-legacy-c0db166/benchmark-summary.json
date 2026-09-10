@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "tracker_ids": [
+    "PERF-01",
+    "PERF-02",
+    "PERF-04",
+    "PERF-07"
+  ],
+  "campaign_id": "2026-09-10_m3-gpu-small-legacy-c0db166",
+  "wheel_path": "/home/carl/svv_sweeps/GFM/validation/tmp/m23-candidate-c0db166/cascade_vascular-0.1.0rc1-py3-none-any.whl",
+  "wheel_sha256": "ab3094d0787a365915d88709279f675be2783e33862e1ca09aafb289c98a2503",
+  "oracle_path": "/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/TissueSim_cube_local.py",
+  "oracle_sha256": "f2c4c89c8826b11246a239f7ae947872b955e5e47b44290033c13d1cef68bfda",
+  "points_path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-staging_20744c8/fixtures/cube_seed42_points_1000000.npy",
+  "points_sha256": "251ca61e9a082c3ae10f46a882a77fde7cacc0312faaf0b2834d14e72004e6b7",
+  "repetitions_per_target": 5,
+  "first_pair_policy": "The first pair in the campaign is labeled cold_compile; later pairs use the persistent Numba/CUDA compile cache. Every pair is an isolated fresh process.",
+  "strictly_sequential": true,
+  "alternating_order": true,
+  "array_evidence_writes": false,
+  "targets": [
+    1
+  ],
+  "fluid": "blood",
+  "backend": "gpu",
+  "solver": "topdown_ext_hybrid_bg",
+  "cext_grid": 128,
+  "cext_window_factor": 4.0,
+  "tissue_window_factor": 4.0,
+  "cext_tissue_quadrature_mode": "legacy_cext",
+  "comparison_policy": "required",
+  "comparable_compute_definition": "legacy: t_assembly+t_kirchhoff+t_concentration+t_tissue; CASCADE: tree tissue-cache build plus the same four solver fields",
+  "summaries": {
+    "1": {
+      "all_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 2.5988275799973053,
+          "min": 2.495268186998146,
+          "max": 2.653599780998775,
+          "spread": 0.15833159400062868
+        },
+        "cascade": {
+          "count": 5,
+          "median": 3.8487313559999166,
+          "min": 3.654580488000647,
+          "max": 6.242304479997983,
+          "spread": 2.5877239919973363
+        }
+      },
+      "all_monitored_wall_s": {
+        "legacy": {
+          "count": 5,
+          "median": 5.4030082449971815,
+          "min": 5.312754623002547,
+          "max": 7.583129815000575,
+          "spread": 2.2703751919980277
+        },
+        "cascade": {
+          "count": 5,
+          "median": 6.931984384998941,
+          "min": 6.752585690999695,
+          "max": 9.339948975997686,
+          "spread": 2.5873632849979913
+        }
+      },
+      "median_process_ratio": 1.5229287440132713,
+      "median_monitored_ratio": 1.2524439132521101,
+      "median_comparable_compute_ratio": 1.1103671339127854,
+      "comparable_compute_s": {
+        "legacy": {
+          "count": 5,
+          "median": 1.5505675360436726,
+          "min": 1.4762850949991844,
+          "max": 1.6180413440197299,
+          "spread": 0.1417562490205455
+        },
+        "cascade": {
+          "count": 5,
+          "median": 1.6585550980089465,
+          "min": 1.5785571079868532,
+          "max": 4.03466973304603,
+          "spread": 2.456112625059177
+        }
+      },
+      "all_scientific_summaries_pass": true,
+      "warmed_process_s": {
+        "legacy": {
+          "count": 4,
+          "median": 2.5555063984975277,
+          "min": 2.495268186998146,
+          "max": 2.600906815001508,
+          "spread": 0.1056386280033621
+        },
+        "cascade": {
+          "count": 4,
+          "median": 3.8244235010006378,
+          "min": 3.654580488000647,
+          "max": 3.865428062999854,
+          "spread": 0.2108475749992067
+        }
+      },
+      "warmed_median_process_ratio": 1.504556750538777,
+      "warmed_median_monitored_ratio": 1.2760711294275573,
+      "warmed_median_comparable_compute_ratio": 1.07300802923513
+    }
+  },
+  "pair_files": [
+    "cube-1-blood-r01-pair.json",
+    "cube-1-blood-r02-pair.json",
+    "cube-1-blood-r03-pair.json",
+    "cube-1-blood-r04-pair.json",
+    "cube-1-blood-r05-pair.json"
+  ]
+}

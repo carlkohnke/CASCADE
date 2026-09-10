@@ -21,6 +21,7 @@ from cascade.heart_export import (
     WINDOW_FACTOR_DEFAULT,
     _build_domain,
     _concat_tree_solutions,
+    _domain_cache_path,
     _load_tissue_points,
     _load_tissuesim,
     _should_use_simulation_cache,
@@ -115,6 +116,21 @@ def test_heart_export_passes_file_mesh_to_packaged_runtime(tmp_path: Path):
     assert _build_domain(Runtime, mesh_path, 123.0) == "domain"
     assert Runtime.received is not None
     assert Runtime.received.n_points == mesh.n_points
+
+
+def test_heart_domain_cache_key_is_content_and_svv_version_scoped(tmp_path: Path):
+    first = tmp_path / "first.stl"
+    second = tmp_path / "second.stl"
+    first.write_bytes(b"same geometry bytes")
+    second.write_bytes(b"same geometry bytes")
+
+    first_key = _domain_cache_path(first, tmp_path / "cache")
+    second_key = _domain_cache_path(second, tmp_path / "cache")
+
+    assert first_key == second_key
+    assert first_key.parent == (tmp_path / "cache")
+    assert first_key.name.startswith("surface-v1-")
+    assert first_key.suffix == ".dmn"
 
 
 def test_heart_cext_concat_preserves_flux_state():

@@ -121,6 +121,11 @@ def main() -> int:
     parser.add_argument("--sample-seconds", type=float, default=0.25)
     parser.add_argument("--gpu-sample-seconds", type=float, default=2.0)
     parser.add_argument("--max-rss-gib", type=float, default=45.0)
+    parser.add_argument(
+        "--quiet-child",
+        action="store_true",
+        help="write child output to the raw log without echoing every line",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = list(args.command)
@@ -169,8 +174,9 @@ def main() -> int:
             for line in process.stdout:
                 log_handle.write(line)
                 log_handle.flush()
-                sys.stdout.write(line)
-                sys.stdout.flush()
+                if not args.quiet_child:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
 
         reader = threading.Thread(target=copy_output, daemon=True)
         reader.start()

@@ -1,6 +1,6 @@
 # CASCADE production and validation tracker
 
-Last updated: 2026-09-09
+Last updated: 2026-09-10
 
 Current release baseline: `v0.1.0rc1` at commit `9da8b2e`
 
@@ -12,8 +12,8 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 | --- | --- | --- | --- |
 | M0 — Legacy inventory and initial parity audit | COMPLETE | Relevant scripts, inputs, outputs, assumptions, and gaps identified | `m0-legacy-inventory.md`, `m0-traceability.md`, and `../../validation/results/2026-09-09_m2-staging_20744c8/`; M2 starts from frozen inputs and rules |
 | M1 — Reproducible release candidate | COMPLETE | Git baseline, installable CLI/GUI, pinned CPU/GPU environments, artifacts, basic workflows, and release report | `v0.1.0rc1`; `../release-0.1.0rc1.md` |
-| M2 — Numerical and functional certification | IN PROGRESS | All agreed reference cases pass structural and numerical acceptance criteria on fixed inputs | All 16 frozen cube scale/fluid cases through 5M terminals pass; continue forest, custom-domain/export, CPU/GPU, reproducibility, negative, and heart cases |
-| M3 — Performance certification | IN PROGRESS | CASCADE is not slower than the agreed `TissueSim_cube_local` baseline under the approved protocol, or every regression is resolved/accepted | Cube diagnostic sweep isolated large-tree load/conversion overhead; execute clean interleaved repetitions and component benchmarks |
+| M2 — Numerical and functional certification | IN PROGRESS | All agreed reference cases pass structural and numerical acceptance criteria on fixed inputs | Cube, custom geometry/domain, CPU/GPU, negative, and reproducibility gates pass; heart shared-point parity is blocked only by the D-033 quadrature-semantics decision before full-scale cases |
+| M3 — Performance certification | IN PROGRESS | CASCADE is not slower than the agreed `TissueSim_cube_local` baseline under the approved protocol, or every regression is resolved/accepted | Clean five-pair 1/10/100 CPU tranche passes scientific checks at ratios 1.035/1.018/0.974; continue 1k-100k, then GPU 1M/5M and heart after D-033 |
 | M4 — Public-release readiness | BLOCKED | License selected, remote/CI operational, supported-platform statement finalized, M2/M3 disposition recorded | Owner license decision and GitHub repository URL required |
 
 ## Step 0: frozen legacy baseline
@@ -60,7 +60,7 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 | VAL-04 | Cube tree numerical parity | COMPLETE | All selected scalar/array metrics meet VAL-02 | Same report: zero tolerance failures in blood and water/cell-media at 1, 10, 100, 1k, 10k, 100k, 1M, and 5M terminals |
 | VAL-05 | Forest growth and reload parity | PARTIAL | Deterministic scheduled/nearest assignment and cache reload meet structural/numerical rules | Existing smoke evidence; add canonical public-`svv` cases |
 | VAL-06 | VTK/export parity | PARTIAL | Expected files, schemas, dtypes, IDs, units, point counts, and field values match approved baseline | Normal bounded export passed 23 checks for CSV/NPZ and box/VTP/STL cases; complete heart exporter field/value parity |
-| VAL-07 | Heart shared-global Cext parity | PARTIAL | CASCADE and legacy exporter agree for fixed multi-tree forest and tissue grid | Corrected bounded CASCADE run uses bivent3 and passes flux diagnostics; D-031 removes a 26-point version-specific surface-mask discrepancy by passing one hash-frozen legacy-derived point array to both solvers; fresh-wheel pointwise rerun pending |
+| VAL-07 | Heart shared-global Cext parity | BLOCKED ON OWNER DECISION | CASCADE and legacy exporter agree for fixed multi-tree forest and tissue grid | Fresh-wheel shared-point run proves exact geometry/flow/viability but exposes legacy effective tissue-GL1 versus CASCADE true tissue-GL5 semantics; resolve D-033 before full 200-cubed runs |
 | VAL-08 | `.dmn` interchange decision and round trip | COMPLETE | `.dmn` is explicitly legacy/internal validation input; STL/VTP/VTU are the supported public interchange path | D-013; `m0-legacy-inventory.md`; retain load compatibility without claiming cross-version round trips |
 | VAL-09 | Custom-domain/custom-geometry correctness | COMPLETE | CSV/NPZ plus VTP/STL domain workflows pass topology, unit, solver, and export checks | `../../validation/results/2026-09-09_m2-custom-export-fa2c958/`: all four installed-wheel cases passed outside checkout; CSV/NPZ outputs matched |
 | VAL-10 | CPU/GPU numerical consistency | COMPLETE | Same frozen case meets VAL-02 across CPU and CUDA paths | `../../validation/results/2026-09-09_m2-cpu-gpu-fa2c958/`: CUBE-100 passed all 17 arrays and 23 summaries; max tissue relative error `2.46e-5` |
@@ -72,8 +72,8 @@ Current objective: certify CASCADE against the selected legacy TissueSim workflo
 | ID | Work item | Status | Required result | Evidence / next action |
 | --- | --- | --- | --- | --- |
 | PERF-01 | Freeze benchmark protocol | COMPLETE | Same process isolation, geometry, arrays, settings, hardware state, warmups, run count, and timing boundaries | D-023: five pairs through 100k, three at 1M, one initial at 5M/HEART-L with a recorded noise-triggered repeat rule |
-| PERF-02 | Cube scale matrix | IN PROGRESS | Compare every available decade and the highest cached target | One evidence-enabled pass completed at all 16 scale/fluid points; clean repeated/interleaved timing remains. At 5M CASCADE peaked at 16.65 GiB and network load/conversion was 56-62 s versus about 8 s legacy |
-| PERF-03 | Tissue oxygen CPU benchmark | PLANNED | Component and end-to-end timings versus `TissueSim_cube_local` | Use shared samples and cached geometry separately from end-to-end test |
+| PERF-02 | Cube scale matrix | IN PROGRESS | Compare every available decade and the highest cached target | Clean five-pair CPU tranche at 1/10/100 passed all summaries with warmed compile-cache ratios 1.035/1.018/0.974; continue 1k/10k/100k, then GPU 1M/5M |
+| PERF-03 | Tissue oxygen CPU benchmark | IN PROGRESS | Component and end-to-end timings versus `TissueSim_cube_local` | Clean harness records build/solve/export and oracle components without array-evidence writes; extend completed 1/10/100 tranche through 100k |
 | PERF-04 | Tissue oxygen CUDA benchmark | PLANNED | Kernel/component and end-to-end timings with synchronization | Include first-run compile separately from warmed execution |
 | PERF-05 | Heart forest/export benchmark | PLANNED | Load/cache, flow, Cext, tissue, and VTK timings at representative scale | Frozen HEART-S/HEART-L and 200-cubed grid; stage commands after bounded GPU/memory preflight |
 | PERF-06 | Profile regressions | IN PROGRESS | Attribute any statistically meaningful slowdown and implement or disposition fixes | D-026 verified on exact wheel `fa2c958`: 1M/5M load improved 8.1x/7.6x and peak RSS fell 60%/61%, with all 17 arrays and 23 summaries passing; continue only for regressions found by clean benchmarks |

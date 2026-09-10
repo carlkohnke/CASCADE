@@ -328,3 +328,18 @@ The current TissueSim cube script does not implement a general automatic float64
 - Full source suite: 123 passed with 15 previously classified warnings.
 - The successful capture run completed with peak RSS below 1 GiB and the frozen production Cext profile. Compact monitor evidence is under `../../validation/results/2026-09-10_m2-heart-shared-points_working/`; raw logs, VTK, and `.npy` data are under the matching ignored runs directory.
 - A committed, freshly installed wheel must now rerun both sides against the captured points and pass the field comparator before the full 200-cubed coordinate fixture is generated.
+
+## 2026-09-10 — HEART-S quadrature discrepancy and first clean M3 tranche
+
+### Work performed
+
+- Built and installed the exact `e1cd36b` wheel (SHA-256 `201c6459...`) outside the checkout, then ran both heart implementations sequentially against the same 684 frozen coordinates.
+- Added a reusable heart VTP comparator covering exact identities/coordinates/finite masks, the frozen physical-field tolerance, fraction tolerances, and unordered boundary geometry.
+- Added isolated installed-wheel cube timing runners. They enforce the 45 GiB memory ceiling, alternate legacy/CASCADE order, retain raw logs outside Git, avoid array-evidence writes, and record build/solve/export plus solver components.
+- Preserved the first failed timing campaign: resolving a virtual-environment Python symlink invoked the base interpreter and lost the wheel installation. The corrected driver retains the virtual-environment executable path and gained a quiet-child logging mode.
+
+### Verification and evidence
+
+- HEART-S shared-point geometry, IDs, flows, radii, lengths, finite masks, viability, and fraction-above-1% agree. Field parity remains failed because the legacy shared-Cext path effectively performs tissue GL1 while CASCADE performs the requested tissue GL5; D-033 is pending before large heart work. Evidence: `../../validation/results/2026-09-10_m2-heart-s-shared-e1cd36b/`.
+- The clean five-pair CPU cube tranche passed all 15 scientific summary comparisons. Warm compile-cache median CASCADE/legacy process ratios were 1.035 at target 1, 1.018 at target 10, and 0.974 at target 100; maximum observed RSS was 2.78 GiB. Evidence: `../../validation/results/2026-09-10_m3-cube-cpu-small02-e1cd36b/`.
+- The superseded failed harness evidence remains at `../../validation/results/2026-09-10_m3-cube-cpu-small-e1cd36b/`.

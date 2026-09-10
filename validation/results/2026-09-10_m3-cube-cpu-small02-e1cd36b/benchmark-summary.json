@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "tracker_ids": [
+    "PERF-01",
+    "PERF-02",
+    "PERF-03",
+    "PERF-07"
+  ],
+  "campaign_id": "2026-09-10_m3-cube-cpu-small02-e1cd36b",
+  "wheel_path": "/home/carl/svv_sweeps/GFM/validation/tmp/m23-candidate-e1cd36b/cascade_vascular-0.1.0rc1-py3-none-any.whl",
+  "wheel_sha256": "201c6459be5628cc5e79b3b2d0ae52cbdbba5c613bbe7a5a77a914476e6529c1",
+  "oracle_path": "/home/carl/miniconda3/envs/svva2/lib/python3.9/site-packages/svv/SCRIPTS/TissueSim_cube_local.py",
+  "oracle_sha256": "f2c4c89c8826b11246a239f7ae947872b955e5e47b44290033c13d1cef68bfda",
+  "points_path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-staging_20744c8/fixtures/cube_seed42_points_1000000.npy",
+  "points_sha256": "251ca61e9a082c3ae10f46a882a77fde7cacc0312faaf0b2834d14e72004e6b7",
+  "repetitions_per_target": 5,
+  "first_pair_policy": "The first pair in the campaign is labeled cold_compile; later pairs use the persistent Numba/CUDA compile cache. Every pair is an isolated fresh process.",
+  "strictly_sequential": true,
+  "alternating_order": true,
+  "array_evidence_writes": false,
+  "targets": [
+    1,
+    10,
+    100
+  ],
+  "fluid": "blood",
+  "backend": "cpu",
+  "summaries": {
+    "1": {
+      "all_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 5.955571515001793,
+          "min": 5.766593886997725,
+          "max": 6.1734444400026405,
+          "spread": 0.4068505530049151
+        },
+        "cascade": {
+          "count": 5,
+          "median": 6.280689727002027,
+          "min": 6.147462822998932,
+          "max": 11.021451598000567,
+          "spread": 4.873988775001635
+        }
+      },
+      "all_monitored_wall_s": {
+        "legacy": {
+          "count": 5,
+          "median": 8.726434915999562,
+          "min": 8.370756372001779,
+          "max": 8.785402516998147,
+          "spread": 0.4146461449963681
+        },
+        "cascade": {
+          "count": 5,
+          "median": 8.994645292001223,
+          "min": 8.787870365002163,
+          "max": 15.479729069000314,
+          "spread": 6.69185870399815
+        }
+      },
+      "median_process_ratio": 1.038399448638244,
+      "median_monitored_ratio": 1.0511073639633621,
+      "all_scientific_summaries_pass": true,
+      "warmed_process_s": {
+        "legacy": {
+          "count": 4,
+          "median": 6.002002370500122,
+          "min": 5.766593886997725,
+          "max": 6.1734444400026405,
+          "spread": 0.4068505530049151
+        },
+        "cascade": {
+          "count": 4,
+          "median": 6.278314625000348,
+          "min": 6.147462822998932,
+          "max": 6.325471649000974,
+          "spread": 0.17800882600204204
+        }
+      },
+      "warmed_median_process_ratio": 1.0353099588712362,
+      "warmed_median_monitored_ratio": 1.0419524755473386
+    },
+    "10": {
+      "all_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 7.932716676998098,
+          "min": 7.768621107999934,
+          "max": 8.208772629001032,
+          "spread": 0.44015152100109844
+        },
+        "cascade": {
+          "count": 5,
+          "median": 8.106777855002292,
+          "min": 7.537323874999856,
+          "max": 8.237142035999568,
+          "spread": 0.6998181609997118
+        }
+      },
+      "all_monitored_wall_s": {
+        "legacy": {
+          "count": 5,
+          "median": 10.588271517997782,
+          "min": 10.26373227699878,
+          "max": 10.831616184997984,
+          "spread": 0.5678839079992031
+        },
+        "cascade": {
+          "count": 5,
+          "median": 10.77602017800018,
+          "min": 10.232107340001676,
+          "max": 11.013660059998074,
+          "spread": 0.7815527199963981
+        }
+      },
+      "median_process_ratio": 1.0175224730452173,
+      "median_monitored_ratio": 1.0168067139650152,
+      "all_scientific_summaries_pass": true,
+      "warmed_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 7.932716676998098,
+          "min": 7.768621107999934,
+          "max": 8.208772629001032,
+          "spread": 0.44015152100109844
+        },
+        "cascade": {
+          "count": 5,
+          "median": 8.106777855002292,
+          "min": 7.537323874999856,
+          "max": 8.237142035999568,
+          "spread": 0.6998181609997118
+        }
+      },
+      "warmed_median_process_ratio": 1.0175224730452173,
+      "warmed_median_monitored_ratio": 1.0168067139650152
+    },
+    "100": {
+      "all_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 27.272989048000454,
+          "min": 26.874980369000696,
+          "max": 27.789133468999353,
+          "spread": 0.9141530999986571
+        },
+        "cascade": {
+          "count": 5,
+          "median": 26.755032263998146,
+          "min": 26.356255826998677,
+          "max": 27.090097217998846,
+          "spread": 0.7338413910001691
+        }
+      },
+      "all_monitored_wall_s": {
+        "legacy": {
+          "count": 5,
+          "median": 29.854077675001463,
+          "min": 29.545886464999057,
+          "max": 30.330355067999335,
+          "spread": 0.7844686030002777
+        },
+        "cascade": {
+          "count": 5,
+          "median": 29.440010540998628,
+          "min": 29.274370291001105,
+          "max": 29.744200715998886,
+          "spread": 0.46983042499778094
+        }
+      },
+      "median_process_ratio": 0.9741728960478313,
+      "median_monitored_ratio": 0.9840284259226871,
+      "all_scientific_summaries_pass": true,
+      "warmed_process_s": {
+        "legacy": {
+          "count": 5,
+          "median": 27.272989048000454,
+          "min": 26.874980369000696,
+          "max": 27.789133468999353,
+          "spread": 0.9141530999986571
+        },
+        "cascade": {
+          "count": 5,
+          "median": 26.755032263998146,
+          "min": 26.356255826998677,
+          "max": 27.090097217998846,
+          "spread": 0.7338413910001691
+        }
+      },
+      "warmed_median_process_ratio": 0.9741728960478313,
+      "warmed_median_monitored_ratio": 0.9840284259226871
+    }
+  },
+  "pair_files": [
+    "cube-1-blood-r01-pair.json",
+    "cube-1-blood-r02-pair.json",
+    "cube-1-blood-r03-pair.json",
+    "cube-1-blood-r04-pair.json",
+    "cube-1-blood-r05-pair.json",
+    "cube-10-blood-r01-pair.json",
+    "cube-10-blood-r02-pair.json",
+    "cube-10-blood-r03-pair.json",
+    "cube-10-blood-r04-pair.json",
+    "cube-10-blood-r05-pair.json",
+    "cube-100-blood-r01-pair.json",
+    "cube-100-blood-r02-pair.json",
+    "cube-100-blood-r03-pair.json",
+    "cube-100-blood-r04-pair.json",
+    "cube-100-blood-r05-pair.json"
+  ]
+}

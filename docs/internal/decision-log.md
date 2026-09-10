@@ -219,3 +219,18 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted from bounded HEART-S comparison design
 - Decision: Generate the canonical inside-domain heart coordinates once with the hash-frozen tissue-capable legacy exporter, retain them as an ignored large fixture, and pass that exact `.npy` array to both isolated solvers for pointwise tissue comparison. CASCADE exposes this as `cascade export-heart --tissue-points`; a validation-only hash-checking wrapper substitutes the same points into the unmodified external legacy oracle.
 - Consequence: Differences between public-`svv` domain adapters at mesh boundaries cannot masquerade as oxygen-solver disagreement. The default generated 200-cubed workflow remains available, but certification records the explicit point-file hash and requires exact coordinate/finite-mask identity.
+
+## D-032 — Distinguish compile-cache state from process isolation
+
+- Date: 2026-09-10
+- Status: accepted from M3 harness bring-up
+- Decision: Every clean timing sample runs in a fresh isolated process. Only the first CASCADE pair in a campaign is labeled `cold_compile`; later pairs are labeled `warmed_compile_cache` because persistent Numba/CUDA compilation artifacts may be reused. No fresh-process repetition is described as an in-process warmed solver.
+- Consequence: End-to-end process times, monitored wall times, and component times remain separate. A failed first driver attempt that resolved a virtual-environment Python symlink to its base interpreter is retained, and the corrected harness invokes the environment path without resolving the symlink.
+
+## D-033 — Choose heart tissue-quadrature compatibility semantics
+
+- Date: 2026-09-10
+- Status: pending owner decision
+- Decision needed: Keep CASCADE's true five-node tissue integration after the shared Cext quadrature-1 solve, or add/use an effective-one-node legacy compatibility path for certification. The production recommendation is to retain the true five-node result and use effective-one-node only as a separately labeled oracle-compatibility diagnostic.
+- Evidence: `../../validation/results/2026-09-10_m2-heart-s-shared-e1cd36b/` passes geometry, flow, finite masks, and viability but fails six tissue values because the frozen exporter accepts tissue GL5 while reusing its GL1 Cext source nodes. CASCADE actually resamples 19,999 source segments from one to five nodes.
+- Consequence: Do not launch full 200-cubed HEART-S or HEART-L numerical/performance runs until the chosen semantics make the compared work explicit.

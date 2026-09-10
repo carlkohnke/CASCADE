@@ -1,0 +1,68 @@
+{
+  "settings_path": "/home/carl/svv_sweeps/GFM/validation/results/2026-09-10_m3-cube-cpu-small02-e1cd36b/cube-100-blood-r05-settings.json",
+  "cascade_version": "0.1.0rc1",
+  "cascade_module": "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/lib/python3.9/site-packages/cascade/__init__.py",
+  "gpu": null,
+  "elapsed_process_s": 26.780309030000353,
+  "build_wall_s": 0.8155915040006221,
+  "solve_wall_s": 25.938922819001164,
+  "export_wall_s": 0.02559841999755008,
+  "build_timings": {
+    "domain_s": 0.7882906459999504,
+    "sample_points_s": 0.024979505000374047,
+    "network_load_s": 0.0016538650015718304
+  },
+  "simulation_timings": {
+    "sample_points_resolve_s": 3.7729987525381148e-06,
+    "tree_0_tissue_cache_s": 23.87497322999843,
+    "points_s": 1.6019985196180642e-06
+  },
+  "component_timings": [
+    {
+      "t_load_s": 0.0,
+      "t_assembly_s": 0.42887378099840134,
+      "t_kirchhoff_s": 0.7681835689982108,
+      "t_hematocrit_flow_iteration_s": 0.4799947229985264,
+      "t_concentration_s": 0.005012626999814529,
+      "t_cext_total_s": 0.0,
+      "t_cext_hct_setup_s": 0.0,
+      "t_cext_context_build_s": 0.0,
+      "t_cext_solver_setup_s": 0.0,
+      "t_cext_query_s": 0.0,
+      "t_cext_kernel_s": 0.0,
+      "t_cext_gpu_transfer_s": 0.0,
+      "t_cext_hybrid_deposit_s": 0.0,
+      "t_cext_hybrid_fft_s": 0.0,
+      "t_cext_hybrid_o2_terms_s": 0.0,
+      "t_cext_hybrid_self_subtract_s": 0.0,
+      "t_cext_hybrid_local_corr_s": 0.0,
+      "t_cext_hybrid_sample_s": 0.0,
+      "t_cext_frozen_gpu_transfer_s": 0.0,
+      "t_cext_init_s": 0.0,
+      "t_cext_init_kernel_s": 0.0,
+      "t_cext_init_gpu_transfer_s": 0.0,
+      "t_cext_init_frozen_gpu_transfer_s": 0.0,
+      "t_cext_init_frozen_kernel_s": 0.0,
+      "t_cext_init_cache_s": 0.0,
+      "t_cext_init_hybrid_call_s": 0.0,
+      "t_cext_final_frozen_gpu_transfer_s": 0.0,
+      "t_cext_final_frozen_kernel_s": 0.0,
+      "t_cext_final_cache_s": 0.0,
+      "t_cext_final_source_state_s": 0.0,
+      "t_cext_backend": "none",
+      "t_tissue_s": 0.3999020500014012,
+      "t_tissue_geometry_s": 0.0,
+      "t_tissue_oxygen_s": 0.3999020500014012,
+      "t_tissue_total_s": 0.402505393998581,
+      "t_tissue_kdtree_query_s": NaN,
+      "t_tissue_gpu_refine_s": NaN,
+      "t_tissue_gpu_transfer_s": NaN,
+      "t_tissue_backend": "cpu"
+    }
+  ],
+  "max_rss_bytes": 3016966144,
+  "outputs": {
+    "summary_csv": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-10_m3-cube-cpu-small02-e1cd36b/cube-100-blood-r05/cascade-output/summary.csv",
+    "manifest_json": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-10_m3-cube-cpu-small02-e1cd36b/cube-100-blood-r05/cascade-output/manifest.json"
+  }
+}

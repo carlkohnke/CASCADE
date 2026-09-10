@@ -60,5 +60,9 @@ backups/
 # Compact validation evidence is intentionally versioned even though generic
 # result directories and scientific data files are ignored above.
 !/validation/
+!/validation/fixtures/
+!/validation/fixtures/*.csv
+!/validation/fixtures/*.npz
+!/validation/fixtures/*.vtp
 !/validation/results/
 !/validation/results/**

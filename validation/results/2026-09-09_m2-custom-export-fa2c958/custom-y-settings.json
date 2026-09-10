@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "domain": {
+    "type": "box",
+    "dimensions": [1.0, 1.0, 1.0],
+    "random_seed": 42
+  },
+  "network": {
+    "mode": "simple",
+    "simple": {
+      "mode": "custom",
+      "path": "../../../examples/custom_y_channel.csv",
+      "flow_ul_min": 24.0,
+      "concentration_inlet": 0.2211
+    }
+  },
+  "growth": {"enabled": false},
+  "simulation": {
+    "fluid": "water",
+    "build_fluid": "water",
+    "qin_target_ul_min": 24.0,
+    "concentration_solver": "network",
+    "distance_sample_count": 10000,
+    "tissue_accel": "cpu"
+  },
+  "outputs": {
+    "out_dir": "../../runs/2026-09-09_m2-custom-export-fa2c958/custom-y/output",
+    "prefix": "custom_y",
+    "write_paraview": true,
+    "write_summary_csv": true,
+    "write_segments_csv": true,
+    "write_points_csv": true,
+    "save_network": true,
+    "export_float_dtype": "float32",
+    "export_index_dtype": "int64"
+  }
+}

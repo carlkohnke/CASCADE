@@ -244,3 +244,23 @@ The current TissueSim cube script does not implement a general automatic float64
 - Identity fields had zero mismatches. The tissue field's maximum relative error was `2.4555e-05`, below `1e-3`; its maximum absolute error was `5.4288e-07`.
 - Evidence-enabled wall time was 31.55 seconds CPU and 8.17 seconds GPU; peak host RSS was 2.84 and 1.43 GiB. These single cold observations are diagnostic only.
 - Evidence: `../../validation/results/2026-09-09_m2-cpu-gpu-fa2c958/`; heavy arrays/logs under the matching ignored runs directory.
+
+## 2026-09-09 — Custom geometry/domain and bounded normal export passed
+
+### Work performed
+
+- Added small canonical NPZ Y-channel, bivent3-contained CSV Y-channel, and VTP box-boundary fixtures with recorded hashes.
+- Ran four exact-wheel cases from `/tmp`: CSV/box, NPZ/box, CSV/bivent3 STL, and NPZ/VTP domain.
+- Added an export inspector that reopens every emitted VTK dataset, inventories field names/dtypes, verifies nonempty geometry and complete segment IDs, and compares VTK physical values with CSV rows.
+- Retained the first failed CUSTOM-Y inspection, which incorrectly expected `tissue_oxygen`; corrected the validation contract to CASCADE's actual `local_concentration` field and emitted a new v2 result.
+
+### Results
+
+- All four cases completed outside checkout and each passed 23 export checks.
+- The CSV and NPZ representations produced byte-identical segment and point CSVs; all 14 scientific summary fields available for simple networks matched exactly.
+- The bivent3-contained fixture's endpoints and segment midpoints were checked as enclosed by the packaged surface before execution.
+- VAL-09 is complete. VAL-06 remains partial until heart-specific exporter fields/values are compared.
+
+### Evidence
+
+- `../../validation/results/2026-09-09_m2-custom-export-fa2c958/`; large/generated run products remain under the corresponding ignored `../../validation/runs/` directory.

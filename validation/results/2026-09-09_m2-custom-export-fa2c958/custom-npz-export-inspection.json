@@ -1,0 +1,498 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "out_dir": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output",
+  "missing_required_files": [],
+  "manifest_sha256": "05df5845cb5f67e108dda0737f4dc3fa45ff0951190a1a586cc391d391df36dc",
+  "manifest": {
+    "schema_version": 1,
+    "created_at_utc": "2026-09-10T06:27:49.671965+00:00",
+    "cascade": {
+      "version": "0.1.0rc1",
+      "source": {
+        "commit": null,
+        "dirty": null
+      }
+    },
+    "settings_path": "/home/carl/svv_sweeps/GFM/validation/results/2026-09-09_m2-custom-export-fa2c958/custom-npz-settings.json",
+    "inputs": {
+      "settings_sha256": "90190e6bdba24626437a25167c9b494fda1826bfa3647f01d751175aac99ef9a",
+      "network_path": null,
+      "network_sha256": null,
+      "domain_path": null,
+      "domain_sha256": null
+    },
+    "settings": {
+      "schema_version": 1,
+      "domain": {
+        "type": "box",
+        "dimensions": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "random_seed": 42
+      },
+      "network": {
+        "mode": "simple",
+        "simple": {
+          "mode": "custom",
+          "path": "../../fixtures/custom_y_channel.npz",
+          "flow_ul_min": 24.0,
+          "concentration_inlet": 0.2211
+        }
+      },
+      "growth": {
+        "enabled": false
+      },
+      "simulation": {
+        "fluid": "water",
+        "build_fluid": "water",
+        "qin_target_ul_min": 24.0,
+        "concentration_solver": "network",
+        "distance_sample_count": 10000,
+        "tissue_accel": "cpu"
+      },
+      "outputs": {
+        "out_dir": "../../runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output",
+        "prefix": "custom_npz",
+        "write_paraview": true,
+        "write_summary_csv": true,
+        "write_segments_csv": true,
+        "write_points_csv": true,
+        "save_network": true,
+        "export_float_dtype": "float32",
+        "export_index_dtype": "int64"
+      }
+    },
+    "resolved": {
+      "network_mode": "simple",
+      "prefix": "custom_npz",
+      "target_counts": [
+        2
+      ],
+      "compute_float_policy": "float64",
+      "export_float_dtype": "float32",
+      "export_index_dtype": "int64",
+      "simple_mode": "enabled",
+      "tissue_sample": {
+        "sample_mode": "random",
+        "requested_points": 10000
+      },
+      "runtime_settings": {
+        "growth": {
+          "N_EQUAL_BIFURCATIONS": null
+        },
+        "tissue": {
+          "TISSUE_ACCEL_MODE": "cpu"
+        }
+      },
+      "runtime_setting_warnings": []
+    },
+    "dependencies": {
+      "svv_version": "0.0.48",
+      "numpy_version": "1.26.4",
+      "scipy_version": "1.13.1",
+      "numba_version": "0.60.0",
+      "pyvista_version": "0.46.5",
+      "vtk_version": "9.5.2",
+      "cupy_cuda13x_version": "13.6.0",
+      "cupy_cuda12x_version": null,
+      "cupy_cuda11x_version": null
+    },
+    "environment": {
+      "python": "3.9.20 | packaged by conda-forge | (main, Sep 30 2024, 17:49:10) \n[GCC 13.3.0]",
+      "python_executable": "/home/carl/svv_sweeps/GFM/validation/tmp/m2-wheel-fa2c958-py39/bin/python",
+      "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+      "machine": "x86_64",
+      "cuda_path": null,
+      "cuda_visible_devices": null,
+      "omp_num_threads": null,
+      "numba_num_threads": null,
+      "random_seed": 42
+    },
+    "timings": {
+      "domain_s": 0.8379965169988282,
+      "sample_points_s": 0.10745530299936945,
+      "growth_s": 1.1305567919989699,
+      "sample_points_resolve_s": 3.090999598498456e-06,
+      "points_s": 0.03154203299891378,
+      "tree_solve_s": [
+        0.06456347899984394
+      ]
+    },
+    "network": {
+      "load_source": null,
+      "saved_path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/custom_npz.simple.npz",
+      "cache_path": null,
+      "tree_count": 1,
+      "segments": [
+        3
+      ],
+      "terminals": [
+        2
+      ],
+      "connectivity_repairs": [],
+      "connectivity_reports": []
+    },
+    "outputs": {
+      "network": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/custom_npz.simple.npz",
+      "summary_csv": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/summary.csv",
+      "segments_csv": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/segments.csv",
+      "points_csv": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/points.csv",
+      "vessels_vtp": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/vessels.vtp",
+      "oxygen_points_vtp": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/oxygen_points.vtp",
+      "domain_boundary_vtp": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/domain_boundary.vtp",
+      "domain_mesh_vtu": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/domain_mesh.vtu"
+    },
+    "geometry_only": false,
+    "skip_tissue_oxygen": false
+  },
+  "vtk_files": {
+    "domain_boundary.vtp": {
+      "path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/domain_boundary.vtp",
+      "sha256": "c5f2f14535f9394a75d8b811d8da2f7d2ba32816750d2323c9ce134568f81b60",
+      "type": "PolyData",
+      "n_points": 8,
+      "n_cells": 12,
+      "bounds": [
+        -0.5,
+        0.5,
+        -0.5,
+        0.5,
+        -0.5,
+        0.5
+      ],
+      "point_data": {
+        "Normals": {
+          "dtype": "float32",
+          "shape": [
+            8,
+            3
+          ]
+        },
+        "RegionId": {
+          "dtype": "int64",
+          "shape": [
+            8
+          ]
+        },
+        "TCoords": {
+          "dtype": "float32",
+          "shape": [
+            8,
+            2
+          ]
+        },
+        "pyvistaOriginalPointIds": {
+          "dtype": "int64",
+          "shape": [
+            8
+          ]
+        }
+      },
+      "cell_data": {
+        "Area": {
+          "dtype": "float64",
+          "shape": [
+            12
+          ]
+        },
+        "FaceIndex": {
+          "dtype": "int64",
+          "shape": [
+            12
+          ]
+        },
+        "Length": {
+          "dtype": "float64",
+          "shape": [
+            12
+          ]
+        },
+        "Normalized_Area": {
+          "dtype": "float64",
+          "shape": [
+            12
+          ]
+        },
+        "RegionId": {
+          "dtype": "int64",
+          "shape": [
+            12
+          ]
+        },
+        "Volume": {
+          "dtype": "float64",
+          "shape": [
+            12
+          ]
+        }
+      }
+    },
+    "domain_mesh.vtu": {
+      "path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/domain_mesh.vtu",
+      "sha256": "a86b29d84f035eebbd053cd451016d419c6e73c3e4d35169998b392d32431d0a",
+      "type": "UnstructuredGrid",
+      "n_points": 8,
+      "n_cells": 6,
+      "bounds": [
+        -0.5,
+        0.5,
+        -0.5,
+        0.5,
+        -0.5,
+        0.5
+      ],
+      "point_data": {},
+      "cell_data": {
+        "Area": {
+          "dtype": "float64",
+          "shape": [
+            6
+          ]
+        },
+        "Length": {
+          "dtype": "float64",
+          "shape": [
+            6
+          ]
+        },
+        "Normalized_Volume": {
+          "dtype": "float64",
+          "shape": [
+            6
+          ]
+        },
+        "Volume": {
+          "dtype": "float64",
+          "shape": [
+            6
+          ]
+        }
+      }
+    },
+    "oxygen_points.vtp": {
+      "path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/oxygen_points.vtp",
+      "sha256": "fc44960065b3e1e30a2c7ef07d48bf2cc4780eca3896f37cac4a164e891e7a2d",
+      "type": "PolyData",
+      "n_points": 9990,
+      "n_cells": 9990,
+      "bounds": [
+        -0.4999527931213379,
+        0.4999770224094391,
+        -0.4998911917209625,
+        0.49998247623443604,
+        -0.49998682737350464,
+        0.4999472498893738
+      ],
+      "point_data": {
+        "local_concentration": {
+          "dtype": "float32",
+          "shape": [
+            9990
+          ]
+        },
+        "point_id": {
+          "dtype": "int64",
+          "shape": [
+            9990
+          ]
+        },
+        "viability": {
+          "dtype": "int64",
+          "shape": [
+            9990
+          ]
+        }
+      },
+      "cell_data": {}
+    },
+    "vessels.vtp": {
+      "path": "/home/carl/svv_sweeps/GFM/validation/runs/2026-09-09_m2-custom-export-fa2c958/custom-npz/output/vessels.vtp",
+      "sha256": "064c9e21483195d5d528e6033ce09121e44402eea798f7575cbb5d6a82f38a5d",
+      "type": "PolyData",
+      "n_points": 6,
+      "n_cells": 3,
+      "bounds": [
+        -0.44999998807907104,
+        0.44999998807907104,
+        -0.20000000298023224,
+        0.20000000298023224,
+        0.0,
+        0.0
+      ],
+      "point_data": {
+        "concentration": {
+          "dtype": "float32",
+          "shape": [
+            6
+          ]
+        },
+        "flow_cm3_s": {
+          "dtype": "float32",
+          "shape": [
+            6
+          ]
+        },
+        "flow_ul_min": {
+          "dtype": "float32",
+          "shape": [
+            6
+          ]
+        },
+        "global_segment_id": {
+          "dtype": "int64",
+          "shape": [
+            6
+          ]
+        },
+        "length_cm": {
+          "dtype": "float32",
+          "shape": [
+            6
+          ]
+        },
+        "local_segment_id": {
+          "dtype": "int64",
+          "shape": [
+            6
+          ]
+        },
+        "pressure_pa": {
+          "dtype": "float32",
+          "shape": [
+            6
+          ]
+        },
+        "radius_cm": {
+          "dtype": "float32",
+          "shape": [
+            6
+          ]
+        },
+        "solver_quadrature_node": {
+          "dtype": "int64",
+          "shape": [
+            6
+          ]
+        },
+        "solver_quadrature_order": {
+          "dtype": "int64",
+          "shape": [
+            6
+          ]
+        },
+        "tree_id": {
+          "dtype": "int64",
+          "shape": [
+            6
+          ]
+        }
+      },
+      "cell_data": {}
+    }
+  },
+  "segment_rows": 3,
+  "point_rows": 9990,
+  "checks": [
+    {
+      "check": "domain_boundary.vtp:nonempty",
+      "passed": true
+    },
+    {
+      "check": "domain_mesh.vtu:nonempty",
+      "passed": true
+    },
+    {
+      "check": "oxygen_points.vtp:nonempty",
+      "passed": true
+    },
+    {
+      "check": "vessels.vtp:nonempty",
+      "passed": true
+    },
+    {
+      "check": "vessels:one-cell-per-segment",
+      "passed": true
+    },
+    {
+      "check": "vessels:all-segment-ids",
+      "passed": true
+    },
+    {
+      "check": "vessels:field:flow_cm3_s",
+      "passed": true
+    },
+    {
+      "check": "vessels:field:flow_ul_min",
+      "passed": true
+    },
+    {
+      "check": "vessels:field:pressure_pa",
+      "passed": true
+    },
+    {
+      "check": "vessels:field:radius_cm",
+      "passed": true
+    },
+    {
+      "check": "vessels:field:length_cm",
+      "passed": true
+    },
+    {
+      "check": "vessels:field:concentration",
+      "passed": true
+    },
+    {
+      "check": "vessels:csv-match:flow_cm3_s",
+      "passed": true,
+      "max_absolute_error": 1.0104849953746636e-11
+    },
+    {
+      "check": "vessels:csv-match:flow_ul_min",
+      "passed": true,
+      "max_absolute_error": 0.0
+    },
+    {
+      "check": "vessels:csv-match:pressure_pa",
+      "passed": true,
+      "max_absolute_error": 0.0
+    },
+    {
+      "check": "vessels:csv-match:radius_cm",
+      "passed": true,
+      "max_absolute_error": 4.470348362317633e-10
+    },
+    {
+      "check": "vessels:csv-match:length_cm",
+      "passed": true,
+      "max_absolute_error": 1.3989265079672464e-08
+    },
+    {
+      "check": "oxygen:point-count",
+      "passed": true
+    },
+    {
+      "check": "oxygen:field:point_id",
+      "passed": true
+    },
+    {
+      "check": "oxygen:field:local_concentration",
+      "passed": true
+    },
+    {
+      "check": "oxygen:field:viability",
+      "passed": true
+    },
+    {
+      "check": "oxygen:csv-match:point_id",
+      "passed": true
+    },
+    {
+      "check": "oxygen:csv-match:local_concentration",
+      "passed": true,
+      "max_absolute_error": 1.6395293039872527e-09
+    }
+  ]
+}

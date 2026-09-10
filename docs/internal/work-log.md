@@ -449,3 +449,25 @@ M1, VAL-05, VAL-06, VAL-07, PERF-05, PERF-06, and PERF-07.
 - Release closure: `../../validation/results/2026-09-10_rc2-release_129c6a2/`.
 - Exact-wheel HEART-L: `../../validation/results/2026-09-10_m23-heart-l-wheel-af001fb/`.
 - Cube scale/performance: `../../validation/results/2026-09-10_m3-gpu-reference-scale-a20b6f9/` and `../../validation/results/2026-09-10_m3-gpu-reference-large-a20b6f9/`.
+
+## 2026-09-10 — Post-M3 CLI/package hardening audit
+
+### Scope
+
+M1/RC-03 through RC-12, UX-02, GOV-01, and preservation of the completed M2/M3 conclusions.
+
+### Work performed
+
+- Audited high-signal static failures, every importable package module, CLI defaults, installed entry points, source/sdist/wheel contents, the public-SVV boundary, and the loaded-tree/forest lifecycle.
+- Fixed undefined branches in the retained bifurcation, CPU Cext, GPU treecode, and linear tissue code; directly exercised treecode with both `decoupled_greens` and `zero` initialization on CUDA.
+- Fixed forest connection restoration and analysis-only tree load/solve/save behavior, with regression tests.
+- Changed generated settings to an immediately runnable CPU profile and added an installed `cascade self-test` CPU/GPU workflow.
+- Removed the production heart exporter's arbitrary external-module hook and documented the process-isolated oracle boundary under D-046.
+- Expanded CI and `scripts/release_smoke.py` to cover static checks, `pip check`, every console entry point, literal starter execution, installed self-test, public-SVV file integrity, heart CPU/CUDA workflows, manifests, and VTK reopening.
+
+### Verification and disposition
+
+- Source suite: 135 passed with 15 previously classified warnings; high-signal Ruff and compileall pass.
+- All 69 non-executable package modules import successfully.
+- Pre-freeze RC3 wheel CPU and CUDA release smokes passed outside the checkout, including compiled CuPy/cuFFT checks and real GPU Cext/tissue self-test.
+- M2/M3 results remain valid because no accepted scientific settings, comparison rules, canonical structures, or certified performance algorithms were changed. Final immutable artifact hashes and archive audit are retained in the RC3 compact evidence directory.

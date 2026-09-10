@@ -318,3 +318,10 @@ Decisions are append-only. If a decision changes, add a superseding entry rather
 - Status: accepted from the owner-approved campaign scope and final evidence
 - Decision: `v0.1.0rc2` closes numerical, functional, memory, and performance certification for computation on existing trees/forests/caches. This includes cube scales through the largest available five-million-terminal tree and GPU-only HEART-S/L. Tree creation, scheduled/nearest-tree growth, and optimizer-choice equivalence are a separate later scientific campaign and are not silently treated as failed M2 work.
 - Consequence: M0-M3 may be marked complete without claiming growth certification. Public-SVV CCO remains float64 until the retained float32 equal-bifurcation transition, nearest-tree growth remains an important future capability, and the SLSQP/L-BFGS-B selector remains an upstream request. M4 still requires the license, GitHub remote, observed CI, and human acceptance work named in the tracker.
+
+## D-046 — Make installed operational validation self-contained while keeping scientific oracles isolated
+
+- Date: 2026-09-10
+- Status: accepted from the post-M3 CLI/package audit
+- Decision: The production wheel always uses its packaged CASCADE solver and pins unmodified public `svv==0.0.48`; it does not load arbitrary legacy solver modules. `cascade self-test` provides a bounded CPU or required-GPU installed-package check. Full M2/M3 equivalence remains a repository validation campaign because its external oracle environment and multi-gigabyte inputs cannot be bundled as ordinary package data.
+- Consequence: A wheel user can verify installation, loaded-tree computation, GL1 GPU Cext/tissue execution, exports, VTK readability, dependency version, and manifest provenance from the CLI. This is operational assurance, not a substitute for the retained scientific certification. Adapter substitutions of SVV module globals are process-local and the release smoke verifies SVV package files remain byte-identical.

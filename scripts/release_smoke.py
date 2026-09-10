@@ -45,6 +45,18 @@ def main(argv: list[str] | None = None) -> int:
         venv.EnvBuilder(with_pip=True).create(env_dir)
         python = env_dir / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
         cascade = env_dir / ("Scripts/cascade.exe" if sys.platform == "win32" else "bin/cascade")
+        scripts_dir = env_dir / ("Scripts" if sys.platform == "win32" else "bin")
+        script_suffix = ".exe" if sys.platform == "win32" else ""
+        entrypoints = {
+            name: scripts_dir / f"{name}{script_suffix}"
+            for name in (
+                "cascade",
+                "cascade-doctor",
+                "cascade-export-heart",
+                "cascade-gui",
+                "cascade-viewer",
+            )
+        }
 
         extras = ["gui"]
         if args.gpu_extra:
@@ -55,13 +67,40 @@ def main(argv: list[str] | None = None) -> int:
             install.extend(["-c", str(constraints)])
         install.append(wheel_spec)
         run(install, cwd=root)
+        run([str(python), "-m", "pip", "check"], cwd=root)
+        missing_entrypoints = [str(path) for path in entrypoints.values() if not path.is_file()]
+        if missing_entrypoints:
+            raise RuntimeError(f"Installed wheel is missing console entry points: {missing_entrypoints}")
+
+        svv_snapshot = (
+            "import hashlib, pathlib, svv, sys; "
+            "root=pathlib.Path(svv.__file__).resolve().parent; h=hashlib.sha256(); "
+            "files=sorted(p for p in root.rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc'); "
+            "[(h.update(str(p.relative_to(root)).encode()), h.update(p.read_bytes())) for p in files]; "
+            "pathlib.Path(sys.argv[1]).write_text(h.hexdigest()); print(h.hexdigest())"
+        )
+        svv_before = root / "svv-before.sha256"
+        svv_after = root / "svv-after.sha256"
+        run([str(python), "-c", svv_snapshot, str(svv_before)], cwd=root)
 
         run([str(cascade), "--version"], cwd=root)
         doctor = [str(cascade), "doctor", "--json"]
         if args.gpu_extra:
             doctor.append("--require-gpu")
         run(doctor, cwd=root)
+        doctor_entry = [str(entrypoints["cascade-doctor"]), "--json"]
+        doctor_entry.append("--require-gpu" if args.gpu_extra else "--no-gpu-probe")
+        run(doctor_entry, cwd=root)
         run([str(cascade), "export-heart", "--help"], cwd=root)
+        run([str(entrypoints["cascade-export-heart"]), "--help"], cwd=root)
+        run([str(entrypoints["cascade-viewer"]), "--help"], cwd=root)
+        starter = root / "starter.json"
+        run([str(cascade), "init-settings", str(starter)], cwd=root)
+        run([str(cascade), "run", "--settings", str(starter)], cwd=root)
+        self_test = [str(cascade), "self-test", "--output-dir", str(root / "self-test")]
+        if args.gpu_extra:
+            self_test.append("--require-gpu")
+        run(self_test, cwd=root)
         run(
             [str(python), "-c", "import PySide6, cascade.gui; print('GUI import passed')"],
             cwd=root,
@@ -193,6 +232,10 @@ def main(argv: list[str] | None = None) -> int:
             "print('VTK and manifest validation passed')"
         )
         run([str(python), "-c", validation], cwd=root)
+        run([str(python), "-c", svv_snapshot, str(svv_after)], cwd=root)
+        if svv_before.read_text(encoding="utf-8") != svv_after.read_text(encoding="utf-8"):
+            raise RuntimeError("CASCADE modified files in the installed public svv distribution.")
+        print("Public svv package files remained byte-identical", flush=True)
         print(f"CASCADE wheel smoke test passed: {wheel}")
         return 0
     finally:

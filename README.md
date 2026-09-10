@@ -17,9 +17,9 @@ This repository targets the public `svv==0.0.48` API. CASCADE-owned compatibilit
 
 ## Status
 
-The current version is `0.1.0rc2`. It is the locally qualified release candidate after numerical and performance certification against the selected legacy TissueSim workflows.
+The current version is `0.1.0rc3`. It preserves the locally qualified M2/M3 numerical and performance baseline and adds a full CLI/package hardening pass.
 
-The completed installation, numerical, and performance gates are recorded in [the rc2 release report](docs/release-0.1.0rc2.md). Repository publication, licensing, and remote CI are separate M4 gates and are not claimed here.
+The numerical and performance gates are recorded in [the rc2 release report](docs/release-0.1.0rc2.md); the subsequent CLI/package audit is recorded in [the rc3 release report](docs/release-0.1.0rc3.md). Repository publication, licensing, and remote CI are separate M4 gates and are not claimed here.
 
 The living internal production tracker, test plan, work log, decisions, and evidence map begin at [docs/internal/README.md](docs/internal/README.md). These records are maintained throughout the release and testing process but excluded from published package artifacts.
 
@@ -77,6 +77,8 @@ cascade sweep --settings sweep.json
 cascade export-heart --forest heart.forest --domain heart.stl --out-dir results/heart
 cascade init-settings case.json
 cascade doctor
+cascade self-test
+cascade self-test --require-gpu
 ```
 
 Create and execute a starter configuration:
@@ -85,6 +87,14 @@ Create and execute a starter configuration:
 cascade init-settings case.json
 cascade run --settings case.json
 ```
+
+The generated starter is CPU-safe. `cascade self-test` verifies a bounded
+loaded-tree solve, VTK/CSV export, manifest provenance, and the qualified public
+`svv` dependency using only installed package contents. Add `--require-gpu` to
+exercise an actual CUDA Cext solve and GPU tissue calculation. Full M2/M3 legacy
+equivalence campaigns require the repository validation harness plus the
+external, hash-frozen multi-gigabyte fixtures and oracle environment; those
+scientific inputs are intentionally not bundled in the wheel.
 
 Settings use five principal sections:
 

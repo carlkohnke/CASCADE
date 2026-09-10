@@ -6,10 +6,8 @@ import datetime as _dt
 import gc
 import hashlib
 import importlib.metadata
-import importlib.util
 import json
 import os
-import sys
 import types
 from pathlib import Path
 from time import perf_counter
@@ -183,20 +181,7 @@ def _load_tissuesim():
     return tissuesim
 
 
-def _load_cext_tissuesim(module_path: str | Path | None = None):
-    if module_path:
-        path = _normalize_path(module_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Cext runtime module not found: {path}")
-        spec = importlib.util.spec_from_file_location("TissueSim_cube_local_gfm_export", str(path))
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"Could not load Cext TissueSim module from {path}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-        module.__svv_export_source_path__ = str(path)
-        return module
-
+def _load_cext_tissuesim():
     from .runtime import tissuesim as cext_ts
 
     cext_ts.__svv_export_source_path__ = "cascade.runtime.tissuesim"
@@ -1052,7 +1037,7 @@ def _compute_shared_plain_box_cext(cext_ts, solutions: list[dict]) -> dict:
         return {"timings": {}, "grid": {}}
     cp = cext_ts._cp
     if cp is None:
-        raise RuntimeError("Cext mode requires CuPy/GPU support, but TissueSim_cube_accel_ext._cp is unavailable.")
+        raise RuntimeError("Cext mode requires CuPy/GPU support, but the packaged CASCADE runtime is unavailable.")
     contexts = [sol["cext_context"] for sol in solutions]
     states = [sol["cext_state"] for sol in solutions]
     box = _global_cext_box(cext_ts, contexts)
@@ -2153,14 +2138,9 @@ def main(argv: list[str] | None = None) -> int:
         "--concentration-solver",
         default="topdown",
         choices=("topdown", "network", "topdown_ext", "topdown_ext_hybrid_bg", "topdown_ext_treecode"),
-        help="Legacy no-Cext concentration solver. Cext mode uses --cext-concentration-solver where applicable.",
+        help="No-Cext concentration solver. Cext mode uses --cext-concentration-solver where applicable.",
     )
-    parser.add_argument("--no-cext", action="store_true", help="Disable Cext and use the legacy per-tree exporter solve.")
-    parser.add_argument(
-        "--cext-tissuesim",
-        default=None,
-        help="Optional external TissueSim-compatible Cext module. Defaults to CASCADE's packaged runtime.",
-    )
+    parser.add_argument("--no-cext", action="store_true", help="Disable Cext and use the packaged per-tree solver.")
     parser.add_argument(
         "--cext-forest-mode",
         default=CEXT_FOREST_MODE_DEFAULT,
@@ -2168,7 +2148,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "shared-global uses one combined two-tree CASCADE source/target context for FFT, pairwise, or hybrid modes; "
             "shared-global-fft is a compatibility alias requiring bg_mode=fft; "
-            "backend-per-tree uses TissueSim_cube_local's exact per-tree solver loop."
+            "backend-per-tree solves each tree independently with CASCADE's packaged runtime."
         ),
     )
     parser.add_argument(
@@ -2259,7 +2239,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         choices=("legacy_equal_terminal_flow", "terminal_pressure"),
         help=(
-            "Flow boundary condition mode forwarded to TissueSim_heart_accel. "
+            "Flow boundary condition mode used by the packaged CASCADE heart runtime. "
             "legacy_equal_terminal_flow prescribes total inlet flow and equal terminal sinks; "
             "terminal_pressure prescribes inlet flow with terminal pressures."
         ),
@@ -2416,17 +2396,17 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     prefix = args.prefix or (f"{forest_path.stem}_cext" if cext_enabled else forest_path.stem)
 
-    _log(f"Loading TissueSim_heart_accel...")
+    _log("Loading packaged CASCADE heart runtime...")
     ts = _load_tissuesim()
     solver_parameters = _apply_tissuesim_overrides(ts, args)
     cext_ts = None
     cext_parameters = {"enabled": False}
     if cext_enabled:
         preload_cuda_component_libraries()
-        _log(f"Loading CASCADE Cext TissueSim module: {args.cext_tissuesim}")
-        cext_ts = _load_cext_tissuesim(args.cext_tissuesim)
+        _log("Loading packaged CASCADE Cext runtime...")
+        cext_ts = _load_cext_tissuesim()
         if cext_ts._cp is None:
-            raise RuntimeError("Cext mode requires GPU/CuPy support. Rerun with --no-cext for legacy exporter behavior.")
+            raise RuntimeError("Cext mode requires GPU/CuPy support. Rerun with --no-cext for the packaged per-tree path.")
         cext_parameters = _apply_cext_overrides(cext_ts, ts, args)
     _log(
         "Oxygen parameters: "
@@ -2445,7 +2425,7 @@ def main(argv: list[str] | None = None) -> int:
             f"wall={args.lumen_wall_closure} o2_terms={args.finite_radius_o2_terms}"
         )
     else:
-        _log("Cext mode: disabled (--no-cext); using legacy per-tree concentration/tissue path.")
+        _log("Cext mode: disabled (--no-cext); using the packaged per-tree concentration/tissue path.")
     if args.kirchhoff_bc_mode is not None:
         _log(f"Kirchhoff BC mode: {ts.KIRCHHOFF_BC_MODE}")
 

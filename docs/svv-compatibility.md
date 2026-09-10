@@ -1,6 +1,6 @@
 # Public svVascularize compatibility
 
-CASCADE targets the unmodified public `svv==0.0.48` package. CASCADE must not edit or replace files in `site-packages/svv`.
+CASCADE targets the unmodified public `svv==0.0.48` package. CASCADE does not edit or replace files in `site-packages/svv`; the wheel pins that exact public release.
 
 Several capabilities used by the research workflows are not yet exposed by the public package. They are isolated in CASCADE so they can be removed when equivalent upstream APIs become available.
 
@@ -17,11 +17,13 @@ Several capabilities used by the research workflows are not yet exposed by the p
 
 ## Optimizer note
 
-The internal bifurcation implementation calls SciPy's L-BFGS-B method with bounds. SciPy does not enforce general inequality constraints for L-BFGS-B, so the existing `a[0] + a[1] <= 1` constraint is not handled by the optimizer itself. CASCADE retains this behavior for legacy parity in `0.1.0rc2`, records the warning in validation, and must not claim mathematical equivalence to constrained SLSQP until public SVV exposes the requested optimizer selector and the growth campaign validates it.
+The internal bifurcation implementation calls SciPy's L-BFGS-B method with bounds. SciPy does not enforce general inequality constraints for L-BFGS-B, so the existing `a[0] + a[1] <= 1` constraint is not handled by the optimizer itself. CASCADE retains this behavior for legacy parity in `0.1.0rc3`, records the warning in validation, and must not claim mathematical equivalence to constrained SLSQP until public SVV exposes the requested optimizer selector and the growth campaign validates it.
 
 ## Maintenance rule
 
-Compatibility behavior must remain behind `cascade.svv_adapter`, `cascade.growth`, or explicitly named `_svv_*` modules. Application code should consume CASCADE interfaces and must not monkey-patch public `svv` outside that adapter boundary.
+Compatibility behavior must remain behind `cascade.svv_adapter`, `cascade.growth`, or explicitly named `_svv_*` modules. Application code consumes CASCADE interfaces and must not monkey-patch public `svv` outside that adapter boundary. The adapter currently replaces the public module's in-memory `Tree` factory and two growth callbacks because public `svv` resolves those names as module globals inside its constructors/methods. This affects only the current CASCADE process; it does not modify the installed distribution on disk. The adapter wrappers remain float64 at the true CCO boundary and may convert completed structures to float32 for equal-bifurcation, simulation-cache, and export work.
+
+The production CLI never imports a legacy TissueSim file or an arbitrary external solver module. Legacy comparisons run the frozen oracle in its own environment and exchange only hashed inputs/results with the independently installed CASCADE wheel.
 
 The default is to implement compatibility and workflow behavior in CASCADE. An
 upstream `svv` request is warranted only when the change must occur inside an

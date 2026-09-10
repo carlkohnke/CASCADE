@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-10
 
-Current release baseline: `v0.1.0rc2` at commit `129c6a2`
+Current release baseline: `v0.1.0rc2` at commit `129c6a2`; RC3 CLI/package hardening is in final local qualification.
 
 Current objective: preserve the completed M0-M3 existing-tree certification while preparing the governance, remote-CI, and human-acceptance work that remains in M4.
 
@@ -11,7 +11,7 @@ Current objective: preserve the completed M0-M3 existing-tree certification whil
 | Milestone | Status | Exit criterion | Evidence / next action |
 | --- | --- | --- | --- |
 | M0 — Legacy inventory and initial parity audit | COMPLETE | Relevant scripts, inputs, outputs, assumptions, and gaps identified | `m0-legacy-inventory.md`, `m0-traceability.md`, and `../../validation/results/2026-09-09_m2-staging_20744c8/`; completed M2 used the frozen inputs and rules |
-| M1 — Reproducible release candidate | COMPLETE | Git baseline, installable CLI/GUI, pinned CPU/GPU environments, artifacts, basic workflows, and release report | `v0.1.0rc2` at `129c6a2`; exact RC2 CPU/CUDA wheel smokes, archive audit, and checksums in `../../validation/results/2026-09-10_rc2-release_129c6a2/` |
+| M1 — Reproducible release candidate | COMPLETE | Git baseline, installable CLI/GUI, pinned CPU/GPU environments, artifacts, basic workflows, and release report | RC2 M2/M3 baseline plus RC3 CLI/package audit; final exact artifacts/evidence recorded under `../../validation/results/` |
 | M2 — Numerical and functional certification | COMPLETE for approved existing-tree scope | All agreed reference cases pass structural and numerical acceptance criteria on fixed inputs | Cube matrix, custom inputs, negative/reproducibility, HEART-S healthy/occlusion, and exact-wheel HEART-L pass; scientific growth qualification is explicitly deferred by D-023 |
 | M3 — Performance certification | COMPLETE | CASCADE is not slower than the agreed `TissueSim_cube_local` baseline under the approved protocol, or every regression is resolved/accepted | Warm small GPU solve `0.123-0.148 s`; 10,000,001-vessel compute ratio `0.947`; exact-wheel HEART-L application-time ratio `0.789` with lower peak RSS |
 | M4 — Public-release readiness | BLOCKED | License selected, remote/CI operational, supported-platform statement finalized, M2/M3 disposition recorded | Owner license decision and GitHub repository URL required |
@@ -49,6 +49,7 @@ Current objective: preserve the completed M0-M3 existing-tree certification whil
 | RC-12 | Produce clean wheel/sdist and checksums | COMPLETE | RC2 artifacts in `../../dist/`; `twine check`; 77/151-entry audit; SHA-256 verification | Rebuild/check for each release tag |
 | RC-13 | Configure GitHub remote and verify CI | BLOCKED | Local branch/tag exist; no remote configured | Obtain repository URL, add remote, push branch/tag, observe CI |
 | RC-14 | Select project license | BLOCKED | No `LICENSE` exists | Owner/legal decision; confirm compatibility with derived `svv` code |
+| RC-15 | Complete post-M3 CLI/package audit | COMPLETE pending immutable tag | 135-test suite, high-signal static/import audit, CPU/CUDA exact-wheel smokes, all entry points, public-SVV byte-integrity check, starter and installed self-test | Freeze RC3 source/artifacts and record final hashes |
 
 ## Step 2: numerical and functional certification
 
@@ -84,16 +85,16 @@ Current objective: preserve the completed M0-M3 existing-tree certification whil
 | ID | Work item | Status | Evidence / next action |
 | --- | --- | --- | --- |
 | UX-01 | Human GUI workflow: create project, preview, queue, cancel, resume, load results | PLANNED | Record manual checklist and screenshots/logs on supported display environment |
-| UX-02 | Human CLI workflow from README on clean clone | PARTIAL | Wheel automation passed; repeat literally from a GitHub clone after remote exists |
+| UX-02 | Human CLI workflow from README on clean clone | COMPLETE locally / remote pending | Exact-wheel smoke literally runs `init-settings` then `run`; `self-test` works without checkout data; repeat from GitHub only after remote exists |
 | CI-01 | CPU GitHub Actions | PARTIAL | Workflow is implemented at `../../.github/workflows/ci.yml`; requires remote run |
 | CI-02 | GPU CI strategy | PLANNED | Decide self-hosted runner versus documented workstation qualification |
-| GOV-01 | CASCADE-local compatibility review | IN PROGRESS | Review each incompatibility using `../svv-compatibility.md` policy |
+| GOV-01 | CASCADE-local compatibility review | COMPLETE for RC3 | Public `svv==0.0.48` remains unmodified on disk; adapter-only in-memory hooks documented/tested; production external-module hook removed |
 | GOV-02 | Upstream issue package | PLANNED | Only inner-loop growth/optimization or shared-contract items, with minimal reproducers |
 | GOV-03 | Supported platform statement | PARTIAL | Linux/WSL2 x86-64 Python 3.9 and CUDA 13 validated; broader support not yet claimed |
 
 ## Immediate next actions
 
-1. Keep `v0.1.0rc2` and its checksum-verified artifacts immutable; any packaged change requires a new candidate and exact-wheel CPU/CUDA smokes.
+1. Freeze the audited RC3 candidate and retain RC2 plus both candidates' checksum-verified artifacts immutably.
 2. Treat tree-growth/optimizer qualification as a separate post-M3 scientific campaign: retain float64 public-SVV CCO, the float32 equal-bifurcation transition, and the planned upstream SLSQP/L-BFGS-B selector.
 3. When M4 is activated, select a license, configure the GitHub remote, push the branch/tag intentionally, observe CPU CI, and finalize the supported-platform statement.
 4. Complete human CASCADE Studio queue/cancel/recovery/viewer acceptance before a public production claim.

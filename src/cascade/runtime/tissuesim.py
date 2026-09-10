@@ -82,6 +82,8 @@ except Exception:  # pragma: no cover
     get_num_threads = None  # type: ignore[assignment]
     set_num_threads = None  # type: ignore[assignment]
 
+_compute_cext_batch_numba = None
+
 def _configure_cupy_cuda_path() -> None:
     """Point CuPy/NVRTC at conda-installed CUDA headers when available."""
     if os.environ.get("CUDA_PATH"):
@@ -514,7 +516,7 @@ CONC_MAX_FOR_NORMALIZATION = .14
 EXTRAVASCULAR_CONCENTRATION = 0.0
 # SOLUTE_DIFFUSIVITY = (3.2e-5) * (0.9 ** (4 / 3))
 SOLUTE_DIFFUSIVITY = 2.41e-5
-# TISSUE_DECAY_LENGTH = 0.2
+TISSUE_DECAY_LENGTH = 0.2
 POROSITY = 0.9
 GL_ORDER = 5  # Gauss-Legendre points per segment for Greens integral (5, 9, or 20)
 GL_ORDER_CEXT = 1  # Gauss-Legendre points per segment for explicit vessel Cext coupling
@@ -7344,7 +7346,7 @@ def _compute_cext_batch_cpu(
     gl_order = int(np.asarray(context["gl_points_si"]).shape[1])
     if target_seg_ids.size == 0:
         return np.zeros((0, gl_order), dtype=np.float32)
-    if _HAVE_NUMBA and "_compute_cext_batch_numba" in globals():
+    if _HAVE_NUMBA and _compute_cext_batch_numba is not None:
         return _compute_cext_batch_numba(
             np.asarray(target_seg_ids, dtype=np.int32),
             np.asarray(row_ptr, dtype=np.int32),
@@ -13942,6 +13944,7 @@ def _solve_channel_concentrations_topdown_ext_treecode(
         )
 
     t_total = perf_counter()
+    t_stage = t_total
     fluid_mode = (fluid or getattr(getattr(tree, "parameters", None), "fluid", None) or ACTIVE_FLUID).lower()
     hct_context = _hematocrit_context_for_tree(tree)
     radii_arr = np.asarray(hct_context["radii"], dtype=float)
@@ -14079,6 +14082,7 @@ def _solve_channel_concentrations_topdown_ext_treecode(
             f"leaves={int(treecode['leaf_count'])} depth={int(treecode['max_depth'])}"
         )
 
+    init_performed = False
     if init_mode == "decoupled_greens":
         cin_seg, cout_seg, c_iv_gl, frozen_backend, frozen_transfer = _run_topdown_ext_frozen_step(
             context,
@@ -14110,6 +14114,7 @@ def _solve_channel_concentrations_topdown_ext_treecode(
                 f"max_cext={float(np.nanmax(np.asarray(ext_state['c_ext_gl'], dtype=float))) if ext_state['c_ext_gl'].size else 0.0:.3e}"
             )
         _maybe_trace_cext_iteration(0, ext_state, solver="topdown_ext_treecode", context=context, backend=backend)
+        init_performed = True
 
     if not init_performed:
         _maybe_trace_cext_iteration(0, ext_state, solver="topdown_ext_treecode", context=context, backend=backend)
@@ -17210,7 +17215,7 @@ def estimate_bulk_tissue_concentration(
     vessel_sources: np.ndarray,
     *,
     extravascular_concentration: float = EXTRAVASCULAR_CONCENTRATION,
-    # decay_length: float = TISSUE_DECAY_LENGTH,
+    decay_length: float = TISSUE_DECAY_LENGTH,
 ) -> float:
     if points.size == 0 or starts.size == 0:
         return float("nan")
@@ -17263,7 +17268,7 @@ def _compute_tissue_samples_linear(
     vessel_sources: np.ndarray,
     *,
     extravascular_concentration: float = EXTRAVASCULAR_CONCENTRATION,
-    # decay_length: float = TISSUE_DECAY_LENGTH,
+    decay_length: float = TISSUE_DECAY_LENGTH,
 ) -> tuple[np.ndarray, np.ndarray]:
     if points.size == 0 or starts.size == 0:
         return np.zeros((0,), dtype=bool), np.zeros((0,), dtype=float)

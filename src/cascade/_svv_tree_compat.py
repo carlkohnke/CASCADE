@@ -7,6 +7,7 @@ import pickle
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from time import perf_counter
+from typing import Optional, Union
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -1153,8 +1154,8 @@ class TreeCompatibilityMixin:
             "nonconvex_count": self.nonconvex_count,
             "clamped_root": self.clamped_root,
             "segment_count": int(self.segment_count),
-            "max_distal_node": self.max_distal_node,
-            "tree_scale": self.tree_scale,
+            "max_distal_node": getattr(self, "max_distal_node", None),
+            "tree_scale": getattr(self, "tree_scale", None),
             "connectivity": getattr(self, "connectivity", None),
             "probability": getattr(self, "probability", None),
             "times": getattr(self, "times", None),
@@ -1219,6 +1220,19 @@ class TreeCompatibilityMixin:
             else:
                 inferred_terminals = 0
             tree.n_terminals = inferred_terminals or max((tree.segment_count + 1) // 2, 0)
+            distal_nodes = data[:, 19] if data.ndim == 2 and data.shape[1] > 19 else np.empty((0,))
+            finite_distal = distal_nodes[np.isfinite(distal_nodes)]
+            tree.max_distal_node = int(np.max(finite_distal)) if finite_distal.size else tree.segment_count
+            if data.ndim == 2 and data.shape[1] > 21:
+                tree.tree_scale = float(
+                    np.pi
+                    * np.nansum(
+                        (data[:, 21] ** tree.parameters.radius_exponent)
+                        * (data[:, 20] ** tree.parameters.length_exponent)
+                    )
+                )
+            else:
+                tree.tree_scale = None
             tree.preallocation_step = tree.segment_count
             tree.preallocate_midpoints = np.empty((0, 3), dtype=resolved_data_dtype)
             tree.midpoints = tree.preallocate_midpoints

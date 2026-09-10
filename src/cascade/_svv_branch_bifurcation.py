@@ -1945,6 +1945,7 @@ def construct_optimizer(tree, point, vessel, **kwargs):
                  length_exponent=tree.parameters.length_exponent, get_line_pt=get_line_pt, lines=lines, penalty=penalty,
                  scale=tree_scale, connectivity=tree.connectivity):
             x = get_line_pt(x)
+            triad_penalty = 0.0
             dists = numpy.array([numpy.linalg.norm(lines[0, 0:3] - x),
                                  numpy.linalg.norm(lines[0, 3:6] - x),
                                  numpy.linalg.norm(lines[1, 3:6] - x)])
@@ -2077,7 +2078,6 @@ def construct_optimizer(tree, point, vessel, **kwargs):
                 print("Terminal: ", terminal)
                 val = numpy.nan_to_num(results, nan=2 * scale + penalty)/(scale + penalty)
         """
-        return val
         #return results
         #return results
         #return value

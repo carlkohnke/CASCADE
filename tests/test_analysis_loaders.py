@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import pickle
+from types import SimpleNamespace
 
 import numpy as np
 
 from cascade.svv_adapter import Forest, Tree
+from svv.forest.connect.forest_connection import ForestConnection
 from svv.tree.data.data import TreeData
 
 
@@ -40,6 +42,10 @@ def test_tree_analysis_load_uses_requested_compact_dtypes(tmp_path):
     assert tree.hnsw_tree is None
     assert tree._analysis_only_load is True
     np.testing.assert_allclose(tree.data, data.astype(np.float32))
+
+    roundtrip = tmp_path / "analysis-roundtrip.tree.npz"
+    tree.save(str(roundtrip))
+    assert roundtrip.is_file()
 
 
 def test_forest_simcache_streams_into_requested_compact_dtypes(tmp_path):
@@ -112,3 +118,37 @@ def test_forest_simcache_preserves_ids_above_float32_exact_range(tmp_path):
     ).networks[0][0]
     np.testing.assert_array_equal(reloaded.connectivity, tree.connectivity)
     np.testing.assert_array_equal(reloaded._cascade_node_ids, tree._cascade_node_ids)
+
+
+def test_forest_growth_load_restores_saved_connections(tmp_path):
+    source = Forest(n_networks=1, n_trees_per_network=[1], preallocation_step=2)
+    tree = source.networks[0][0]
+    data = np.zeros((1, 31), dtype=np.float64)
+    data[0, 15:18] = np.nan
+    data[0, 18:20] = [0, 1]
+    data[0, 20:22] = [1.0, 0.01]
+    tree.data = TreeData.from_array(data)
+    tree.segment_count = 1
+    tree.n_terminals = 1
+
+    source.connections = ForestConnection(source)
+    source.connections.tree_connections = [
+        SimpleNamespace(
+            network_id=0,
+            assignments=np.asarray([0], dtype=np.int64),
+            vessels=[[np.asarray([0], dtype=np.int64)]],
+            lengths=np.asarray([1.0]),
+            curve_type="line",
+            connected_network=[tree],
+        )
+    ]
+    path = tmp_path / "with-connections.forest"
+    source.save(str(path))
+
+    loaded = Forest.load(str(path), mode="growth")
+
+    assert isinstance(loaded.connections, ForestConnection)
+    assert len(loaded.connections.tree_connections) == 1
+    connection = loaded.connections.tree_connections[0]
+    assert connection.network_id == 0
+    np.testing.assert_array_equal(connection.assignments, [0])

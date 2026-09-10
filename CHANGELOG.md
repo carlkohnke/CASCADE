@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.1.0rc3
+
+- Added `cascade self-test` for a bounded, installed-package CPU check and an optional real CUDA/Cext check with `--require-gpu`.
+- Made `cascade init-settings` produce a CPU-safe, immediately runnable starter configuration.
+- Fixed analysis-only tree load/solve/save round trips and growth-mode forest connection restoration.
+- Fixed dormant failures in the GPU treecode zero-initialization path, CPU Cext fallback, linear tissue helpers, and clamped-root compatibility logic.
+- Removed the production heart exporter's external Python-module loading hook; release workflows now always use the packaged CASCADE solver while legacy validation remains process-isolated.
+- Added high-signal static checks and installed-wheel self-testing to CI and expanded exact-wheel release smoke coverage.
+
 ## 0.1.0rc2
 
 - Avoid inflating and unpickling legacy growth payloads when loading `.tree.npz` files for simulation-only analysis; this preserves the compact data table while eliminating the dominant large-tree load/memory overhead.

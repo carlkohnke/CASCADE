@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cascade-vascular"
-version = "0.1.0rc2"
+version = "0.1.0rc3"
 description = "CASCADE vascular growth, simulation, and tissue oxygen workflows built around public svVascularize."
 readme = "README.md"
 requires-python = ">=3.9,<3.10"

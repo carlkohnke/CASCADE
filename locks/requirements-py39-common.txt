@@ -1,4 +1,4 @@
-# CASCADE 0.1.0rc2 validated constraints.
+# CASCADE 0.1.0rc3 validated constraints.
 # Python 3.9.20, Linux x86-64, generated 2026-09-09.
 addict==2.4.0
 annotated-types==0.7.0
@@ -6,7 +6,7 @@ anyio==4.12.1
 asttokens==3.0.2
 attrs==26.1.0
 blinker==1.9.0
-cascade-vascular==0.1.0rc2
+cascade-vascular==0.1.0rc3
 cascadio==0.1.1
 certifi==2026.7.22
 charset-normalizer==3.5.1

@@ -42,6 +42,19 @@ def main(argv: list[str] | None = None) -> int:
     doctor_parser.add_argument("--no-gpu-probe", action="store_true")
     doctor_parser.add_argument("--require-gpu", action="store_true")
 
+    self_test_parser = sub.add_parser(
+        "self-test",
+        help="Run a bounded installed-package solver and export check.",
+    )
+    self_test_parser.add_argument(
+        "--require-gpu",
+        action="store_true",
+        help="Exercise the CUDA Cext and tissue paths; fail if they are unavailable.",
+    )
+    self_test_parser.add_argument("--output-dir", help="Directory in which to retain the test run.")
+    self_test_parser.add_argument("--keep", action="store_true", help="Keep an automatically created test directory.")
+    self_test_parser.add_argument("--json", action="store_true", help="Print the final report as JSON.")
+
     sub.add_parser("export-heart", add_help=False, help="Export a heart forest and tissue grid for ParaView.")
 
     args = parser.parse_args(argv)
@@ -62,6 +75,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.require_gpu:
             doctor_args.append("--require-gpu")
         return doctor_main(doctor_args)
+    if args.command == "self-test":
+        from .self_test import main as self_test_main
+
+        self_test_args = []
+        if args.require_gpu:
+            self_test_args.append("--require-gpu")
+        if args.output_dir:
+            self_test_args.extend(["--output-dir", args.output_dir])
+        if args.keep:
+            self_test_args.append("--keep")
+        if args.json:
+            self_test_args.append("--json")
+        return self_test_main(self_test_args)
     parser.error(f"Unknown command: {args.command}")
     return 2
 

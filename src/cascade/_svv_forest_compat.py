@@ -1051,6 +1051,8 @@ class ForestCompatibilityMixin:
 
         # Restore connections if present
         if mode != "simulation" and connections_data is not None:
+            from svv.forest.connect.forest_connection import ForestConnection
+
             forest.connections = ForestConnection(forest)
             forest.connections.tree_connections = []
 

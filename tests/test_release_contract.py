@@ -12,6 +12,7 @@ from cascade import __version__
 from cascade.cli import main as cli_main
 from cascade.config import example_config, parse_config
 from cascade.doctor import collect_diagnostics
+from cascade.gpu import gpu_requested
 from cascade.heart_export import (
     CEXT_BG_GRID_DEFAULT,
     CEXT_GL_ORDER_DEFAULT,
@@ -24,6 +25,7 @@ from cascade.heart_export import (
     _domain_cache_path,
     _load_tissue_points,
     _load_tissuesim,
+    _load_cext_tissuesim,
     _restore_solution_radii,
     _should_use_simulation_cache,
 )
@@ -45,6 +47,13 @@ def test_unknown_settings_fail_loudly():
     raw["simluation"] = {"geometry_only": True}
     with pytest.raises(ValueError, match=r"Unknown CASCADE setting\(s\): simluation"):
         parse_config(raw)
+
+
+def test_generated_starter_configuration_is_cpu_safe():
+    config = parse_config(example_config())
+    assert config.simulation.concentration_solver == "topdown"
+    assert config.simulation.tissue_accel == "cpu"
+    assert gpu_requested(config) is False
 
     raw = example_config()
     raw["simulation"]["geometery_only"] = True
@@ -88,6 +97,7 @@ def test_packaged_heart_export_uses_packaged_runtime():
     assert runtime.__name__ == "cascade.runtime.tissuesim"
     assert callable(runtime.build_domain)
     assert callable(runtime.compute_tissue_samples_greens)
+    assert _load_cext_tissuesim() is runtime
 
 
 def test_m2_heart_profile_defaults_are_frozen():

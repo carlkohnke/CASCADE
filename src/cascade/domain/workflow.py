@@ -8,11 +8,13 @@ from cascade.vessels._build_common import (
     np,
     pv,
     resolve_domain_path,
+    resolve_path,
 )
 
 from cascade.configuration.bridge import (
     load_runtime_module,
 )
+from cascade.domain.cache import domain_cache_path
 
 def build_domain(config: RunConfig, ts=None):
     ts = ts or load_runtime_module()
@@ -54,13 +56,46 @@ def build_domain(config: RunConfig, ts=None):
         domain.random_seed = int(domain_cfg.random_seed)
         return domain
 
+    cached_path = None
+    if bool(domain_cfg.use_cache):
+        cache_dir = resolve_path(
+            domain_cfg.cache_dir,
+            base_dir=config.settings_path.parent if config.settings_path else None,
+        )
+        cached_path = domain_cache_path(domain_path, cache_dir)
+        if cached_path.is_file():
+            try:
+                domain = Domain.load(str(cached_path))
+                domain.random_seed = int(domain_cfg.random_seed)
+                domain.set_random_generator()
+                print(f"Using CASCADE domain cache: {cached_path}", flush=True)
+                return domain
+            except Exception as exc:
+                print(
+                    f"Warning: could not load CASCADE domain cache {cached_path} "
+                    f"({exc}); rebuilding.",
+                    flush=True,
+                )
+
     mesh = pv.read(str(domain_path))
-    domain = Domain(mesh)
-    domain.random_seed = int(domain_cfg.random_seed)
-    domain.create()
-    domain.solve()
-    domain.build()
-    domain.set_random_generator()
+    if not isinstance(mesh, pv.PolyData):
+        mesh = mesh.extract_surface()
+    domain = ts.build_domain(mesh=mesh, random_seed=int(domain_cfg.random_seed))
+    if cached_path is not None:
+        try:
+            cached_path.parent.mkdir(parents=True, exist_ok=True)
+            domain.save(
+                str(cached_path),
+                include_boundary=True,
+                include_mesh=True,
+                include_patch_normals=False,
+            )
+            print(f"Saved CASCADE domain cache: {cached_path}", flush=True)
+        except Exception as exc:
+            print(
+                f"Warning: could not save CASCADE domain cache {cached_path} ({exc}).",
+                flush=True,
+            )
     return domain
 
 

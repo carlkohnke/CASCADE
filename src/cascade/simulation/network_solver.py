@@ -1,5 +1,4 @@
-"""Tree geometry assembly and solver entry points.
-"""
+"""Single-network geometry assembly and composite solver entry points."""
 
 from __future__ import annotations
 

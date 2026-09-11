@@ -1,4 +1,4 @@
-"""Tree cache keys, lookup, loading, and synchronization.
+"""Vascular-tree cache keys, lookup, loading, and synchronization.
 
 Cache persistence is kept separate from growth and simulation orchestration,
 with explicit dependencies for safe direct use.

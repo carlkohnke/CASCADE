@@ -63,6 +63,8 @@ class DomainConfig:
     path: str | None = None
     mesh: Any | None = None
     random_seed: int = 42
+    use_cache: bool = True
+    cache_dir: str | None = None
 
 
 @dataclass
@@ -118,6 +120,24 @@ class GrowthConfig:
     equal_terminal: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ExternalFieldConfig:
+    """Execution policy for vessel-to-vessel external-field coupling."""
+
+    enabled: bool = False
+    scope: str = "per-network"
+    mode: str = "shared-global"
+
+
+@dataclass(frozen=True)
+class OcclusionConfig:
+    """A reversible solve-time vascular occlusion."""
+
+    global_segment_id: int
+    fraction_blocked: float
+    include_downstream_when_complete: bool = True
+
+
 @dataclass
 class SimulationConfig:
     fluid: str = "blood"
@@ -137,7 +157,8 @@ class SimulationConfig:
     tissue_accel: str | None = None
     tissue_gpu_validate_points: int | None = None
     viability_threshold: float | None = None
-    infarction: dict[str, Any] = field(default_factory=dict)
+    occlusion: OcclusionConfig | None = None
+    external_field: ExternalFieldConfig = field(default_factory=ExternalFieldConfig)
     cext: dict[str, Any] = field(default_factory=dict)
     tissuesim: dict[str, Any] = field(default_factory=dict)
 
@@ -232,7 +253,7 @@ def _parse_domain(raw: Any) -> DomainConfig:
             "x_length", "y_length", "z_length", "box_x_cm", "box_y_cm", "box_z_cm",
             "radius", "sphere_radius", "center", "theta_resolution",
             "sphere_theta_resolution", "phi_resolution", "sphere_phi_resolution",
-            "path", "mesh", "random_seed",
+            "path", "mesh", "random_seed", "use_cache", "cache_dir",
         },
         "domain",
     )
@@ -268,6 +289,8 @@ def _parse_domain(raw: Any) -> DomainConfig:
         path=data.get("path"),
         mesh=data.get("mesh"),
         random_seed=int(data.get("random_seed", 42)),
+        use_cache=_as_bool(data.get("use_cache"), True),
+        cache_dir=data.get("cache_dir"),
     )
 
 
@@ -396,7 +419,8 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
             "sample_mode", "tissue_sample_mode", "sample_points_path", "sample_file",
             "tissue_grid", "grid", "geometry_only",
             "skip_tissue_oxygen", "compute_avg_distance_to_channel", "tissue_accel",
-            "tissue_gpu_validate_points", "viability_threshold", "infarction", "cext",
+            "tissue_gpu_validate_points", "viability_threshold", "occlusion", "infarction",
+            "external_field", "cext",
             "tissuesim", "overrides", "finite_radius_o2_terms", "lumen_wall_closure",
             "graetz_n_radial", "graetz_n_modes", "graetz_max_fp_iters",
             "nearest_tissue_vessels", "window_factor", "hematocrit_model",
@@ -446,9 +470,77 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
         viability_threshold=(
             None if data.get("viability_threshold") is None else float(data.get("viability_threshold"))
         ),
-        infarction=dict(data.get("infarction", {}) or {}),
+        occlusion=_parse_occlusion(data.get("occlusion", data.get("infarction"))),
+        external_field=_parse_external_field(data.get("external_field")),
         cext=dict(data.get("cext", {}) or {}),
         tissuesim=tissuesim,
+    )
+
+
+def _parse_occlusion(raw: Any) -> OcclusionConfig | None:
+    if raw in (None, {}):
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("simulation.occlusion must be an object.")
+    data = dict(raw)
+    _reject_unknown(
+        data,
+        {
+            "global_segment_id",
+            "infarction_global_segment_id",
+            "fraction_blocked",
+            "fraction_blocked_infarction",
+            "include_downstream_when_complete",
+        },
+        "simulation.occlusion",
+    )
+    fraction = float(
+        data.get("fraction_blocked", data.get("fraction_blocked_infarction", 0.0))
+        or 0.0
+    )
+    if fraction < 0.0:
+        raise ValueError("simulation.occlusion.fraction_blocked must be in [0, 1].")
+    if fraction == 0.0:
+        return None
+    if fraction > 1.0:
+        raise ValueError("simulation.occlusion.fraction_blocked must be in [0, 1].")
+    target = data.get("global_segment_id", data.get("infarction_global_segment_id"))
+    if target is None:
+        raise ValueError(
+            "simulation.occlusion.global_segment_id is required when "
+            "fraction_blocked > 0."
+        )
+    return OcclusionConfig(
+        global_segment_id=int(target),
+        fraction_blocked=fraction,
+        include_downstream_when_complete=_as_bool(
+            data.get("include_downstream_when_complete"), True
+        ),
+    )
+
+
+def _parse_external_field(raw: Any) -> ExternalFieldConfig:
+    if raw in (None, {}):
+        return ExternalFieldConfig()
+    if not isinstance(raw, dict):
+        raise ValueError("simulation.external_field must be an object.")
+    data = dict(raw)
+    _reject_unknown(
+        data,
+        {"enabled", "scope", "mode"},
+        "simulation.external_field",
+    )
+    enabled = _as_bool(data.get("enabled"), True)
+    scope = str(data.get("scope", "shared")).strip().lower().replace("_", "-")
+    if scope not in {"per-network", "shared"}:
+        raise ValueError("simulation.external_field.scope must be 'per-network' or 'shared'.")
+    mode = str(data.get("mode", "shared-global")).strip().lower().replace("_", "-")
+    if mode != "shared-global":
+        raise ValueError(f"Unsupported simulation.external_field.mode: {mode!r}.")
+    return ExternalFieldConfig(
+        enabled=enabled,
+        scope=scope,
+        mode=mode,
     )
 
 
@@ -544,6 +636,15 @@ def _validate(network: NetworkConfig, growth: GrowthConfig, simulation: Simulati
         )
     if simulation.flow_source == "per_inlet" and not simulation.inlet_conditions:
         raise ValueError("per-inlet flow requires simulation.inlet_conditions.")
+    if (
+        simulation.external_field.enabled
+        and simulation.external_field.scope == "shared"
+        and simulation.concentration_solver != "topdown_ext_hybrid_bg"
+    ):
+        raise ValueError(
+            "Shared external-field coupling requires "
+            "simulation.concentration_solver='topdown_ext_hybrid_bg'."
+        )
     if simulation.inlet_conditions and network.input_path is None:
         if len(simulation.inlet_conditions) != len(network.roots):
             raise ValueError(

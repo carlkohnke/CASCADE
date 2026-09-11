@@ -1,279 +1,32 @@
-"""Whole-forest external-field coupling."""
+"""External-field coupling across one or more vascular networks.
+
+This is the shared multi-network implementation used by anatomical forests
+and any other case whose vessels interact through one external field.
+"""
 
 from __future__ import annotations
 
-from .heart_support import (
-    Forest,
-    K_M_MM_DEFAULT,
-    VMAX_MM_DEFAULT,
-    WINDOW_FACTOR_DEFAULT,
-    gc,
-    np,
-    perf_counter,
+import gc
+import logging
+from time import perf_counter
+
+import numpy as np
+
+from cascade.settings.oxygen import DEFAULTS as _OXYGEN_DEFAULTS
+from cascade.vessels.collections import VascularNetworkSet
+from .preparation import (
+    prepare_network_external_field,
+    run_frozen_transport_step,
 )
 
-from .heart_domain import (
-    _log,
-)
-
-from .heart_flow import (
-    _run_cext_frozen_step,
-    _solve_tree_cext_prepare,
-)
-
-def _global_cext_box(cext_ts, contexts: list[dict]) -> dict:
-    grid_n = max(int(cext_ts.CEXT_HYBRID_BG_GRID), 16)
-    mins = None
-    maxs = None
-    max_reach = 0.0
-    for context in contexts:
-        gl_points = np.asarray(context["gl_points_si"], dtype=np.float32).reshape(-1, 3)
-        if gl_points.size:
-            cmin = np.min(gl_points, axis=0)
-            cmax = np.max(gl_points, axis=0)
-            mins = cmin if mins is None else np.minimum(mins, cmin)
-            maxs = cmax if maxs is None else np.maximum(maxs, cmax)
-        max_reach = max(max_reach, float(context.get("max_reach_si", 0.0)))
-    if mins is None or maxs is None:
-        mins = np.zeros((3,), dtype=np.float32)
-        maxs = np.ones((3,), dtype=np.float32)
-    center = np.asarray(0.5 * (mins + maxs), dtype=np.float32)
-    span = max(float(np.max(maxs - mins)), 1.0e-8)
-    pad = max(float(max_reach), 0.1 * span)
-    side = span + 2.0 * pad
-    spacing = side / float(grid_n)
-    origin = np.asarray(center - 0.5 * side, dtype=np.float32)
-    kfreq = 2.0 * np.pi * np.fft.fftfreq(grid_n, d=spacing)
-    k2 = (
-        kfreq[:, None, None] ** 2
-        + kfreq[None, :, None] ** 2
-        + kfreq[None, None, :] ** 2
-    ).astype(np.float32)
-    return {
-        "grid_n": int(grid_n),
-        "origin": origin,
-        "side": float(side),
-        "spacing": float(spacing),
-        "near_radius_si": 0.0,
-        "k2": np.asarray(k2, dtype=np.float32),
-        "bounds_min": np.asarray(mins, dtype=np.float32),
-        "bounds_max": np.asarray(maxs, dtype=np.float32),
-        "padding_si": float(pad),
-    }
+K_M_MM_DEFAULT = float(_OXYGEN_DEFAULTS["K_M_MM"])
+VMAX_MM_DEFAULT = float(_OXYGEN_DEFAULTS["VMAX_MM"])
+WINDOW_FACTOR_DEFAULT = 6.0
+_LOGGER = logging.getLogger(__name__)
 
 
-def _global_lambda_bins(cext_ts, states: list[dict]) -> tuple[np.ndarray, np.ndarray]:
-    pieces = [np.asarray(state["lambda_iv_gl"], dtype=np.float32).reshape(-1) for state in states]
-    lambda_gl = np.concatenate(pieces) if pieces else np.empty((0,), dtype=np.float32)
-    finite = lambda_gl[np.isfinite(lambda_gl) & (lambda_gl > 0.0)]
-    if finite.size <= 0:
-        finite = np.asarray([1.0e-6], dtype=np.float32)
-    lam_min = max(float(np.min(finite)), 1.0e-8)
-    lam_max = max(float(np.max(finite)), lam_min * (1.0 + 1.0e-6))
-    n_bins = max(int(cext_ts.CEXT_HYBRID_BG_LAMBDA_BINS), 1)
-    if n_bins <= 1 or lam_max <= lam_min * (1.0 + 1.0e-6):
-        edges = np.asarray([lam_min, lam_max], dtype=np.float32)
-        centers = np.asarray([np.sqrt(lam_min * lam_max)], dtype=np.float32)
-    else:
-        edges = np.geomspace(lam_min, lam_max, n_bins + 1).astype(np.float32)
-        centers = np.sqrt(edges[:-1] * edges[1:]).astype(np.float32)
-    return edges, centers
-
-
-def _make_tree_hybrid_for_global_box(cext_ts, context: dict, box: dict, edges: np.ndarray, centers: np.ndarray) -> dict:
-    assignment = str(cext_ts.CEXT_HYBRID_BG_ASSIGNMENT).strip().lower()
-    if assignment not in {"cic", "tsc"}:
-        assignment = "tsc"
-    gl_points = np.asarray(context["gl_points_si"], dtype=np.float32).reshape(-1, 3)
-    gl_order = int(np.asarray(context["gl_points_si"]).shape[1])
-    nseg = int(np.asarray(context["gl_points_si"]).shape[0])
-    hybrid = {
-        "grid_n": int(box["grid_n"]),
-        "lambda_bins": max(int(cext_ts.CEXT_HYBRID_BG_LAMBDA_BINS), 1),
-        "near_radius_mult": 0.0,
-        "assignment": assignment,
-        "origin": np.asarray(box["origin"], dtype=np.float32),
-        "side": float(box["side"]),
-        "spacing": float(box["spacing"]),
-        "near_radius_si": 0.0,
-        "k2": np.asarray(box["k2"], dtype=np.float32),
-        "node_seg_ids": np.repeat(np.arange(nseg, dtype=np.int32), gl_order),
-        "gl_points_flat": np.asarray(gl_points, dtype=np.float32),
-        "lambda_bin_edges": np.asarray(edges, dtype=np.float32),
-        "lambda_bin_centers": np.asarray(centers, dtype=np.float32),
-        "gpu_static": None,
-    }
-    context["hybrid_bg_context"] = hybrid
-    return hybrid
-
-
-def _solve_shared_cext_fft(cext_ts, box: dict, centers: np.ndarray, mass_grids_g, diffusivity_si: float):
-    cp = cext_ts._cp
-    if cp is None:
-        raise RuntimeError("Cext mode requires CuPy/GPU support.")
-    t0 = perf_counter()
-    mass_arr = cp.asarray(mass_grids_g, dtype=cp.float32)
-    phi_grids = cp.empty_like(mass_arr)
-    k2_g = cp.asarray(np.asarray(box["k2"], dtype=np.float32))
-    lambda_centers_g = cp.asarray(np.asarray(centers, dtype=np.float32))
-    spacing = float(box["spacing"])
-    cell_vol = spacing ** 3
-    rhs_scale = np.float32(max(cell_vol * float(diffusivity_si), 1.0e-30))
-    for bin_idx in range(int(mass_arr.shape[0])):
-        rhs = mass_arr[bin_idx] / rhs_scale
-        rhs_hat = cp.fft.fftn(rhs, axes=(0, 1, 2))
-        lam = cp.maximum(lambda_centers_g[bin_idx], cp.float32(1.0e-8))
-        denom = k2_g + cp.reciprocal(lam * lam)
-        phi_hat = rhs_hat / denom
-        phi_grids[bin_idx] = cp.real(cp.fft.ifftn(phi_hat, axes=(0, 1, 2))).astype(cp.float32)
-        del rhs, rhs_hat, denom, phi_hat
-    cp.cuda.Stream.null.synchronize()
-    return phi_grids, float(perf_counter() - t0), "fft"
-
-
-def _compute_shared_plain_box_cext(cext_ts, solutions: list[dict]) -> dict:
-    if not solutions:
-        return {"timings": {}, "grid": {}}
-    cp = cext_ts._cp
-    if cp is None:
-        raise RuntimeError("Cext mode requires CuPy/GPU support, but the packaged CASCADE runtime is unavailable.")
-    contexts = [sol["cext_context"] for sol in solutions]
-    states = [sol["cext_state"] for sol in solutions]
-    box = _global_cext_box(cext_ts, contexts)
-    edges, centers = _global_lambda_bins(cext_ts, states)
-    hybrids = [
-        _make_tree_hybrid_for_global_box(cext_ts, sol["cext_context"], box, edges, centers)
-        for sol in solutions
-    ]
-
-    total_t0 = perf_counter()
-    t_deposit = 0.0
-    t_sample = 0.0
-    global_mass_g = None
-    for sol, hybrid in zip(solutions, hybrids):
-        context = sol["cext_context"]
-        state_cpu = sol["cext_state"]
-        runtime = cext_ts._ensure_cext_hybrid_bg_runtime_state(context, hybrid, state_cpu)
-        cext_ts._sync_cext_hybrid_bg_runtime_state(state_cpu, runtime)
-        mass_g, dt = cext_ts._cext_hybrid_deposit_sources_gpu(
-            context,
-            hybrid,
-            state_cpu,
-            runtime_state=runtime,
-            out_mass_grids_g=runtime["active_mass_grids_g"],
-        )
-        if global_mass_g is None:
-            global_mass_g = cp.zeros_like(mass_g)
-        global_mass_g += mass_g
-        t_deposit += float(dt)
-        hybrid["gpu_static"] = None
-        hybrid["runtime_state"] = None
-        context["gpu_static"] = None
-        try:
-            cp.get_default_memory_pool().free_all_blocks()
-        except Exception:
-            pass
-    if global_mass_g is None:
-        return {"timings": {}, "grid": box}
-
-    phi_g, t_fft, solver_mode = _solve_shared_cext_fft(
-        cext_ts,
-        box,
-        centers,
-        global_mass_g,
-        float(solutions[0]["cext_context"]["diffusivity_si"]),
-    )
-    for sol, hybrid in zip(solutions, hybrids):
-        context = sol["cext_context"]
-        runtime = cext_ts._ensure_cext_hybrid_bg_runtime_state(context, hybrid, sol["cext_state"])
-        sample_g, dt = cext_ts._sample_cext_hybrid_bg_gpu(
-            context,
-            hybrid,
-            phi_g,
-            global_mass_g,
-            runtime_state=runtime,
-        )
-        sol["cext_state"]["c_ext_gl"] = np.asarray(cp.asnumpy(sample_g), dtype=np.float32)
-        t_sample += float(dt)
-        hybrid["gpu_static"] = None
-        hybrid["runtime_state"] = None
-        context["gpu_static"] = None
-        try:
-            cp.get_default_memory_pool().free_all_blocks()
-        except Exception:
-            pass
-    timings = {
-        "deposit_s": float(t_deposit),
-        "fft_s": float(t_fft),
-        "sample_s": float(t_sample),
-        "total_s": float(perf_counter() - total_t0),
-        "solver_mode": str(solver_mode),
-    }
-    return {
-        "timings": timings,
-        "grid": {
-            "grid_n": int(box["grid_n"]),
-            "origin_si": np.asarray(box["origin"], dtype=float).tolist(),
-            "side_si": float(box["side"]),
-            "spacing_si": float(box["spacing"]),
-            "bounds_min_si": np.asarray(box["bounds_min"], dtype=float).tolist(),
-            "bounds_max_si": np.asarray(box["bounds_max"], dtype=float).tolist(),
-            "padding_si": float(box["padding_si"]),
-            "lambda_bin_edges_si": np.asarray(edges, dtype=float).tolist(),
-            "lambda_bin_centers_si": np.asarray(centers, dtype=float).tolist(),
-        },
-    }
-
-
-def _solve_forest_cext_legacy_shared_one_shot(
-    cext_ts,
-    ts,
-    forest: Forest,
-    inlet_flows: list[float],
-    *,
-    fluid: str,
-) -> tuple[list[dict], dict]:
-    if cext_ts._cp is None:
-        raise RuntimeError("Cext mode requires GPU/CuPy support. Install CuPy or rerun with --no-cext.")
-    t_total = perf_counter()
-    solutions = []
-    initial_cache_releases = []
-    for tree_id, (tree, inlet_flow) in enumerate(zip(forest.networks[0], inlet_flows)):
-        _log(f"Solving Cext initial state for tree {tree_id}...")
-        sol = _solve_tree_cext_prepare(cext_ts, ts, tree, inlet_flow, fluid=fluid)
-        solutions.append(sol)
-        initial_cache_releases.append(_release_cext_transient_gpu_cache(cext_ts, sol.get("cext_context")))
-    _log(
-        "Computing legacy shared plain-box FFT Cext field: "
-        f"trees={len(solutions)} grid={cext_ts.CEXT_HYBRID_BG_GRID} "
-        f"bins={cext_ts.CEXT_HYBRID_BG_LAMBDA_BINS} assignment={cext_ts.CEXT_HYBRID_BG_ASSIGNMENT}"
-    )
-    cext_meta = _compute_shared_plain_box_cext(cext_ts, solutions)
-    for tree_id, sol in enumerate(solutions):
-        _log(f"Running reflected topdown for tree {tree_id}...")
-        t0 = perf_counter()
-        _run_cext_frozen_step(cext_ts, sol, fluid=fluid)
-        sol["cext_reflected_topdown_s"] = float(perf_counter() - t0)
-        _snapshot_sol_cext_state(cext_ts, sol, solver="legacy_shared_plain_box_fft_one_shot", backend="gpu")
-    cext_vals = [
-        np.asarray(sol["cext_state"]["c_ext_gl"], dtype=np.float32).reshape(-1)
-        for sol in solutions
-        if np.asarray(sol["cext_state"]["c_ext_gl"]).size
-    ]
-    all_cext = np.concatenate(cext_vals) if cext_vals else np.empty((0,), dtype=np.float32)
-    cext_meta.update(
-        {
-            "enabled": True,
-            "mode": "legacy_shared_plain_box_fft_one_shot",
-            "near_radius_mult": 0.0,
-            "max_iter": 0,
-            "max_sampled_cext": float(np.nanmax(all_cext)) if all_cext.size else 0.0,
-            "mean_sampled_cext": float(np.nanmean(all_cext)) if all_cext.size else 0.0,
-            "total_s": float(perf_counter() - t_total),
-        }
-    )
-    return solutions, cext_meta
-
+def _log(message: str) -> None:
+    _LOGGER.info(message)
 
 def _concat_global_cext_context(solutions: list[dict]) -> tuple[dict, list[int]]:
     contexts = [sol["cext_context"] for sol in solutions]
@@ -480,126 +233,6 @@ def _snapshot_sol_cext_state(cext_ts, sol: dict, *, solver: str, backend: str) -
         sol["cext_state"] = snap
 
 
-def _solve_tree_cext_backend(
-    cext_ts,
-    ts,
-    tree,
-    inlet_flow_cm3_s: float,
-    *,
-    fluid: str,
-    concentration_solver: str,
-) -> dict:
-    inlet_concentration = float(ts.get_concentration_inlet(fluid))
-    _log(
-        f"  CASCADE Cext backend tree: segments={int(tree.segment_count)} terminals={int(tree.n_terminals)} "
-        f"qin={inlet_flow_cm3_s:.9g} cm3/s solver={concentration_solver}"
-    )
-    t0 = perf_counter()
-    (
-        flows,
-        pressures,
-        inlet_nodes,
-        outlet_nodes,
-        starts,
-        ends,
-        radii,
-        lengths,
-        prox_ids,
-        dist_ids,
-    ) = ts.recompute_tree_flows(tree, inlet_flow_cm3_s, fluid=fluid)
-    _log(f"    flow recompute completed in {perf_counter() - t0:.2f}s")
-    t0 = perf_counter()
-    cin, cout = cext_ts._solve_channel_concentrations(
-        tree,
-        np.asarray(flows),
-        inlet_nodes,
-        outlet_nodes,
-        np.asarray(starts),
-        np.asarray(ends),
-        np.asarray(radii),
-        np.asarray(lengths),
-        prox_ids=prox_ids,
-        dist_ids=dist_ids,
-        inlet_concentration=inlet_concentration,
-        diffusivity=float(ts.SOLUTE_DIFFUSIVITY),
-        vmax=float(ts.VMAX_MM),
-        km=float(ts.K_M_MM),
-        fluid=fluid,
-        solver=concentration_solver,
-    )
-    _log(f"    CASCADE concentration/Cext solve completed in {perf_counter() - t0:.2f}s")
-    cext_state = getattr(cext_ts, "_LAST_CEXT_SOURCE_STATE", None)
-    if not isinstance(cext_state, dict):
-        raise RuntimeError("CASCADE Cext backend did not expose _LAST_CEXT_SOURCE_STATE.")
-    cext_state = dict(cext_state)
-    cext_state["cin_seg"] = np.asarray(cin, dtype=np.float32)
-    cext_state["cout_seg"] = np.asarray(cout, dtype=np.float32)
-    p_in = float("nan")
-    p_out = float("nan")
-    if pressures.size and inlet_nodes:
-        p_in = float(pressures[inlet_nodes[0]])
-    if pressures.size and outlet_nodes:
-        p_out = float(np.mean(pressures[outlet_nodes]))
-    return {
-        "starts": np.asarray(starts),
-        "ends": np.asarray(ends),
-        "radii": np.asarray(radii),
-        "lengths": np.asarray(lengths),
-        "flows": np.asarray(flows),
-        "cin": np.asarray(cin),
-        "cout": np.asarray(cout),
-        "pressures": np.asarray(pressures),
-        "p_in": p_in,
-        "p_out": p_out,
-        "inlet_concentration": inlet_concentration,
-        "cext_state": cext_state,
-        "cext_timings": dict(getattr(cext_ts, "_LAST_CONCENTRATION_TIMINGS", {}) or {}),
-    }
-
-
-def _solve_forest_cext_backend_per_tree(
-    cext_ts,
-    ts,
-    forest: Forest,
-    inlet_flows: list[float],
-    *,
-    fluid: str,
-    concentration_solver: str,
-) -> tuple[list[dict], dict]:
-    t_total = perf_counter()
-    solutions = []
-    for tree_id, (tree, inlet_flow) in enumerate(zip(forest.networks[0], inlet_flows)):
-        _log(f"Solving CASCADE Cext backend tree {tree_id}...")
-        solutions.append(
-            _solve_tree_cext_backend(
-                cext_ts,
-                ts,
-                tree,
-                inlet_flow,
-                fluid=fluid,
-                concentration_solver=concentration_solver,
-            )
-        )
-    cext_vals = [
-        np.asarray(sol["cext_state"]["c_ext_gl"], dtype=np.float32).reshape(-1)
-        for sol in solutions
-        if np.asarray(sol["cext_state"].get("c_ext_gl", ())).size
-    ]
-    all_cext = np.concatenate(cext_vals) if cext_vals else np.empty((0,), dtype=np.float32)
-    timings = [dict(sol.get("cext_timings", {})) for sol in solutions]
-    return solutions, {
-        "enabled": True,
-        "mode": "backend_per_tree",
-        "solver": str(concentration_solver),
-        "backend": str(getattr(cext_ts, "CEXT_ACCEL_MODE", "")),
-        "max_sampled_cext": float(np.nanmax(all_cext)) if all_cext.size else 0.0,
-        "mean_sampled_cext": float(np.nanmean(all_cext)) if all_cext.size else 0.0,
-        "tree_timings": timings,
-        "total_s": float(perf_counter() - t_total),
-    }
-
-
-
 def _release_cext_transient_gpu_cache(cext_ts, *contexts) -> dict:
     released = {
         "contexts_cleared": 0,
@@ -641,10 +274,10 @@ def _release_cext_transient_gpu_cache(cext_ts, *contexts) -> dict:
     return released
 
 
-def _solve_forest_cext_shared_global(
+def _solve_multinetwork_shared_global(
     cext_ts,
     ts,
-    forest: Forest,
+    networks: VascularNetworkSet,
     inlet_flows: list[float],
     *,
     fluid: str,
@@ -654,9 +287,11 @@ def _solve_forest_cext_shared_global(
     t_total = perf_counter()
     solutions = []
     initial_cache_releases = []
-    for tree_id, (tree, inlet_flow) in enumerate(zip(forest.networks[0], inlet_flows)):
+    for tree_id, (tree, inlet_flow) in enumerate(zip(networks.networks, inlet_flows)):
         _log(f"Solving Cext initial state for tree {tree_id}...")
-        sol = _solve_tree_cext_prepare(cext_ts, ts, tree, inlet_flow, fluid=fluid)
+        sol = prepare_network_external_field(
+            cext_ts, ts, tree, inlet_flow, fluid=fluid, progress=_log
+        )
         solutions.append(sol)
         initial_cache_releases.append(_release_cext_transient_gpu_cache(cext_ts, sol.get("cext_context")))
     if str(getattr(cext_ts, "CEXT_VESS_COUPLING_ACCEL", "none")).strip().lower() != "none":
@@ -694,7 +329,7 @@ def _solve_forest_cext_shared_global(
         reflected_total = 0.0
         for tree_id, sol in enumerate(solutions):
             t_reflect = perf_counter()
-            _run_cext_frozen_step(cext_ts, sol, fluid=fluid)
+            run_frozen_transport_step(cext_ts, sol, fluid=fluid)
             elapsed = float(perf_counter() - t_reflect)
             sol["cext_reflected_topdown_s"] = float(sol.get("cext_reflected_topdown_s", 0.0) + elapsed)
             reflected_total += elapsed
@@ -754,31 +389,26 @@ def _solve_forest_cext_shared_global(
     return solutions, cext_meta
 
 
-def _solve_forest_cext(
+def solve_multinetwork_external_field(
     cext_ts,
     ts,
-    forest: Forest,
+    networks: VascularNetworkSet,
     inlet_flows: list[float],
     *,
     fluid: str,
-    args,
+    mode: str = "shared-global",
 ) -> tuple[list[dict], dict]:
-    mode = str(args.cext_forest_mode).strip().lower()
-    if mode == "backend-per-tree":
-        return _solve_forest_cext_backend_per_tree(
-            cext_ts,
-            ts,
-            forest,
-            inlet_flows,
-            fluid=fluid,
-            concentration_solver=str(args.cext_concentration_solver),
-        )
-    if mode == "legacy-shared-one-shot":
-        return _solve_forest_cext_legacy_shared_one_shot(cext_ts, ts, forest, inlet_flows, fluid=fluid)
-    return _solve_forest_cext_shared_global(cext_ts, ts, forest, inlet_flows, fluid=fluid)
+    """Solve Cext for one or more networks using one canonical dispatcher."""
+    mode = str(mode).strip().lower()
+    if mode != "shared-global":
+        raise ValueError(f"Unknown multi-network external-field mode: {mode!r}")
+    return _solve_multinetwork_shared_global(
+        cext_ts, ts, networks, inlet_flows, fluid=fluid
+    )
 
 
-def _compact_cext_state_for_concat(sol: dict) -> dict:
+def compact_external_field_state(sol: dict) -> dict:
+    """Return the compact Cext state required by tissue solving and export."""
     context = sol.get("cext_context")
     state = sol["cext_state"]
     if context is not None:
@@ -813,4 +443,8 @@ def _compact_cext_state_for_concat(sol: dict) -> dict:
 
 
 
-__all__ = ('_global_cext_box', '_global_lambda_bins', '_make_tree_hybrid_for_global_box', '_solve_shared_cext_fft', '_compute_shared_plain_box_cext', '_solve_forest_cext_legacy_shared_one_shot', '_concat_global_cext_context', '_concat_global_cext_state', '_compute_global_gfm_cext', '_apply_global_cext_update', '_snapshot_sol_cext_state', '_solve_tree_cext_backend', '_solve_forest_cext_backend_per_tree', '_release_cext_transient_gpu_cache', '_solve_forest_cext_shared_global', '_solve_forest_cext', '_compact_cext_state_for_concat')
+__all__ = (
+    "solve_multinetwork_external_field",
+    "compact_external_field_state",
+    "_release_cext_transient_gpu_cache",
+)

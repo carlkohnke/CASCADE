@@ -6,10 +6,13 @@ The distance paths select exact or KD-tree calculations from explicit inputs.
 from __future__ import annotations
 
 import math
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from cascade.configuration import _legacy_state as _state
+from cascade.utils.hashing import file_sha256
 
 try:
     from scipy.spatial import cKDTree as _cKDTree
@@ -21,6 +24,62 @@ def sample_domain_points(domain: _state.Domain, n_points: int) -> np.ndarray:
         return np.empty((0, domain.points.shape[1]))
     pts, _ = domain.get_interior_points(n_points, method="implicit_only", convex=True)
     return np.asarray(pts, dtype=float)
+
+
+def load_sample_points(path: str | Path) -> tuple[np.ndarray, dict[str, Any]]:
+    """Load a finite N-by-3 coordinate fixture and its provenance metadata."""
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"Tissue sample file does not exist: {source}")
+    suffix = source.suffix.lower()
+    if suffix == ".npy":
+        points = np.load(source, allow_pickle=False)
+    elif suffix == ".npz":
+        with np.load(source, allow_pickle=False) as payload:
+            key = next(
+                (name for name in ("points", "sample_points") if name in payload),
+                None,
+            )
+            if key is None:
+                raise ValueError(
+                    "NPZ tissue sample file must contain 'points' or 'sample_points'."
+                )
+            points = np.asarray(payload[key])
+    elif suffix == ".csv":
+        table = np.genfromtxt(
+            source,
+            delimiter=",",
+            names=True,
+            dtype=float,
+            encoding="utf-8-sig",
+        )
+        if table.dtype.names is None:
+            raise ValueError("CSV tissue sample file must have x,y,z header columns.")
+        names = {name.strip().lower(): name for name in table.dtype.names}
+        if not all(axis in names for axis in ("x", "y", "z")):
+            raise ValueError(
+                "CSV tissue sample file must have x,y,z header columns in centimetres."
+            )
+        table = np.atleast_1d(table)
+        points = np.column_stack([table[names[axis]] for axis in ("x", "y", "z")])
+    else:
+        raise ValueError("Tissue sample file must be CSV, NPY, or NPZ.")
+
+    points = np.asarray(points, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError(
+            f"Tissue sample coordinates must have shape (N, 3); got {points.shape}."
+        )
+    if not np.all(np.isfinite(points)):
+        raise ValueError("Tissue sample coordinates contain NaN or infinite values.")
+    metadata = {
+        "sample_mode": "file",
+        "points": int(points.shape[0]),
+        "path": str(source),
+        "sha256": file_sha256(source),
+        "coordinate_units": "cm",
+    }
+    return points, metadata
 
 
 def has_dlp_feasible_parent(tree: _state.Tree, point: np.ndarray, k: int = 10) -> bool:
@@ -226,4 +285,11 @@ def compute_distance_to_nearest_channel(
     return np.concatenate(min_dists)
 
 
-__all__ = ['sample_domain_points', 'has_dlp_feasible_parent', '_characteristic_length', 'compute_average_distance', 'compute_distance_to_nearest_channel']
+__all__ = [
+    "sample_domain_points",
+    "load_sample_points",
+    "has_dlp_feasible_parent",
+    "_characteristic_length",
+    "compute_average_distance",
+    "compute_distance_to_nearest_channel",
+]

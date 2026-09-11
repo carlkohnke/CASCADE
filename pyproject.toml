@@ -45,7 +45,6 @@ dev = ["pytest>=8", "ruff>=0.16"]
 cascade = "cascade.commands.main:main"
 cascade-gui = "cascade.gui.main:main"
 cascade-viewer = "cascade.gui.viewer:main"
-cascade-export-heart = "cascade.workflows.heart:main"
 cascade-doctor = "cascade.diagnostics.environment:main"
 
 [tool.setuptools.packages.find]

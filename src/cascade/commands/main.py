@@ -12,17 +12,12 @@ from cascade.exporting.run import export_run
 from cascade.utils.execution import guard_simulation
 from cascade.accelerators.backend import require_gpu_runtime
 from cascade.vessels.build import build_or_load_network
-from cascade.workflows.simulation import run_simulation
-from cascade.workflows.sweep import run_sweep
+from cascade.simulation.engine import run_simulation
+from cascade.simulation.sweep import run_sweep
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] == "export-heart":
-        from cascade.workflows.heart import main as heart_export_main
-
-        return heart_export_main(argv[1:])
-
     parser = argparse.ArgumentParser(prog="cascade", description="CASCADE vascular simulation and export CLI.")
     parser.add_argument("--version", action="version", version=f"CASCADE {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -54,8 +49,6 @@ def main(argv: list[str] | None = None) -> int:
     self_test_parser.add_argument("--output-dir", help="Directory in which to retain the test run.")
     self_test_parser.add_argument("--keep", action="store_true", help="Keep an automatically created test directory.")
     self_test_parser.add_argument("--json", action="store_true", help="Print the final report as JSON.")
-
-    sub.add_parser("export-heart", add_help=False, help="Export a heart forest and tissue grid for ParaView.")
 
     args = parser.parse_args(argv)
     if args.command == "init-settings":

@@ -2,7 +2,7 @@
 
 This module owns orchestration that was historically hidden behind functions
 named as summaries. Pure reporting and compatibility imports live in
-``cascade.workflows.summaries``.
+the canonical simulation engine.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from cascade.flow.kirchhoff import (
 from cascade.flow.rheology import segment_viscosity_from_radius_hd
 from cascade.flow.topology import _normalize_kirchhoff_bc_mode
 
-from .tree_solver import assemble_tree_segments
+from .network_solver import assemble_tree_segments
 
 
 def run_tree_simulation(
@@ -578,7 +578,6 @@ def run_tree_simulation(
                 vessel_quadrature[key] = np.asarray(
                     cext_source_state[key], dtype=np.float32
                 )
-    cext_source_state = None
     _clear_cext_runtime_state(tree)
     if not return_details:
         return result
@@ -598,7 +597,11 @@ def run_tree_simulation(
         "tissue_points": tissue_pts,
         "tissue_values": tissue_vals,
         "inlet_concentration": inlet_concentration,
-        "cext_source_state": cext_source_state,
+        "cext_source_state": (
+            dict(cext_source_state)
+            if isinstance(cext_source_state, dict)
+            else None
+        ),
         "vessel_quadrature": vessel_quadrature,
     }
     HD_detail = np.asarray(getattr(tree, "discharge_hematocrit", np.empty((0,), dtype=float)), dtype=float)

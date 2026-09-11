@@ -18,7 +18,7 @@ from cascade.concentration.tissue.geometry import get_concentration_inlet
 from cascade.concentration.tissue.greens import compute_tissue_samples_greens
 from cascade.domain.visualization import _add_domain_outline, _plot_cmap, _show_plotter
 from cascade.exporting.statistics import _linear_fit_slope_r2
-from cascade.workflows.tree_solver import solve_tree_greens
+from cascade.simulation.network_solver import solve_tree_greens
 
 def _build_vessel_polydata(
     starts: np.ndarray,

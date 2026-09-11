@@ -1,4 +1,4 @@
-"""Command-line entry points; scientific work is delegated to workflows."""
+"""Thin command-line entry points for the unified simulation platform."""
 
 from cascade.core.lazy import resolve_export
 

@@ -20,7 +20,7 @@ from cascade.utils.resources import resolve_path
 from cascade.utils.hashing import file_sha256
 from cascade.vessels.cache import save_network_if_requested
 from cascade.vessels.results import NetworkBuildResult
-from cascade.workflows.simulation import SimulationResult
+from cascade.simulation.engine import SimulationResult
 from cascade.exporting.schema import CSV_FIELDNAMES
 from cascade.exporting.domain import save_domain_geometry
 
@@ -370,6 +370,10 @@ def _manifest(
             "terminals": [int(getattr(tree, "n_terminals", 0) or 0) for tree in build.trees],
             "connectivity_repairs": build.connectivity_repairs or [],
             "connectivity_reports": build.connectivity_reports or [],
+        },
+        "simulation": {
+            "external_field": simulation.external_field,
+            "interventions": simulation.interventions,
         },
         "outputs": outputs,
         "geometry_only": bool(config.simulation.geometry_only),

@@ -23,7 +23,7 @@ from cascade.vessels.growth import (
     _pre_sample_points,
 )
 from cascade.vessels.results import NetworkBuildResult
-from .simulation import run_simulation
+from .engine import run_simulation
 
 
 def run_sweep(settings_path: str | Path) -> dict[str, str]:

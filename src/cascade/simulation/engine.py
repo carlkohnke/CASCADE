@@ -13,9 +13,19 @@ from cascade.configuration import _legacy_state as _state
 from cascade.concentration.tissue.cache import build_tissue_cache_from_tree
 from cascade.concentration.tissue.geometry import _prepare_tissue_geometry, get_concentration_inlet
 from cascade.concentration.tissue.greens import compute_tissue_samples_greens
-from cascade.vessels.connectivity import collect_downstream_segment_ids
+from cascade.concentration.tissue.greens import (
+    compute_tissue_samples_greens_from_cext_state,
+)
+from cascade.concentration.external_field.multinetwork import (
+    compact_external_field_state,
+    solve_multinetwork_external_field,
+)
 from cascade.domain.grid import sample_grid_points
-from cascade.domain.sampling import compute_distance_to_nearest_channel, sample_domain_points
+from cascade.domain.sampling import (
+    compute_distance_to_nearest_channel,
+    load_sample_points,
+    sample_domain_points,
+)
 from cascade.configuration.bridge import load_runtime_module
 from cascade.utils.resources import resolve_path
 from cascade.vessels.conditions import (
@@ -24,10 +34,17 @@ from cascade.vessels.conditions import (
     sync_tree_parameters_for_run,
     terminal_flow_for_target,
 )
-from cascade.vessels.growth import _load_sample_points
 from cascade.vessels.simple import simple_details
-from cascade.workflows.flow_sources import tree_root_flow_cm3_s as _tree_root_flow_cm3_s
-from cascade.workflows.tree_simulation import run_tree_simulation
+from cascade.flow.boundary_conditions import allocate_inlet_flows
+from cascade.vessels.collections import VascularNetworkSet
+from cascade.vessels.interventions import (
+    InterventionState,
+    Occlusion,
+    apply_occlusion,
+    zero_occluded_solution,
+)
+from cascade.simulation.network import run_tree_simulation
+from cascade.simulation.results import combine_network_solutions
 
 DYN_PER_CM2_TO_PA = 0.1
 
@@ -52,16 +69,8 @@ class SimulationResult:
     point_data: dict[str, np.ndarray] = field(default_factory=dict)
     sample_meta: dict[str, Any] = field(default_factory=dict)
     timings: dict[str, float] = field(default_factory=dict)
-
-
-@dataclass
-class InfarctionState:
-    applied: bool = False
-    fraction_blocked: float = 0.0
-    global_segment_id: int | None = None
-    tree_id: int | None = None
-    local_segment_id: int | None = None
-    blocked_local_ids: np.ndarray = field(default_factory=lambda: np.empty((0,), dtype=np.int64))
+    interventions: list[dict[str, Any]] = field(default_factory=list)
+    external_field: dict[str, Any] | None = None
 
 
 def run_simulation(
@@ -82,6 +91,7 @@ def run_simulation(
     tree_results: list[TreeSimulation] = []
     summary_rows: list[dict[str, Any]] = []
     segment_rows: list[dict[str, Any]] = []
+    intervention_records: list[dict[str, Any]] = []
     global_segment_id = 0
     want_point_data = (
         (bool(config.outputs.write_points_csv) or bool(config.outputs.write_paraview))
@@ -94,6 +104,25 @@ def run_simulation(
         or (want_point_data and bool(config.outputs.include_tissue_nearest_fields))
     )
 
+    external_field = config.simulation.external_field
+    if (
+        external_field.enabled
+        and external_field.scope == "shared"
+        and not config.simulation.geometry_only
+    ):
+        return _run_shared_external_field_case(
+            ts,
+            domain,
+            trees,
+            target_counts,
+            config,
+            sample_points,
+            timings,
+            want_segment_rows=want_segment_rows,
+            want_point_data=want_point_data,
+        )
+
+    networks = VascularNetworkSet.from_networks(trees)
     for tree_id, (tree, target_count) in enumerate(zip(trees, target_counts)):
         t_tree = perf_counter()
         if getattr(tree, "_cascade_simple_network", False):
@@ -121,7 +150,7 @@ def run_simulation(
         terminal_flow = terminal_flow_for_target(config, qin_cm3_s, int(target_count))
         if hasattr(ts, "_sync_loaded_tree_params"):
             sync_tree_parameters_for_run(ts, tree, config, tree_id, terminal_flow)
-        with _infarction_override(config, tree, tree_id, global_segment_id) as infarction:
+        with _occlusion_override(config, networks, tree_id) as intervention:
             if config.simulation.geometry_only:
                 summary, details = _geometry_only_result(ts, tree, target_count, config, qin_cm3_s)
             else:
@@ -144,8 +173,10 @@ def run_simulation(
                     concentration_solver=config.simulation.concentration_solver,
                     return_details=True,
                 )
-            if infarction.blocked_local_ids.size:
-                _zero_blocked_solution(details, infarction.blocked_local_ids)
+            zero_occluded_solution(details, intervention)
+        intervention.restore_solution_geometry(details)
+        if intervention.applied:
+            intervention_records.append(intervention.metadata(networks))
 
         elapsed = perf_counter() - t_tree
         row = _summary_row(ts, summary, config, tree_id=tree_id, n_trees=len(trees), elapsed_s=elapsed)
@@ -179,7 +210,197 @@ def run_simulation(
         sample_points=sample_points,
         sample_meta=_sample_meta_for_config(config, sample_points),
         timings=timings,
+        interventions=intervention_records,
     )
+
+
+def _run_shared_external_field_case(
+    runtime,
+    domain,
+    trees: list[Any],
+    target_counts: list[int],
+    config: RunConfig,
+    sample_points: np.ndarray,
+    timings: dict[str, float],
+    *,
+    want_segment_rows: bool,
+    want_point_data: bool,
+) -> SimulationResult:
+    """Run the shared multi-network Cext path through the canonical engine."""
+    networks = VascularNetworkSet.from_networks(trees)
+    inlet_flows = [
+        _inlet_flow_for_tree(config, tree, network_id, trees)
+        for network_id, tree in enumerate(trees)
+    ]
+    configured = config.simulation.occlusion
+    occlusion = (
+        Occlusion(
+            global_segment_id=configured.global_segment_id,
+            fraction_blocked=configured.fraction_blocked,
+            include_downstream_when_complete=(
+                configured.include_downstream_when_complete
+            ),
+        )
+        if configured is not None
+        else None
+    )
+    t0 = perf_counter()
+    with apply_occlusion(networks, occlusion) as intervention:
+        solutions, external_metadata = solve_multinetwork_external_field(
+            runtime,
+            runtime,
+            networks,
+            inlet_flows,
+            fluid=config.simulation.fluid,
+            mode=config.simulation.external_field.mode,
+        )
+    timings["shared_external_field_s"] = perf_counter() - t0
+    if intervention.applied and intervention.network_id is not None:
+        affected = solutions[intervention.network_id]
+        intervention.restore_solution_geometry(affected)
+        zero_occluded_solution(affected, intervention)
+
+    tree_results: list[TreeSimulation] = []
+    summary_rows: list[dict[str, Any]] = []
+    segment_rows: list[dict[str, Any]] = []
+    global_segment_id = 0
+    for network_id, (tree, target_count, solution) in enumerate(
+        zip(trees, target_counts, solutions)
+    ):
+        compact_state = compact_external_field_state(solution)
+        details = dict(solution)
+        details["cext_source_state"] = compact_state
+        details["vessel_quadrature"] = {
+            key: compact_state[key]
+            for key in (
+                "solver",
+                "gl_points_si",
+                "c_iv_gl",
+                "c_bulk_gl",
+                "c_wall_gl",
+                "c_ext_gl",
+            )
+        }
+        summary = _summary_from_solution(
+            runtime,
+            tree,
+            solution,
+            target_count=int(target_count),
+            config=config,
+            external_metadata=external_metadata,
+        )
+        row = _summary_row(
+            runtime,
+            summary,
+            config,
+            tree_id=network_id,
+            n_trees=len(trees),
+            elapsed_s=float(timings["shared_external_field_s"]),
+        )
+        summary_rows.append(row)
+        if want_segment_rows:
+            rows, global_segment_id = _segment_rows(
+                details,
+                row,
+                tree_id=network_id,
+                start_global_id=global_segment_id,
+            )
+            segment_rows.extend(rows)
+        else:
+            global_segment_id += int(np.asarray(solution["starts"]).shape[0])
+        tree_results.append(
+            TreeSimulation(
+                tree_id=network_id,
+                tree=tree,
+                target_count=int(target_count),
+                summary=summary,
+                details=details,
+                elapsed_s=float(timings["shared_external_field_s"]),
+            )
+        )
+
+    point_data: dict[str, np.ndarray] = {}
+    if want_point_data and sample_points.size:
+        t0 = perf_counter()
+        combined = combine_network_solutions(solutions)
+        retained, concentrations = compute_tissue_samples_greens_from_cext_state(
+            sample_points,
+            combined["starts"],
+            combined["ends"],
+            combined["radii"],
+            combined["cext_state"],
+            tissue_cache=None,
+        )
+        mask = np.asarray(retained, dtype=bool)
+        point_data = _point_data_from_samples(
+            runtime,
+            sample_points[mask],
+            np.asarray(concentrations)[mask],
+            segment_rows,
+            config,
+        )
+        timings["points_s"] = perf_counter() - t0
+    point_rows = (
+        _point_rows_from_data(point_data)
+        if config.outputs.write_points_csv
+        else []
+    )
+    intervention_records = (
+        [intervention.metadata(networks)] if intervention.applied else []
+    )
+    return SimulationResult(
+        tree_results=tree_results,
+        summary_rows=summary_rows,
+        segment_rows=segment_rows,
+        point_rows=point_rows,
+        point_data=point_data,
+        sample_points=sample_points,
+        sample_meta=_sample_meta_for_config(config, sample_points),
+        timings=timings,
+        interventions=intervention_records,
+        external_field=dict(external_metadata),
+    )
+
+
+def _summary_from_solution(
+    runtime,
+    tree,
+    solution: dict[str, Any],
+    *,
+    target_count: int,
+    config: RunConfig,
+    external_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    radii = np.asarray(solution["radii"], dtype=float)
+    lengths = np.asarray(solution["lengths"], dtype=float)
+    flows = np.asarray(solution["flows"], dtype=float)
+    cin = np.asarray(solution["cin"], dtype=float)
+    cout = np.asarray(solution["cout"], dtype=float)
+    return {
+        "target_terminals": int(target_count),
+        "cube_side_length": float(config.domain.side_length),
+        "concentration_solver": config.simulation.concentration_solver,
+        "total_volume": float(np.nansum(np.pi * radii**2 * lengths)),
+        "total_flowrate": float(flows[0]) if flows.size else math.nan,
+        "pressure_in_root": float(solution.get("p_in", np.nan)) * DYN_PER_CM2_TO_PA,
+        "pressure_out_terminals": float(solution.get("p_out", np.nan)) * DYN_PER_CM2_TO_PA,
+        "avg_radius": float(np.nanmean(radii)) if radii.size else math.nan,
+        "avg_length": float(np.nanmean(lengths)) if lengths.size else math.nan,
+        "total_length": float(np.nansum(lengths)),
+        "terminal_segments": max(int(getattr(tree, "n_terminals", 0)) - 1, 0),
+        "total_segments": int(radii.size),
+        "inlet_flow_ul_per_min": float(flows[0] * 60000.0) if flows.size else math.nan,
+        "C_LQ_over_Cmax": (
+            float(np.nanmean(cout) / runtime.CONC_MAX_FOR_NORMALIZATION)
+            if cout.size and float(runtime.CONC_MAX_FOR_NORMALIZATION) > 0.0
+            else math.nan
+        ),
+        "t_cext_total_s": float(external_metadata.get("total_s", 0.0)),
+        "t_cext_backend": str(external_metadata.get("mode", "shared")),
+        "concentration_inlet": float(solution.get("inlet_concentration", np.nan)),
+        "concentration_outlet_mean": float(np.nanmean(cout)) if cout.size else math.nan,
+        "concentration_inlet_mean": float(np.nanmean(cin)) if cin.size else math.nan,
+    }
 
 
 def _detail_segment_count(details: dict[str, Any], tree) -> int:
@@ -207,7 +428,8 @@ def _sample_points(ts, domain, config: RunConfig, *, provided: np.ndarray | None
         )
         if path is None:
             raise ValueError("simulation.sample_points_path is required for file sampling.")
-        return _load_sample_points(path)
+        points, _ = load_sample_points(path)
+        return points
     n = int(config.simulation.distance_sample_count)
     if n <= 0:
         return np.empty((0, 3), dtype=float)
@@ -237,11 +459,8 @@ def _sample_meta_for_config(config: RunConfig, points: np.ndarray) -> dict[str, 
 
 def _inlet_flow_for_tree(config: RunConfig, tree, tree_id: int, trees: list[Any]) -> float:
     source = str(config.simulation.flow_source).strip().lower().replace("_", "-")
-    if source == "tree-root-flow":
-        root_flow = _tree_root_flow_cm3_s(tree)
-        if np.isfinite(root_flow) and root_flow > 0.0:
-            return float(root_flow)
-        return flow_for_tree(config, tree_id, len(trees))
+    prescribed = [flow_for_tree(config, index, len(trees)) for index in range(len(trees))]
+    total_cm3_s = None
     if source == "total-qin-split":
         total_ul_min = (
             float(config.simulation.total_qin_ul_min)
@@ -249,77 +468,42 @@ def _inlet_flow_for_tree(config: RunConfig, tree, tree_id: int, trees: list[Any]
             else float(config.simulation.qin_target_ul_min)
         )
         total_cm3_s = total_ul_min * 1.0e-3 / 60.0 * (float(config.domain.side_length) ** 3)
-        root_flows = np.array([_tree_root_flow_cm3_s(t) for t in trees], dtype=float)
-        weights = np.where(np.isfinite(root_flows) & (root_flows > 0.0), root_flows, 0.0)
-        if not np.any(weights > 0.0):
-            weights = np.ones(len(trees), dtype=float)
-        return float(total_cm3_s * weights[int(tree_id)] / float(np.sum(weights)))
-    return flow_for_tree(config, tree_id, len(trees))
+    return allocate_inlet_flows(
+        trees,
+        source=source,
+        prescribed_per_network=prescribed,
+        total_qin_cm3_s=total_cm3_s,
+        require_stored_root_flow=False,
+    )[int(tree_id)]
 
 
 @contextmanager
-def _infarction_override(config: RunConfig, tree, tree_id: int, tree_global_offset: int):
-    state = _infarction_state_for_tree(config, tree, tree_id, tree_global_offset)
-    if not state.applied:
-        yield state
-        return
-    ids = state.blocked_local_ids
-    data = np.asarray(tree.data)
-    original = np.asarray(data[ids, 21], dtype=float).copy() if ids.size else np.empty((0,), dtype=float)
-    try:
-        if ids.size:
-            if state.fraction_blocked >= 1.0:
-                data[ids, 21] = 0.0
-            else:
-                data[int(state.local_segment_id), 21] = original[0] * (1.0 - float(state.fraction_blocked))
-        yield state
-    finally:
-        if ids.size:
-            data[ids, 21] = original
-
-
-def _infarction_state_for_tree(config: RunConfig, tree, tree_id: int, tree_global_offset: int) -> InfarctionState:
-    raw = dict(config.simulation.infarction or {})
-    fraction = float(raw.get("fraction_blocked", raw.get("fraction_blocked_infarction", 0.0)) or 0.0)
-    if not np.isfinite(fraction) or fraction <= 0.0:
-        return InfarctionState()
-    if fraction > 1.0:
-        raise ValueError("simulation.infarction.fraction_blocked must be in [0, 1].")
-    if config.simulation.geometry_only:
-        return InfarctionState()
-    target_global = raw.get("global_segment_id", raw.get("infarction_global_segment_id"))
-    if target_global is None:
-        raise ValueError("simulation.infarction.global_segment_id is required when fraction_blocked > 0.")
-    target_global = int(target_global)
-    seg_count = int(getattr(tree, "segment_count", 0) or 0)
-    local = target_global - int(tree_global_offset)
-    if local < 0 or local >= seg_count:
-        return InfarctionState()
-    blocked = np.array([local], dtype=np.int64)
-    if fraction >= 1.0:
-        blocked = collect_downstream_segment_ids(tree, int(local))
-    return InfarctionState(
-        applied=True,
-        fraction_blocked=float(fraction),
-        global_segment_id=int(target_global),
-        tree_id=int(tree_id),
-        local_segment_id=int(local),
-        blocked_local_ids=np.asarray(blocked, dtype=np.int64),
+def _occlusion_override(
+    config: RunConfig,
+    networks: VascularNetworkSet,
+    tree_id: int,
+):
+    configured = config.simulation.occlusion
+    occlusion = (
+        Occlusion(
+            global_segment_id=configured.global_segment_id,
+            fraction_blocked=configured.fraction_blocked,
+            include_downstream_when_complete=(
+                configured.include_downstream_when_complete
+            ),
+        )
+        if configured is not None
+        else None
     )
-
-
-def _zero_blocked_solution(details: dict[str, Any], blocked_local_ids: np.ndarray) -> None:
-    ids = np.asarray(blocked_local_ids, dtype=np.int64)
-    if ids.size == 0:
+    if occlusion is None or config.simulation.geometry_only:
+        yield InterventionState()
         return
-    for key in ("flows", "cin", "cout"):
-        arr = details.get(key)
-        if arr is None:
-            continue
-        arr = np.asarray(arr)
-        valid = ids[ids < arr.shape[0]]
-        if valid.size:
-            arr[valid] = 0.0
+    address = networks.address(occlusion.global_segment_id)
+    if address.network_id != int(tree_id):
+        yield InterventionState()
+        return
+    with apply_occlusion(networks, occlusion, geometry_only=False) as state:
+        yield state
 
 
 def _geometry_only_result(ts, tree, target_count: int, config: RunConfig, qin_cm3_s: float) -> tuple[dict, dict]:
@@ -460,6 +644,28 @@ def _point_data(
     n_points = min(int(pts.shape[0]), int(vals.shape[0]))
     if n_points <= 0:
         return {}
+    return _point_data_from_samples(
+        ts,
+        pts[:n_points],
+        vals[:n_points],
+        segment_rows,
+        config,
+    )
+
+
+def _point_data_from_samples(
+    ts,
+    pts: np.ndarray,
+    vals: np.ndarray,
+    segment_rows: list[dict[str, Any]],
+    config: RunConfig,
+) -> dict[str, np.ndarray]:
+    """Classify and annotate already-computed tissue samples."""
+    pts = np.asarray(pts, dtype=float)
+    vals = np.asarray(vals, dtype=float).reshape(-1)
+    n_points = min(int(pts.shape[0]), int(vals.shape[0]))
+    if n_points <= 0:
+        return {}
     pts = pts[:n_points]
     vals = vals[:n_points]
     conc_max = float(getattr(ts, "CONC_MAX_FOR_NORMALIZATION", np.nan))
@@ -524,6 +730,33 @@ def _combined_tissue_points(ts, tree_results: list[TreeSimulation], sample_point
     starts_arr = np.concatenate(starts, axis=0)
     ends_arr = np.concatenate(ends, axis=0)
     radii_arr = np.concatenate(radii, axis=0)
+    cext_states = [result.details.get("cext_source_state") for result in tree_results]
+    if cext_states and all(isinstance(state, dict) for state in cext_states):
+        combined = combine_network_solutions(
+            [
+                {
+                    "starts": result.details["starts"],
+                    "ends": result.details["ends"],
+                    "radii": result.details["radii"],
+                    "lengths": result.details["lengths"],
+                    "flows": result.details["flows"],
+                    "cin": result.details["cin"],
+                    "cout": result.details["cout"],
+                    "cext_state": result.details["cext_source_state"],
+                }
+                for result in tree_results
+            ]
+        )
+        mask, conc = compute_tissue_samples_greens_from_cext_state(
+            sample_points,
+            starts_arr,
+            ends_arr,
+            radii_arr,
+            combined["cext_state"],
+            tissue_cache=None,
+        )
+        keep = np.asarray(mask, dtype=bool)
+        return sample_points[keep], np.asarray(conc, dtype=float)[keep]
     cin_arr = np.concatenate(cin, axis=0)
     flows_arr = np.concatenate(flows, axis=0)
     mask, conc = compute_tissue_samples_greens(

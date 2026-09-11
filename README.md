@@ -29,7 +29,7 @@ Repository publication and remote CI remain separate release gates and are not c
 
 The implementation is organized by scientific responsibility rather than by
 entry point: domain and vessel architecture, flow, vessel concentration, Cext,
-Green's Function Method tissue oxygen, exporting, workflows, and GUI code each
+Green's Function Method tissue oxygen, exporting, simulation, and GUI code each
 have dedicated packages. See [docs/architecture.md](docs/architecture.md) for
 the package map and compatibility boundaries.
 
@@ -84,7 +84,6 @@ python -m pip install '.[gui,gpu-cu13]'
 ```text
 cascade run --settings case.json
 cascade sweep --settings sweep.json
-cascade export-heart --forest heart.forest --domain heart.stl --out-dir results/heart
 cascade init-settings case.json
 cascade doctor
 cascade self-test
@@ -236,22 +235,60 @@ Use a frozen coordinate fixture when two runs must evaluate identical tissue poi
 
 NPZ files contain `points` or `sample_points` with shape `(N, 3)`. NPY files contain the array directly. CSV files use `x,y,z` headers. Coordinates are in centimetres, paths resolve relative to the settings file, and the manifest records the resolved path and SHA-256.
 
-CASCADE permits one memory-intensive CLI simulation per user at a time. A second `run`, `sweep`, or `export-heart` command exits with a clear active-owner error instead of risking two resident simulations. Studio already processes its queue sequentially.
+CASCADE permits one memory-intensive CLI simulation per user at a time. A second `run` or `sweep` command exits with a clear active-owner error instead of risking two resident simulations. Studio already processes its queue sequentially.
 
-When growth is disabled, existing tree and forest inputs load in analysis-only mode. CASCADE omits growth preallocation and spatial indexes, and `.forest.simcache` members stream directly into the selected working dtype (float32 by default for the heart workflow) to avoid retaining a second float64 vessel table.
+When growth is disabled, existing tree and forest inputs load in analysis-only mode. CASCADE omits growth preallocation and spatial indexes, and `.forest.simcache` members stream directly into the selected working dtype to avoid retaining a second full vessel table.
 
-The heart exporter exposes shared forest Cext and heart-specific export controls:
+## Anatomical forests and occlusion
 
-```bash
-cascade export-heart \
-  --forest inputs/heart.forest \
-  --domain inputs/heart.stl \
-  --out-dir runs/heart \
-  --cext-forest-mode shared-global \
-  --nx 64 --ny 64 --nz 64
+Heart simulations use the same `cascade run` engine as cubes, generated forests,
+and simple geometries. A loaded anatomical forest can opt into one external field
+shared by every vascular network and can apply a reversible partial stenosis or
+complete downstream occlusion using collection-wide segment IDs:
+
+```json
+{
+  "domain": {
+    "type": "file",
+    "path": "inputs/heart.stl",
+    "use_cache": true
+  },
+  "network": {
+    "mode": "forest",
+    "input_path": "inputs/heart.forest"
+  },
+  "growth": {"enabled": false},
+  "simulation": {
+    "fluid": "blood",
+    "flow_source": "tree-root-flow",
+    "concentration_solver": "topdown_ext_hybrid_bg",
+    "sample_mode": "grid",
+    "tissue_grid": {"nx": 64, "ny": 64, "nz": 64},
+    "external_field": {
+      "enabled": true,
+      "scope": "shared",
+      "mode": "shared-global"
+    },
+    "occlusion": {
+      "global_segment_id": 120,
+      "fraction_blocked": 1.0,
+      "include_downstream_when_complete": true
+    }
+  },
+  "outputs": {
+    "out_dir": "runs/heart",
+    "prefix": "heart",
+    "export_float_dtype": "float32",
+    "export_index_dtype": "int64"
+  }
+}
 ```
 
-Run `cascade export-heart --help` for the complete interface.
+Omit `simulation.occlusion` for a baseline run. Set `fraction_blocked` between
+zero and one for a radius-reduction stenosis; a value of one can also suppress
+the target's downstream subtree. Solver tuning remains in the normal named
+`settings` sections, so anatomical cases do not have a parallel set of CLI-only
+defaults.
 
 ## CASCADE Studio
 

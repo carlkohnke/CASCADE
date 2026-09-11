@@ -8,7 +8,7 @@ export packages.
 JSON / CASCADE Studio
         |
         v
-configuration -> workflows -> domain + vessels
+configuration -> simulation -> domain + vessels
                               |
                               v
                  flow -> vessel concentration
@@ -41,7 +41,7 @@ repository root. The codebase itself begins at `src/cascade/`.
 | `cascade.concentration.external_field` | Direct, frozen, treecode, and hybrid-FFT Cext evaluation and coupling |
 | `cascade.concentration.tissue` | Green's Function Method tissue oxygen, sampling caches, GPU execution, and viability metrics |
 | `cascade.exporting` | Output schemas, tables, statistics, plots, VTK construction, and run manifests |
-| `cascade.workflows` | Tree, sweep, simulation, and advanced whole-heart orchestration |
+| `cascade.simulation` | End-to-end network/forest execution, sweeps, interventions, and result aggregation |
 | `cascade.gui` | GUI pages, window coordination, preview geometry, rendering, workers, and widgets |
 | `cascade.commands` | Thin command-line parsing and dispatch |
 | `cascade.accelerators` | GPU availability and backend selection |
@@ -79,7 +79,7 @@ These are fixed release assets, not per-run caches or user-selectable
 discretizations; corrupt or missing assets fail immediately with a diagnostic.
 
 The former TissueSim implementation is decomposed across the flow,
-concentration, domain, exporting, workflow, and diagnostic packages.
+concentration, domain, exporting, simulation, and diagnostic packages.
 `cascade.runtime.tissuesim` is now a small compatibility facade for existing
 callers and frozen validation workflows. It is not the owner of the numerical
 implementation. Its mutable state is isolated in
@@ -88,10 +88,11 @@ configuration and subsystem entry points. The facade and state bridge are
 transitional and should be removed after downstream callers have migrated and
 the final parity campaign passes.
 
-The advanced whole-heart path is likewise separated into domain/connectivity,
-flow preparation, whole-forest Cext, output construction, and CLI orchestration
-modules under `cascade.workflows`. Normal tree, forest, channel, lattice, and
-custom-network exports use `cascade run`.
+Anatomical heart forests, generated forests, single trees, lattices, channels,
+and custom networks all use `cascade run`. Shared multi-network Cext lives under
+`cascade.concentration.external_field`; occlusion and global/local segment
+indexing live under `cascade.vessels`; the simulation engine only composes those
+capabilities. There is no parallel heart-only solver or exporter.
 
 ## Native source boundary
 
@@ -108,14 +109,13 @@ requested.
 
 ## Dependency direction
 
-End-to-end single-tree orchestration lives in
-`cascade.workflows.tree_simulation`. The legacy `summarize_tree` name remains
-as a compatibility alias; new code uses `run_tree_simulation`, while
-`cascade.workflows.summaries` contains only compatibility imports.
+End-to-end orchestration lives in `cascade.simulation`. The same engine accepts
+one network or an ordered multi-network collection and delegates numerical work
+to the owning scientific package.
 
 Scientific packages do not import GUI or command modules. Commands and GUI
-pages depend on workflows; workflows compose domain, vessel, flow,
-concentration, and export services. Public `svv` adaptation is confined to
+pages depend on simulation services; those services compose domain, vessel,
+flow, concentration, and export packages. Public `svv` adaptation is confined to
 `cascade.vessels.generation` so it can be replaced without changing solver or
 interface code.
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .api import FlowProblem, FlowResult, solve_flow
+from .boundary_conditions import allocate_inlet_flows, tree_root_flow_cm3_s
 from .hematocrit import compute_tree_hematocrit
 from .kirchhoff import solve_kirchhoff, solve_kirchhoff_dirichlet, solve_kirchhoff_tree
 from .rheology import (
@@ -16,6 +17,7 @@ from .rheology import (
 __all__ = [
     "FlowProblem",
     "FlowResult",
+    "allocate_inlet_flows",
     "apply_fahraeus_lindqvist_resistance",
     "compute_segment_viscosity",
     "compute_tree_hematocrit",
@@ -26,4 +28,5 @@ __all__ = [
     "solve_kirchhoff_dirichlet",
     "solve_kirchhoff_tree",
     "tube_hematocrit",
+    "tree_root_flow_cm3_s",
 ]

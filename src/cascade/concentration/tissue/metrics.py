@@ -14,7 +14,7 @@ from cascade.configuration import _legacy_state as _state
 from cascade.concentration.tissue.geometry import get_concentration_inlet
 from cascade.concentration.tissue.greens import compute_tissue_samples_greens
 from cascade.flow.hematocrit import _tree_exact_connectivity
-from cascade.workflows.tree_solver import solve_tree_greens
+from cascade.simulation.network_solver import solve_tree_greens
 
 def compute_concentration_profiles(
     tree,

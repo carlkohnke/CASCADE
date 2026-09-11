@@ -14,7 +14,6 @@ from cascade.vessels.conditions import (
 from cascade.vessels._build_common import (
     Any,
     KDTreeManager,
-    Path,
     RunConfig,
     TreeMap,
     USearchTree,
@@ -28,7 +27,7 @@ from cascade.vessels._build_common import (
     sample_grid_points,
     tree_collision,
 )
-from cascade.utils.hashing import file_sha256
+from cascade.domain.sampling import load_sample_points
 
 from cascade.vessels.cache import (
     _attach_tree_domain,
@@ -83,20 +82,14 @@ def _pre_sample_points(ts, domain, config: RunConfig) -> tuple[np.ndarray | None
         )
         if path is None:
             raise ValueError("simulation.sample_points_path is required for file sampling.")
-        points = _load_sample_points(path)
+        points, metadata = load_sample_points(path)
         requested = int(config.simulation.distance_sample_count)
         if requested not in {0, int(points.shape[0])}:
             raise ValueError(
                 "simulation.distance_sample_count must be 0 or match the fixed sample file "
                 f"({points.shape[0]} points)."
             )
-        return points, {
-            "sample_mode": "file",
-            "points": int(points.shape[0]),
-            "path": str(path),
-            "sha256": _file_sha256(path),
-            "coordinate_units": "cm",
-        }
+        return points, metadata
     n_points = int(config.simulation.distance_sample_count)
     if n_points <= 0:
         return np.empty((0, 3), dtype=float), {"sample_mode": "random", "requested_points": 0}
@@ -104,43 +97,6 @@ def _pre_sample_points(ts, domain, config: RunConfig) -> tuple[np.ndarray | None
         np.asarray(ts.sample_domain_points(domain, n_points), dtype=float),
         {"sample_mode": "random", "requested_points": int(n_points)},
     )
-
-
-def _load_sample_points(path: str | Path) -> np.ndarray:
-    """Load an explicit N-by-3 coordinate fixture without generating new points."""
-    source = Path(path).expanduser().resolve()
-    if not source.is_file():
-        raise FileNotFoundError(f"Tissue sample file does not exist: {source}")
-    suffix = source.suffix.lower()
-    if suffix == ".npy":
-        points = np.load(source, allow_pickle=False)
-    elif suffix == ".npz":
-        with np.load(source, allow_pickle=False) as payload:
-            key = next((name for name in ("points", "sample_points") if name in payload), None)
-            if key is None:
-                raise ValueError("NPZ tissue sample file must contain 'points' or 'sample_points'.")
-            points = np.asarray(payload[key])
-    elif suffix == ".csv":
-        table = np.genfromtxt(source, delimiter=",", names=True, dtype=float, encoding="utf-8-sig")
-        if table.dtype.names is None:
-            raise ValueError("CSV tissue sample file must have x,y,z header columns.")
-        names = {name.strip().lower(): name for name in table.dtype.names}
-        if not all(axis in names for axis in ("x", "y", "z")):
-            raise ValueError("CSV tissue sample file must have x,y,z header columns in centimetres.")
-        table = np.atleast_1d(table)
-        points = np.column_stack([table[names[axis]] for axis in ("x", "y", "z")])
-    else:
-        raise ValueError("Tissue sample file must be CSV, NPY, or NPZ.")
-    points = np.asarray(points, dtype=float)
-    if points.ndim != 2 or points.shape[1] != 3:
-        raise ValueError(f"Tissue sample coordinates must have shape (N, 3); got {points.shape}.")
-    if not np.all(np.isfinite(points)):
-        raise ValueError("Tissue sample coordinates must all be finite.")
-    return points
-
-
-def _file_sha256(path: Path) -> str:
-    return file_sha256(path)
 
 
 def _extend_trees_to_targets(ts, trees: list[Any], domain, config: RunConfig, targets: list[int], *, forest=None) -> None:
@@ -770,4 +726,4 @@ def _save_reached_targets(
 
 
 
-__all__ = ('_build_configured_trees', '_pre_sample_points', '_load_sample_points', '_file_sha256', '_extend_trees_to_targets', '_extend_trees_scheduled', '_extend_trees_nearest', '_grow_remaining_bulk_no_collision', '_grow_one_nearest_tree', '_sample_nearest_tree_candidate', '_domain_interior_points', '_fixed_growth_points', '_fixed_point_candidates', '_point_segment_distance_matrix', '_min_point_segment_wall_distance', '_ignore_intertree_collisions_now', '_nearest_bulk_growth_allowed', '_tree_in_equal_bifurcation_mode', '_candidate_hits_other_tree', '_candidate_leaves_domain', '_prepare_loaded_tree_for_incremental_growth', '_repair_loaded_tree_vessel_map', '_commit_tree_add_result', '_update_tree_spatial_indices', '_rebuild_tree_spatial_indices', '_save_growth_checkpoint', '_save_reached_targets')
+__all__ = ('_build_configured_trees', '_pre_sample_points', '_extend_trees_to_targets', '_extend_trees_scheduled', '_extend_trees_nearest', '_grow_remaining_bulk_no_collision', '_grow_one_nearest_tree', '_sample_nearest_tree_candidate', '_domain_interior_points', '_fixed_growth_points', '_fixed_point_candidates', '_point_segment_distance_matrix', '_min_point_segment_wall_distance', '_ignore_intertree_collisions_now', '_nearest_bulk_growth_allowed', '_tree_in_equal_bifurcation_mode', '_candidate_hits_other_tree', '_candidate_leaves_domain', '_prepare_loaded_tree_for_incremental_growth', '_repair_loaded_tree_vessel_map', '_commit_tree_add_result', '_update_tree_spatial_indices', '_rebuild_tree_spatial_indices', '_save_growth_checkpoint', '_save_reached_targets')

@@ -51,13 +51,11 @@ import cascade.exporting.quadrature as _implementation_36
 import cascade.exporting.visualization as _implementation_37
 import cascade.exporting.statistics as _implementation_38
 import cascade.exporting.tables as _implementation_39
-import cascade.workflows.tree_cache as _implementation_40
-import cascade.workflows.tree_solver as _implementation_41
-import cascade.workflows.tree_simulation as _implementation_42
-import cascade.commands.legacy_arguments as _implementation_43
-import cascade.commands.legacy_runner as _implementation_44
+import cascade.vessels.tree_cache as _implementation_40
+import cascade.simulation.network_solver as _implementation_41
+import cascade.simulation.network as _implementation_42
 
-_IMPLEMENTATIONS = (_implementation_0, _implementation_1, _implementation_2, _implementation_3, _implementation_4, _implementation_5, _implementation_6, _implementation_7, _implementation_8, _implementation_9, _implementation_10, _implementation_11, _implementation_network, _implementation_12, _implementation_13, _implementation_14, _implementation_15, _implementation_16, _implementation_17, _implementation_18, _implementation_19, _implementation_20, _implementation_21, _implementation_22, _implementation_23, _implementation_24, _implementation_25, _implementation_26, _implementation_27, _implementation_28, _implementation_29, _implementation_30, _implementation_31, _implementation_32, _implementation_33, _implementation_34, _implementation_35, _implementation_36, _implementation_37, _implementation_38, _implementation_39, _implementation_40, _implementation_41, _implementation_42, _implementation_43, _implementation_44)
+_IMPLEMENTATIONS = (_implementation_0, _implementation_1, _implementation_2, _implementation_3, _implementation_4, _implementation_5, _implementation_6, _implementation_7, _implementation_8, _implementation_9, _implementation_10, _implementation_11, _implementation_network, _implementation_12, _implementation_13, _implementation_14, _implementation_15, _implementation_16, _implementation_17, _implementation_18, _implementation_19, _implementation_20, _implementation_21, _implementation_22, _implementation_23, _implementation_24, _implementation_25, _implementation_26, _implementation_27, _implementation_28, _implementation_29, _implementation_30, _implementation_31, _implementation_32, _implementation_33, _implementation_34, _implementation_35, _implementation_36, _implementation_37, _implementation_38, _implementation_39, _implementation_40, _implementation_41, _implementation_42)
 
 for _name, _value in vars(_state).items():
     if not _name.startswith("__"):
@@ -89,13 +87,3 @@ class _TissueSimCompatibilityModule(_ModuleType):
 
 
 _sys.modules[__name__].__class__ = _TissueSimCompatibilityModule
-
-
-if __name__ == "__main__":
-    args = _implementation_43.parse_args()
-    if args.profile_out:
-        _implementation_44._run_main_with_profile(args.profile_out)
-    elif args.line_profile_out:
-        _implementation_44._run_main_with_line_profile(args.line_profile_out)
-    else:
-        _implementation_44.main()

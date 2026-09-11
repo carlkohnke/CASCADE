@@ -57,12 +57,14 @@ examples/.cascade_gui_test/
 CASCADE_Project/
 backups/
 
-# Compact validation evidence is intentionally versioned even though generic
-# result directories and scientific data files are ignored above.
-!/validation/
-!/validation/fixtures/
-!/validation/fixtures/*.csv
-!/validation/fixtures/*.npz
-!/validation/fixtures/*.vtp
-!/validation/results/
-!/validation/results/**
+# Maintainer-only material lives in the sibling CASCADE-workbench directory.
+/AGENTS.md
+/docs/internal/
+/docs/cascade_refactor_audit.md
+/docs/release-*.md
+/docs/release-checklist.md
+/docs/svv_float32_issue.md
+/scripts/benchmark_gui_renderer.py
+/tests/test_m2_harness.py
+/validation/
+/_skipped.*

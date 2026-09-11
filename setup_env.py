@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -8,6 +9,18 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parent
+
+
+def _config_dir() -> Path:
+    configured = os.environ.get("CASCADE_CONFIG_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    workbench = ROOT.parent / "CASCADE-workbench"
+    if workbench.is_dir():
+        return workbench / "config"
+    if sys.platform == "win32":
+        return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "CASCADE"
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "cascade"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -183,7 +196,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"  source {venv_dir}/bin/activate")
     print("Run CASCADE with:")
-    print(f"  {venv_python} -m cascade.cli run --settings examples/cube_tree_smoke.json")
+    print(f"  {venv_python} -m cascade.cli init-settings case.json")
+    print(f"  {venv_python} -m cascade.cli run --settings case.json")
     if args.gui:
         print("Launch CASCADE Studio with:")
         print(f"  {venv_python} -m cascade.gui")
@@ -192,17 +206,17 @@ def main(argv: list[str] | None = None) -> int:
 
 def _requirements(gpu: str, dev: bool, gui: bool) -> list[Path]:
     if gpu == "cu13":
-        reqs = [ROOT / "requirements-gpu-cu13.txt"]
+        reqs = [ROOT / "requirements" / "gpu-cu13.txt"]
     elif gpu == "cu12":
-        reqs = [ROOT / "requirements-gpu-cu12.txt"]
+        reqs = [ROOT / "requirements" / "gpu-cu12.txt"]
     elif gpu == "cu11":
-        reqs = [ROOT / "requirements-gpu-cu11.txt"]
+        reqs = [ROOT / "requirements" / "gpu-cu11.txt"]
     else:
-        reqs = [ROOT / "requirements.txt"]
+        reqs = [ROOT / "requirements" / "base.txt"]
     if dev:
-        reqs.append(ROOT / "requirements-dev.txt")
+        reqs.append(ROOT / "requirements" / "dev.txt")
     if gui:
-        reqs.append(ROOT / "requirements-gui.txt")
+        reqs.append(ROOT / "requirements" / "gui.txt")
     missing = [path for path in reqs if not path.exists()]
     if missing:
         raise FileNotFoundError(
@@ -252,18 +266,20 @@ def _is_cuda_root(path: Path) -> bool:
 
 
 def _write_cuda_path(cuda_path: Path, dry_run: bool) -> None:
-    path_file = ROOT / ".cascade_cuda_path"
+    path_file = _config_dir() / ".cascade_cuda_path"
     print(f"+ write {path_file} = {cuda_path}")
     if dry_run:
         return
+    path_file.parent.mkdir(parents=True, exist_ok=True)
     path_file.write_text(str(cuda_path) + "\n", encoding="utf-8")
 
 
 def _write_python_path(venv_python: Path, dry_run: bool) -> None:
-    path_file = ROOT / ".cascade_python"
+    path_file = _config_dir() / ".cascade_python"
     print(f"+ write {path_file} = {venv_python}")
     if dry_run:
         return
+    path_file.parent.mkdir(parents=True, exist_ok=True)
     path_file.write_text(str(venv_python) + "\n", encoding="utf-8")
 
 

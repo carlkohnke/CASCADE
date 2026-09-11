@@ -1,0 +1,4 @@
+# Developer/test install.
+-r base.txt
+pytest>=8
+ruff>=0.16

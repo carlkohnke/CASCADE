@@ -1,3 +1,0 @@
-# Developer/test install.
--r requirements.txt
-pytest>=8

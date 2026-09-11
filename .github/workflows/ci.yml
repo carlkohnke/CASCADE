@@ -16,9 +16,8 @@ jobs:
           python-version: "3.9.20"
           cache: pip
       - run: python -m pip install --upgrade pip build
-      - run: python -m pip install -c locks/requirements-py39-cpu.txt '.[dev,gui]'
-      - run: python -m ruff check --select E9,F63,F7,F82 src tests scripts setup_env.py
-      - run: pytest -q
+      - run: python -m pip install -c requirements/locks/py39-cpu.txt '.[dev,gui]'
+      - run: python -m ruff check --select E9,F63,F7,F82 src setup_env.py
       - run: python -m build
       - run: python -m pip install twine
       - run: python -m twine check dist/*

@@ -82,6 +82,9 @@ QFrame#card {{ background:transparent; border:none; border-top:1px solid {t.BORD
 QFrame#computeTile {{ background:{t.SURFACE_2}; border:1px solid {t.BORDER}; border-radius:4px; }}
 QFrame#radiusSizing {{ background:{t.SURFACE_2}; border:1px solid {t.BORDER_ACTIVE}; border-radius:4px; }}
 QFrame#previewPanel {{ background:{t.VIEWPORT}; border:none; }}
+QFrame#viewerSettingsPanel {{
+  background:{t.SURFACE_1}; border:1px solid {t.BORDER_ACTIVE}; border-radius:5px;
+}}
 QLabel#previewTitle {{ font-size:14px; font-weight:700; color:{t.MAGENTA}; letter-spacing:.5px; }}
 QLabel#previewStatus {{ background:rgba(13,15,20,220); border:1px solid {t.BORDER}; border-radius:4px; padding:5px 7px; color:{t.TEXT_2}; font-size:11px; }}
 QLabel#pageTitle {{ font-size:16px; font-weight:680; color:{t.TEXT}; }}

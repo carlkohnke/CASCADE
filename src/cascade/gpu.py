@@ -148,12 +148,27 @@ def probe_gpu_runtime(*, timeout_s: float = 30.0) -> GpuProbeResult:
             candidates.append(Path(runtime_dist.locate_file("nvidia/cu13")))
         except metadata.PackageNotFoundError:
             pass
-        source_config = Path(__file__).resolve().parents[2] / ".cascade_cuda_path"
-        if source_config.is_file():
-            try:
-                candidates.append(Path(source_config.read_text(encoding="utf-8").strip()).expanduser())
-            except OSError:
-                pass
+        source_root = Path(__file__).resolve().parents[2]
+        config_roots = []
+        if os.environ.get("CASCADE_CONFIG_DIR"):
+            config_roots.append(Path(os.environ["CASCADE_CONFIG_DIR"]).expanduser())
+        config_roots.extend(
+            [
+                source_root.parent / "CASCADE-workbench" / "config",
+                source_root,
+                Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+                / "cascade",
+            ]
+        )
+        for config_root in config_roots:
+            source_config = config_root / ".cascade_cuda_path"
+            if source_config.is_file():
+                try:
+                    candidates.append(
+                        Path(source_config.read_text(encoding="utf-8").strip()).expanduser()
+                    )
+                except OSError:
+                    pass
         candidates.extend(Path(value) for value in ("/usr/local/cuda", "/usr/local/cuda-13", "/usr/local/cuda-12"))
         for candidate in candidates:
             if (candidate / "include" / "cuda_fp16.h").is_file():

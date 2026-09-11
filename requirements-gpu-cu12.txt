@@ -1,4 +1,0 @@
-# CUDA 12.x GPU/Cext install.
-# Use this only on machines with a compatible NVIDIA driver/CUDA runtime.
--r requirements.txt
-cupy-cuda12x>=13

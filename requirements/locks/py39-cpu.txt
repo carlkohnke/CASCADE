@@ -1,0 +1,2 @@
+# CPU release constraints. This indirection keeps CPU/GPU environments aligned.
+-c py39-common.txt

@@ -25,11 +25,19 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QPolygonF,
+    QOffscreenSurface,
+    QOpenGLContext,
+    QSurfaceFormat,
+    QIntValidator,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -150,6 +158,10 @@ class _FlowEdge(QWidget):
 
 class GeometryCanvas(QWidget):
     """Small-memory mouse-navigable 3D line and point renderer."""
+
+    renderer_backend = "software-qpaint"
+    vessel_preview_limit = 5_000
+    tissue_preview_limit = 10_000
 
     selection_changed = Signal(object)
 
@@ -360,13 +372,17 @@ class GeometryCanvas(QWidget):
             add_scene_items(depth.reshape(-1, 2).mean(axis=1), 1)
 
         if self.tissue_points.size:
-            ids = np.arange(len(self.tissue_points), dtype=int)
-            tissue_screen, depth = self._project(self.tissue_points[ids])
-            vals = self.tissue_values[ids] if self.tissue_values is not None else None
+            tissue_screen, _depth = self._project(self.tissue_points)
+            vals = self.tissue_values if self.tissue_values is not None else None
             tissue_norm, tissue_limits = _normalize_with_scale(
                 vals, *self.tissue_range, self.tissue_scale
             )
-            add_scene_items(depth, 2)
+
+            # Tissue is a translucent context layer, so draw it behind the
+            # vessel/domain scene in a bounded number of QPainter calls. The
+            # old path depth-sorted and painted every point independently,
+            # making ordinary 10k previews needlessly sluggish while orbiting.
+            self._draw_tissue_points(painter, tissue_screen, tissue_norm)
 
         if self.vessel_starts.size:
             vessel_starts, ds = self._project(self.vessel_starts)
@@ -396,16 +412,6 @@ class GeometryCanvas(QWidget):
                     painter.drawLine(
                         QPointF(*domain_segments[j, 0]), QPointF(*domain_segments[j, 1])
                     )
-                elif kind == 2:
-                    color = (
-                        QColor(91, 221, 238)
-                        if tissue_norm is None
-                        else _map_color(self.colormap, tissue_norm[j])
-                    )
-                    opacity = self.tissue_opacity * float(self.tissue_alpha[j])
-                    color.setAlphaF(min(max(opacity, 0.0), 1.0))
-                    painter.setPen(QPen(color, 2.2))
-                    painter.drawPoint(QPointF(*tissue_screen[j]))
                 else:
                     color = (
                         QColor(185, 181, 190)
@@ -463,6 +469,48 @@ class GeometryCanvas(QWidget):
 
         if self._has_geometry():
             self._draw_scale_bar(painter)
+
+    def _draw_tissue_points(
+        self,
+        painter: QPainter,
+        screen_points: np.ndarray,
+        normalized_values: np.ndarray | None,
+    ) -> None:
+        """Render a large translucent point cloud with bounded painter calls."""
+        if not len(screen_points):
+            return
+        color_bins = 24 if normalized_values is not None else 1
+        alpha_bins = 6
+        if normalized_values is None:
+            color_index = np.zeros(len(screen_points), dtype=np.int16)
+        else:
+            normalized = np.nan_to_num(
+                np.asarray(normalized_values, dtype=float), nan=0.0, posinf=1.0, neginf=0.0
+            )
+            color_index = np.rint(np.clip(normalized, 0.0, 1.0) * (color_bins - 1)).astype(
+                np.int16
+            )
+        opacity = np.clip(
+            self.tissue_opacity * np.asarray(self.tissue_alpha, dtype=float), 0.0, 1.0
+        )
+        alpha_index = np.rint(opacity * (alpha_bins - 1)).astype(np.int16)
+        style_index = color_index * alpha_bins + alpha_index
+        painter.save()
+        for style in np.unique(style_index):
+            ids = np.flatnonzero(style_index == style)
+            color_slot = int(style) // alpha_bins
+            alpha_slot = int(style) % alpha_bins
+            color = (
+                QColor(91, 221, 238)
+                if normalized_values is None
+                else _map_color(self.colormap, color_slot / max(color_bins - 1, 1))
+            )
+            color.setAlphaF(alpha_slot / (alpha_bins - 1))
+            painter.setPen(QPen(color, 2.0))
+            painter.drawPoints(
+                QPolygonF([QPointF(*screen_points[index]) for index in ids])
+            )
+        painter.restore()
 
     def _draw_scalar_legend(
         self,
@@ -694,19 +742,6 @@ class GeometryCanvas(QWidget):
         self.update()
 
 
-def _quadrature_order(config: dict[str, Any]) -> int:
-    oxygen = config.get("settings", {}).get("oxygen", {})
-    return max(
-        1,
-        int(
-            oxygen.get(
-                "gl_order_cext",
-                oxygen.get("GL_ORDER_CEXT", oxygen.get("gl_order", oxygen.get("GL_ORDER", 1))),
-            )
-        ),
-    )
-
-
 def _preview_tree_count(config: dict[str, Any], inlet_points=None) -> int:
     network = config.get("network", {})
     source = config.get("gui", {}).get("network_source", "svv_generated")
@@ -725,11 +760,36 @@ def _preview_tree_count(config: dict[str, Any], inlet_points=None) -> int:
     return max(inlet_count, 1)
 
 
-def _count_status(vessels: int, trees: int, quadrature: int, tissue: int) -> str:
+def _count_status(
+    shown_vessels: int,
+    total_vessels: int,
+    trees: int,
+    shown_tissue: int,
+    total_tissue: int,
+) -> str:
     tree_label = "tree" if int(trees) == 1 else "trees"
     return (
-        f"{int(vessels):,} vessels  │  {int(trees):,} {tree_label}  │  "
-        f"{int(quadrature):,} quadrature nodes  │  {int(tissue):,} tissue points"
+        f"{int(shown_vessels):,} / {int(total_vessels):,} vessels shown  │  "
+        f"{int(trees):,} {tree_label}  │  "
+        f"{int(shown_tissue):,} / {int(total_tissue):,} tissue points shown"
+    )
+
+
+def _seed_count_status(
+    shown_vessels: int,
+    total_vessels: int,
+    trees: int,
+    shown_tissue: int,
+    total_tissue: int,
+    response: dict[str, Any] | None = None,
+) -> str:
+    """Use the same concise shown/actual summary for generated seed previews."""
+    return _count_status(
+        shown_vessels,
+        total_vessels,
+        trees,
+        shown_tissue,
+        total_tissue,
     )
 
 
@@ -754,11 +814,79 @@ def _home_icon() -> QIcon:
     return QIcon(pixmap)
 
 
+def _settings_icon() -> QIcon:
+    """Draw a compact gear without depending on a platform icon theme."""
+    pixmap = QPixmap(24, 24)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor("#E6E8EE"), 1.7, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    center = QPointF(12.0, 12.0)
+    painter.drawEllipse(center, 3.0, 3.0)
+    painter.drawEllipse(center, 6.2, 6.2)
+    for index in range(8):
+        angle = index * math.pi / 4.0
+        inner = QPointF(12.0 + 6.2 * math.cos(angle), 12.0 + 6.2 * math.sin(angle))
+        outer = QPointF(12.0 + 8.2 * math.cos(angle), 12.0 + 8.2 * math.sin(angle))
+        painter.drawLine(inner, outer)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _create_geometry_canvas(parent: QWidget) -> QWidget:
+    """Select the retained GPU renderer with a deterministic software fallback."""
+    requested = os.environ.get("CASCADE_RENDER_BACKEND", "auto").strip().lower()
+    platform = QApplication.platformName().lower()
+    use_gpu = requested in {"auto", "gpu", "opengl"} and platform not in {
+        "offscreen",
+        "minimal",
+    }
+    if requested in {"gpu", "opengl"} and platform in {"offscreen", "minimal"}:
+        raise RuntimeError(
+            f"CASCADE cannot create the required OpenGL preview on Qt platform {platform!r}"
+        )
+    if use_gpu and _opengl_33_available():
+        try:
+            from .gpu_preview import OpenGLGeometryCanvas
+
+            return OpenGLGeometryCanvas(parent)
+        except (ImportError, RuntimeError):
+            if requested in {"gpu", "opengl"}:
+                raise
+    elif use_gpu and requested in {"gpu", "opengl"}:
+        raise RuntimeError("CASCADE requires an OpenGL 3.3 context for the GPU preview")
+    return GeometryCanvas(parent)
+
+
+def _opengl_33_available() -> bool:
+    """Preflight the context version so auto mode can fall back before layout."""
+    surface_format = QSurfaceFormat()
+    surface_format.setRenderableType(QSurfaceFormat.OpenGL)
+    surface_format.setVersion(3, 3)
+    surface_format.setProfile(QSurfaceFormat.CoreProfile)
+    surface = QOffscreenSurface()
+    surface.setFormat(surface_format)
+    surface.create()
+    context = QOpenGLContext()
+    context.setFormat(surface_format)
+    if not surface.isValid() or not context.create() or not context.isValid():
+        return False
+    if not context.makeCurrent(surface):
+        return False
+    actual = context.format()
+    supported = (actual.majorVersion(), actual.minorVersion()) >= (3, 3)
+    context.doneCurrent()
+    return supported
+
+
 class CasePreview(QFrame):
     """Persistent preview panel shared by setup and analysis pages."""
 
     result_fields_loaded = Signal(list, list)
     selection_changed = Signal(object)
+    view_settings_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -767,6 +895,11 @@ class CasePreview(QFrame):
         self._result_cache: dict[str, Any] = {}
         self._visible_result_indices = np.empty((0,), dtype=int)
         self._visible_tissue_indices = np.empty((0,), dtype=int)
+        self._loading_view_settings = False
+        self._settings_timer = QTimer(self)
+        self._settings_timer.setSingleShot(True)
+        self._settings_timer.setInterval(180)
+        self._settings_timer.timeout.connect(self.view_settings_changed)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 12)
         layout.setSpacing(8)
@@ -775,17 +908,30 @@ class CasePreview(QFrame):
         self.title.setObjectName("previewTitle")
         header.addWidget(self.title)
         header.addStretch()
-        home = IconButton()
-        home.setObjectName("previewHome")
-        home.setIcon(_home_icon())
-        home.setIconSize(QSize(20, 20))
-        home.setFixedSize(34, 30)
-        home.setToolTip("Reset view")
-        home.setAccessibleName("Reset view")
-        home.clicked.connect(self.home)
-        header.addWidget(home)
+        self.settings_button = IconButton()
+        self.settings_button.setObjectName("previewSettings")
+        self.settings_button.setIcon(_settings_icon())
+        self.settings_button.setIconSize(QSize(20, 20))
+        self.settings_button.setFixedSize(34, 30)
+        self.settings_button.setCheckable(True)
+        self.settings_button.setToolTip("Viewer settings")
+        self.settings_button.setAccessibleName("Viewer settings")
+        header.addWidget(self.settings_button)
+        self.home_button = IconButton()
+        self.home_button.setObjectName("previewHome")
+        self.home_button.setIcon(_home_icon())
+        self.home_button.setIconSize(QSize(20, 20))
+        self.home_button.setFixedSize(34, 30)
+        self.home_button.setToolTip("Reset view")
+        self.home_button.setAccessibleName("Reset view")
+        self.home_button.clicked.connect(self.home)
+        header.addWidget(self.home_button)
         layout.addLayout(header)
-        self.canvas = GeometryCanvas(self)
+        self.settings_panel = self._build_settings_panel()
+        self.settings_panel.setVisible(False)
+        self.settings_button.toggled.connect(self.settings_panel.setVisible)
+        layout.addWidget(self.settings_panel)
+        self.canvas = _create_geometry_canvas(self)
         self.canvas.selection_changed.connect(self._canvas_selection)
         layout.addWidget(self.canvas, 1)
         view_controls = QHBoxLayout()
@@ -822,14 +968,190 @@ class CasePreview(QFrame):
         status_layout.addWidget(self.status)
         layout.addWidget(self._status_slot)
 
+    def _build_settings_panel(self) -> QFrame:
+        panel = QFrame(self)
+        panel.setObjectName("viewerSettingsPanel")
+        outer = QVBoxLayout(panel)
+        outer.setContentsMargins(12, 10, 12, 10)
+        outer.setSpacing(8)
+        heading = QLabel("VIEWER SETTINGS")
+        heading.setObjectName("eyebrow")
+        outer.addWidget(heading)
+
+        rows = QGridLayout()
+        rows.setHorizontalSpacing(12)
+        rows.setVerticalSpacing(8)
+        self.vessel_selection = ChoiceComboBox(panel)
+        self.vessel_selection.setObjectName("viewerVesselSelection")
+        for label, value in (
+            ("Nearest inlets", "near"),
+            ("Random sample", "random"),
+            ("All", "all"),
+            ("None", "none"),
+        ):
+            self.vessel_selection.addItem(label, value)
+        self.vessel_count = QLineEdit("5000", panel)
+        self.vessel_count.setObjectName("viewerVesselCount")
+        self.vessel_count.setValidator(QIntValidator(1, 10_000_000, self.vessel_count))
+        self.vessel_count.setAccessibleName("Maximum vessels shown")
+        self.vessel_count.setToolTip("Maximum number of vessels drawn in the viewer")
+
+        self.tissue_selection = ChoiceComboBox(panel)
+        self.tissue_selection.setObjectName("viewerTissueSelection")
+        for label, value in (
+            ("Nearest inlets", "near"),
+            ("Random sample", "random"),
+            ("All", "all"),
+            ("None", "none"),
+        ):
+            self.tissue_selection.addItem(label, value)
+        self.tissue_count = QLineEdit("10000", panel)
+        self.tissue_count.setObjectName("viewerTissueCount")
+        self.tissue_count.setValidator(QIntValidator(1, 10_000_000, self.tissue_count))
+        self.tissue_count.setAccessibleName("Maximum tissue points shown")
+        self.tissue_count.setToolTip("Maximum number of tissue points drawn in the viewer")
+
+        def field(label: str, widget: QWidget) -> QWidget:
+            container = QWidget(panel)
+            column = QVBoxLayout(container)
+            column.setContentsMargins(0, 0, 0, 0)
+            column.setSpacing(3)
+            caption = QLabel(label)
+            caption.setObjectName("fieldLabel")
+            column.addWidget(caption)
+            column.addWidget(widget)
+            return container
+
+        rows.addWidget(field("Vessel selection", self.vessel_selection), 0, 0)
+        rows.addWidget(field("Maximum vessels", self.vessel_count), 0, 1)
+        rows.addWidget(field("Tissue selection", self.tissue_selection), 1, 0)
+        rows.addWidget(field("Maximum tissue points", self.tissue_count), 1, 1)
+        rows.setColumnStretch(0, 2)
+        rows.setColumnStretch(1, 1)
+        outer.addLayout(rows)
+
+        reset = QPushButton("Reset defaults", panel)
+        reset.setObjectName("viewerSettingsReset")
+        reset.setProperty("secondary", True)
+        reset.setFixedWidth(132)
+        reset.clicked.connect(self.reset_view_settings)
+        reset_row = QHBoxLayout()
+        reset_row.addStretch()
+        reset_row.addWidget(reset)
+        outer.addLayout(reset_row)
+
+        self.vessel_selection.currentIndexChanged.connect(self._view_control_changed)
+        self.tissue_selection.currentIndexChanged.connect(self._view_control_changed)
+        self.vessel_count.textChanged.connect(self._view_count_changed)
+        self.tissue_count.textChanged.connect(self._view_count_changed)
+        return panel
+
+    @staticmethod
+    def _count_value(field: QLineEdit, default: int) -> int:
+        text = field.text().strip().replace(",", "")
+        try:
+            return max(int(text), 1)
+        except ValueError:
+            return int(default)
+
+    def view_settings(self) -> dict[str, Any]:
+        """Return the sampling policy shared by setup and result scenes."""
+        return {
+            "vessel_mode": str(self.vessel_selection.currentData() or "near"),
+            "vessel_limit": self._count_value(self.vessel_count, 5_000),
+            "tissue_mode": str(self.tissue_selection.currentData() or "near"),
+            "tissue_limit": self._count_value(self.tissue_count, 10_000),
+        }
+
+    def _view_control_changed(self, *_args) -> None:
+        vessel_uses_count = self.vessel_selection.currentData() not in {"all", "none"}
+        tissue_uses_count = self.tissue_selection.currentData() not in {"all", "none"}
+        self.vessel_count.setEnabled(vessel_uses_count)
+        self.tissue_count.setEnabled(tissue_uses_count)
+        if not self._loading_view_settings:
+            self._settings_timer.stop()
+            self.view_settings_changed.emit()
+
+    def _view_count_changed(self, text: str) -> None:
+        if self._loading_view_settings or not text or not text.isdigit():
+            return
+        self._settings_timer.start()
+
+    def reset_view_settings(self) -> None:
+        self._loading_view_settings = True
+        try:
+            for combo, value in (
+                (self.vessel_selection, "near"),
+                (self.tissue_selection, "near"),
+            ):
+                index = combo.findData(value)
+                combo.setCurrentIndex(index)
+            self.vessel_count.setText("5000")
+            self.tissue_count.setText("10000")
+        finally:
+            self._loading_view_settings = False
+        self._view_control_changed()
+
+    def load_view_settings(self, config: dict[str, Any]) -> None:
+        gui = config.get("gui", {})
+        legacy = gui.get("analysis", {})
+        settings = gui.get("viewer", {})
+        vessel_limit = settings.get("vessel_limit", legacy.get("max_vessels", 5_000))
+        legacy_limit_mode = str(vessel_limit).lower()
+        if legacy_limit_mode in {"all", "none"}:
+            vessel_limit = 5_000
+            vessel_mode = legacy_limit_mode
+        else:
+            vessel_mode = settings.get("vessel_mode", "near")
+            try:
+                vessel_limit = max(int(vessel_limit), 1)
+            except (TypeError, ValueError):
+                vessel_limit = 5_000
+        tissue_mode = settings.get("tissue_mode", legacy.get("tissue_mode", "near"))
+        tissue_limit = settings.get("tissue_limit", 10_000)
+        self._loading_view_settings = True
+        try:
+            for combo, value, fallback in (
+                (self.vessel_selection, vessel_mode, "near"),
+                (self.tissue_selection, tissue_mode, "near"),
+            ):
+                index = combo.findData(value)
+                combo.setCurrentIndex(index if index >= 0 else combo.findData(fallback))
+            self.vessel_count.setText(str(max(int(vessel_limit), 1)))
+            self.tissue_count.setText(str(max(int(tissue_limit), 1)))
+        finally:
+            self._loading_view_settings = False
+        self._sync_count_enabled()
+
+    def write_view_settings(self, config: dict[str, Any]) -> None:
+        config.setdefault("gui", {})["viewer"] = self.view_settings()
+
+    def _sync_count_enabled(self) -> None:
+        self.vessel_count.setEnabled(self.vessel_selection.currentData() not in {"all", "none"})
+        self.tissue_count.setEnabled(self.tissue_selection.currentData() not in {"all", "none"})
+
     def home(self) -> None:
         self.canvas.home()
+
+    def _layer_policy(self, kind: str, total: int) -> tuple[str, int]:
+        settings = self.view_settings()
+        mode = str(settings[f"{kind}_mode"])
+        requested = int(settings[f"{kind}_limit"])
+        ceiling = int(getattr(self.canvas, f"{kind}_preview_limit", requested))
+        if mode == "none":
+            return mode, 0
+        if mode == "all":
+            requested = int(total)
+        return mode, min(max(requested, 0), max(ceiling, 0), max(int(total), 0))
 
     def release(self) -> None:
         self._result_cache.clear()
         self._visible_result_indices = np.empty((0,), dtype=int)
         self._visible_tissue_indices = np.empty((0,), dtype=int)
-        self.canvas.clear()
+        if hasattr(self.canvas, "release_gpu_memory"):
+            self.canvas.release_gpu_memory()
+        else:
+            self.canvas.clear()
         self.status.setText("preview memory released")
 
     def _canvas_selection(self, selection: dict[str, Any]) -> None:
@@ -875,6 +1197,7 @@ class CasePreview(QFrame):
         domain_triangles = domain_surface_triangles(domain_config)
         starts = ends = radii = alpha = inlet_points = outlet_points = None
         tissue_points = tissue_alpha = None
+        total_vessels = total_tissue = 0
         status = "Domain ready"
         if include_network:
             try:
@@ -887,28 +1210,33 @@ class CasePreview(QFrame):
                     alpha,
                     detail,
                 ) = network_geometry(config)
-                starts, ends, visible_radii, alpha = limit_near_inlets(
+                total_vessels = len(starts)
+                vessel_mode, vessel_limit = self._layer_policy("vessel", total_vessels)
+                vessel_ids = select_vessel_indices(
                     starts,
                     ends,
                     inlet_points,
-                    limit=5000,
-                    values=radii,
-                    alpha=alpha,
+                    mode=vessel_mode,
+                    limit=vessel_limit,
                 )
-                radii = visible_radii if radii is not None else None
+                starts, ends = starts[vessel_ids], ends[vessel_ids]
+                radii = radii[vessel_ids] if radii is not None else None
+                alpha = alpha[vessel_ids] if alpha is not None else None
                 status = detail
             except Exception as exc:
                 status = f"Preview unavailable  │  {exc}"
         if include_tissue:
             try:
+                tissue_mode, tissue_limit = self._layer_policy(
+                    "tissue", _requested_tissue_count(config)
+                )
                 tissue_points, tissue_alpha, requested = preview_tissue_geometry(
-                    config, inlet_points, limit=10_000
+                    config,
+                    inlet_points,
+                    mode=tissue_mode,
+                    limit=tissue_limit,
                 )
-                status += (
-                    f"  │  {len(tissue_points):,}/{requested:,} tissue points"
-                    if requested > len(tissue_points)
-                    else f"  │  {len(tissue_points):,} tissue points"
-                )
+                total_tissue = requested
             except Exception as exc:
                 status += f"  │  tissue preview unavailable: {exc}"
         if include_network and "unavailable" not in status.lower():
@@ -917,9 +1245,10 @@ class CasePreview(QFrame):
             tissue_count = len(tissue_points) if tissue_points is not None else 0
             status = _count_status(
                 vessel_count,
+                total_vessels,
                 tree_count,
-                vessel_count * _quadrature_order(config),
                 tissue_count,
+                total_tissue,
             )
         self.canvas.tissue_opacity = 0.52
         self.canvas.set_geometry(
@@ -956,11 +1285,31 @@ class CasePreview(QFrame):
             )
         roots = config.get("network", {}).get("roots") or []
         inlets = np.asarray([root.get("start", [0, 0, 0]) for root in roots], dtype=float)
+        segments = response.get("segments", [])
+        requested_segments = response.get("requested_segments", segments)
+        total_vessels = sum(int(value) for value in requested_segments)
+        vessel_mode, vessel_limit = self._layer_policy("vessel", total_vessels)
+        vessel_ids = select_vessel_indices(
+            starts,
+            ends,
+            inlets,
+            mode=vessel_mode,
+            limit=vessel_limit,
+        )
+        starts, ends = starts[vessel_ids], ends[vessel_ids]
+        alpha = alpha[vessel_ids]
+        radii = radii[vessel_ids] if radii is not None else None
         tissue_points = tissue_alpha = None
         requested = 0
         if include_tissue:
+            tissue_mode, tissue_limit = self._layer_policy(
+                "tissue", _requested_tissue_count(config)
+            )
             tissue_points, tissue_alpha, requested = preview_tissue_geometry(
-                config, inlets, limit=10_000
+                config,
+                inlets,
+                mode=tissue_mode,
+                limit=tissue_limit,
             )
         self.canvas.tissue_opacity = 0.52
         self.canvas.set_geometry(
@@ -974,17 +1323,15 @@ class CasePreview(QFrame):
             tissue_points=tissue_points,
             tissue_alpha=tissue_alpha,
         )
-        segments = response.get("segments", [])
-        shown = response.get("shown_segments", segments)
-        vessel_count = sum(int(value) for value in shown)
-        self.status.setText(
-            _count_status(
-                vessel_count,
-                len(segments),
-                vessel_count * _quadrature_order(config),
-                len(tissue_points) if tissue_points is not None else 0,
-            )
+        vessel_count = len(starts)
+        status = _seed_count_status(
+            vessel_count,
+            total_vessels,
+            len(segments),
+            len(tissue_points) if tissue_points is not None else 0,
+            requested,
         )
+        self.status.setText(status)
         self.status.setVisible(True)
 
     def show_result(self, manifest_path: str, options: dict[str, Any]) -> None:
@@ -997,43 +1344,41 @@ class CasePreview(QFrame):
             cache = self._load_result(manifest_path)
             vessel_field = str(options.get("vessel_field") or "")
             tissue_field = str(options.get("tissue_field") or "")
-            limit_value = options.get("vessel_limit", 5000)
-            if str(limit_value).lower() == "none":
-                limit_value = 0
             logical_ids = cache["vessel_arrays"].get("global_segment_id")
-            visible_logical_ids = np.empty((0,), dtype=np.int64)
             if logical_ids is not None and len(logical_ids) == len(cache["starts"]):
                 logical_ids = np.asarray(logical_ids, dtype=np.int64)
                 unique_ids, first_ids = np.unique(logical_ids, return_index=True)
                 _, reverse_first_ids = np.unique(logical_ids[::-1], return_index=True)
                 last_ids = len(logical_ids) - 1 - reverse_first_ids
-                limit = len(unique_ids) if limit_value == "all" else int(limit_value)
-                _, _, selected_logical_ids, _alpha = limit_near_inlets(
+                vessel_mode, vessel_limit = self._layer_policy("vessel", len(unique_ids))
+                selected_ids = select_vessel_indices(
                     cache["starts"][first_ids],
                     cache["ends"][last_ids],
                     cache["inlets"],
-                    limit=limit,
-                    values=unique_ids,
+                    mode=vessel_mode,
+                    limit=vessel_limit,
                 )
+                selected_logical_ids = unique_ids[selected_ids]
                 visible_indices = np.flatnonzero(
                     np.isin(logical_ids, np.asarray(selected_logical_ids, dtype=np.int64))
-                )
-                visible_logical_ids = np.unique(logical_ids[visible_indices]).astype(
-                    np.int64
                 )
                 starts = cache["starts"][visible_indices]
                 ends = cache["ends"][visible_indices]
                 shown_vessels = int(np.unique(logical_ids[visible_indices]).size)
                 total_vessels = int(unique_ids.size)
             else:
-                limit = len(cache["starts"]) if limit_value == "all" else int(limit_value)
-                starts, ends, visible_indices, _alpha = limit_near_inlets(
+                vessel_mode, vessel_limit = self._layer_policy(
+                    "vessel", len(cache["starts"])
+                )
+                visible_indices = select_vessel_indices(
                     cache["starts"],
                     cache["ends"],
                     cache["inlets"],
-                    limit=limit,
-                    values=np.arange(len(cache["starts"]), dtype=int),
+                    mode=vessel_mode,
+                    limit=vessel_limit,
                 )
+                starts = cache["starts"][visible_indices]
+                ends = cache["ends"][visible_indices]
                 shown_vessels = len(starts)
                 total_vessels = len(cache["starts"])
             self._visible_result_indices = np.asarray(visible_indices, dtype=int)
@@ -1041,12 +1386,14 @@ class CasePreview(QFrame):
                 "vessel", vessel_field, cache, options
             )
             values = values[self._visible_result_indices] if values is not None else None
-            tissue_mode = str(options.get("tissue_mode", "near"))
+            tissue_mode, tissue_limit = self._layer_policy(
+                "tissue", len(cache["tissue_points"])
+            )
             tissue_indices, tissue_alpha = select_tissue_points(
                 cache["tissue_points"],
                 cache["inlets"],
                 mode=tissue_mode,
-                limit=10_000,
+                limit=tissue_limit,
             )
             self._visible_tissue_indices = tissue_indices
             visible_tissue_points = cache["tissue_points"][tissue_indices]
@@ -1088,28 +1435,20 @@ class CasePreview(QFrame):
                 tissue_alpha=tissue_alpha,
             )
             shown_tissue = len(visible_tissue_points)
+            total_tissue = len(cache["tissue_points"])
             tree_values = cache["vessel_arrays"].get("tree_id")
             if tree_values is not None and len(tree_values) == len(cache["starts"]):
-                visible_trees = np.asarray(tree_values)[self._visible_result_indices]
-                tree_count = int(np.unique(visible_trees[visible_trees >= 0]).size)
+                all_trees = np.asarray(tree_values)
+                tree_count = int(np.unique(all_trees[all_trees >= 0]).size)
             else:
                 tree_count = int(cache.get("network", {}).get("tree_count", 0) or 0)
-            quadrature_by_segment = cache.get("quadrature_by_segment", {})
-            if len(visible_logical_ids) and quadrature_by_segment:
-                quadrature_count = sum(
-                    int(quadrature_by_segment.get(int(segment_id), 0))
-                    for segment_id in visible_logical_ids
-                )
-            else:
-                quadrature_count = shown_vessels * _quadrature_order(
-                    cache.get("settings", {})
-                )
             self.status.setText(
                 _count_status(
                     shown_vessels,
+                    total_vessels,
                     tree_count,
-                    quadrature_count,
                     shown_tissue,
+                    total_tissue,
                 )
             )
             self.status.setVisible(True)
@@ -1159,20 +1498,6 @@ class CasePreview(QFrame):
             else np.empty((0, 3), dtype=np.float32)
         )
         tissue_arrays = _numeric_point_arrays(tissue, len(tissue_points))
-        quadrature_by_segment: dict[int, int] = {}
-        if vessels is not None:
-            raw_ids = getattr(vessels, "point_data", {}).get("global_segment_id")
-            raw_quadrature = getattr(vessels, "point_data", {}).get(
-                "solver_quadrature_node"
-            )
-            if raw_ids is not None and raw_quadrature is not None:
-                raw_ids = np.asarray(raw_ids, dtype=np.int64).reshape(-1)
-                raw_quadrature = np.asarray(raw_quadrature).reshape(-1) != 0
-                if len(raw_ids) == len(raw_quadrature):
-                    for segment_id in np.unique(raw_ids[raw_quadrature]):
-                        quadrature_by_segment[int(segment_id)] = int(
-                            np.count_nonzero(raw_quadrature & (raw_ids == segment_id))
-                        )
         cache = {
             "manifest": path,
             "starts": starts,
@@ -1185,7 +1510,6 @@ class CasePreview(QFrame):
             "domain_triangles": domain_triangles,
             "settings": manifest.get("settings", {}),
             "network": manifest.get("network", {}),
-            "quadrature_by_segment": quadrature_by_segment,
         }
         self._result_cache = cache
         return cache
@@ -1439,6 +1763,51 @@ def limit_near_inlets(
     return starts[ids], ends[ids], third, alphas[ids]
 
 
+def select_vessel_indices(
+    starts: np.ndarray,
+    ends: np.ndarray,
+    inlet_points: np.ndarray | list,
+    *,
+    mode: str,
+    limit: int,
+) -> np.ndarray:
+    """Select logical vessels deterministically without copying geometry."""
+    starts, ends = _point_array(starts), _point_array(ends)
+    count = min(len(starts), len(ends))
+    mode = str(mode or "near").lower()
+    limit = min(max(int(limit), 0), count)
+    if count == 0 or mode == "none" or limit == 0:
+        return np.empty((0,), dtype=int)
+    if mode == "all" or count <= limit:
+        return np.arange(count, dtype=int)
+    if mode == "random":
+        ids = np.random.default_rng(42).choice(count, size=limit, replace=False)
+        ids.sort()
+        return ids
+
+    inlets = _point_array(inlet_points)
+    if not len(inlets):
+        inlets = starts[:1]
+    midpoint = 0.5 * (starts[:count] + ends[:count])
+    distances = np.linalg.norm(midpoint[:, None, :] - inlets[None, :, :], axis=2)
+    owner = np.argmin(distances, axis=1)
+    chosen: list[int] = []
+    quota = max(limit // len(inlets), 1)
+    for inlet in range(len(inlets)):
+        ids = np.flatnonzero(owner == inlet)
+        ids = ids[np.argsort(distances[ids, inlet], kind="stable")]
+        chosen.extend(ids[:quota].tolist())
+    if len(chosen) < limit:
+        remaining = np.setdiff1d(
+            np.arange(count), np.asarray(chosen, dtype=int), assume_unique=False
+        )
+        nearest = np.min(distances[remaining], axis=1)
+        chosen.extend(
+            remaining[np.argsort(nearest, kind="stable")[: limit - len(chosen)]].tolist()
+        )
+    return np.asarray(chosen[:limit], dtype=int)
+
+
 def select_tissue_points(
     points: np.ndarray,
     inlet_points: np.ndarray | list,
@@ -1480,18 +1849,46 @@ def select_tissue_points(
     return ids, alpha
 
 
+def _requested_tissue_count(config: dict[str, Any]) -> int:
+    simulation = config.get("simulation", {})
+    if str(simulation.get("sample_mode", "random")) == "grid":
+        grid = simulation.get("tissue_grid", {})
+        fallback = list(grid.get("shape", grid.get("dimensions", [20, 20, 20])))
+        fallback = (fallback + [20, 20, 20])[:3]
+        shape = np.maximum(
+            np.asarray(
+                [
+                    grid.get("nx", fallback[0]),
+                    grid.get("ny", fallback[1]),
+                    grid.get("nz", fallback[2]),
+                ],
+                dtype=int,
+            ),
+            2,
+        )
+        return int(np.prod(shape, dtype=np.int64))
+    return max(int(simulation.get("distance_sample_count", 10_000)), 0)
+
+
 def preview_tissue_geometry(
     config: dict[str, Any],
     inlet_points: np.ndarray | list | None,
     *,
+    mode: str = "near",
     limit: int = 10_000,
 ) -> tuple[np.ndarray, np.ndarray, int]:
     """Build a bounded visual sample of the requested tissue-point layout."""
     simulation = config.get("simulation", {})
-    mode = str(simulation.get("sample_mode", "random"))
-    if mode == "grid":
-        raw_shape = list(simulation.get("tissue_grid", {}).get("shape", [64, 64, 64]))
-        raw_shape = (raw_shape + [64, 64, 64])[:3]
+    layout_mode = str(simulation.get("sample_mode", "random"))
+    if layout_mode == "grid":
+        grid = simulation.get("tissue_grid", {})
+        fallback = list(grid.get("shape", grid.get("dimensions", [20, 20, 20])))
+        fallback = (fallback + [20, 20, 20])[:3]
+        raw_shape = [
+            grid.get("nx", fallback[0]),
+            grid.get("ny", fallback[1]),
+            grid.get("nz", fallback[2]),
+        ]
         shape = np.maximum(np.asarray(raw_shape, dtype=int), 2)
         requested = int(np.prod(shape, dtype=np.int64))
     else:
@@ -1504,17 +1901,27 @@ def preview_tissue_geometry(
             0,
         )
 
+    selection_mode = str(mode or "near").lower()
+    if selection_mode == "none" or limit <= 0:
+        return (
+            np.empty((0, 3), dtype=np.float32),
+            np.empty((0,), dtype=np.float32),
+            requested,
+        )
+
     # Evaluate enough candidates to make "nearest" representative while
     # keeping setup previews small even if a production grid has billions of points.
-    candidate_count = min(requested, max(limit * 6, limit))
+    multiplier = 6 if selection_mode == "near" else 1
+    candidate_count = min(requested, max(limit * multiplier, limit))
     points = _sample_preview_domain_points(
         config.get("domain", {}),
-        mode=mode,
+        mode=layout_mode,
         count=candidate_count,
         shape=shape,
         random_seed=int(config.get("domain", {}).get("random_seed", 42)),
     )
-    selection_mode = "near" if requested > limit else "all"
+    if requested <= limit:
+        selection_mode = "all"
     ids, alpha = select_tissue_points(
         points, inlet_points if inlet_points is not None else [], mode=selection_mode, limit=limit
     )
@@ -1647,7 +2054,8 @@ def _simple_geometry(config):
             a[axis], b[axis] = lo[axis], hi[axis]
             a[1 - axis] += offset
             b[1 - axis] += offset
-            starts.append(a); ends.append(b)
+            starts.append(a)
+            ends.append(b)
         return np.asarray(starts), np.asarray(ends)
     if mode == "snake":
         # Use the solver's channel generator rather than a decorative sine

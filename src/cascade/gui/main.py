@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sys
@@ -75,7 +76,6 @@ from .theme import Tokens, stylesheet
 from .widgets import (
     Banner,
     Card,
-    ChoiceComboBox,
     FocusPlainTextEdit,
     NumberInput,
     PathPicker,
@@ -88,6 +88,13 @@ from .widgets import (
     row_of,
     title_label,
 )
+
+
+def _default_project_directory() -> Path:
+    configured = os.environ.get("CASCADE_PROJECT_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (Path.home() / "CASCADE Projects" / "Untitled").resolve()
 
 
 class QMessageBox:
@@ -2095,6 +2102,8 @@ class SolverPage(Page):
 
 
 class OutputsPage(Page):
+    preview_changed = Signal()
+
     SWEEP_PATHS = [
         ("Inlet flow", "simulation.qin_target_ul_min"),
         ("Terminal count", "network.target_terminal_count"),
@@ -2141,9 +2150,9 @@ class OutputsPage(Page):
             caption="Choose fixed tissue sample coordinates",
             file_filter="Coordinate files (*.csv *.npy *.npz);;All files (*)",
         )
-        self.grid_x = _spin(64, 2, 2048)
-        self.grid_y = _spin(64, 2, 2048)
-        self.grid_z = _spin(64, 2, 2048)
+        self.grid_x = _spin(20, 2, 2048)
+        self.grid_y = _spin(20, 2, 2048)
+        self.grid_z = _spin(20, 2, 2048)
         self.grid_fields = row_of(
             labeled("Grid points in X", self.grid_x),
             labeled("Grid points in Y", self.grid_y),
@@ -2253,10 +2262,14 @@ class OutputsPage(Page):
         sweep.add(footer)
         self.column.addWidget(sweep)
         self.sample_mode.currentIndexChanged.connect(self._sampling_changed)
+        self.sample_mode.currentIndexChanged.connect(lambda *_: self.preview_changed.emit())
+        self.sample_points.valueChanged.connect(lambda *_: self.preview_changed.emit())
+        self.sample_file.changed.connect(lambda *_: self.preview_changed.emit())
         self.combined_sweep_csv.toggled.connect(self._combined_sweep_output_changed)
         self.summary_csv.toggled.connect(self._summary_output_changed)
         for field in (self.grid_x, self.grid_y, self.grid_z):
             field.valueChanged.connect(self._update_grid_total)
+            field.valueChanged.connect(lambda *_: self.preview_changed.emit())
         self._update_grid_total()
         self._update_combined_sweep_controls()
         self.finish()
@@ -2490,8 +2503,14 @@ class OutputsPage(Page):
         _set_combo(self.sample_mode, sim.get("sample_mode", "random"))
         self.sample_points.setValue(int(sim.get("distance_sample_count", 10000)))
         self.sample_file.setText(str(sim.get("sample_points_path") or ""))
-        shape = sim.get("tissue_grid", {}).get("shape", [64, 64, 64])
-        shape = list(shape) + [64, 64, 64]
+        grid = sim.get("tissue_grid", {})
+        shape = list(grid.get("shape", grid.get("dimensions", [20, 20, 20])) or [])
+        shape = (shape + [20, 20, 20])[:3]
+        shape = [
+            grid.get("nx", shape[0]),
+            grid.get("ny", shape[1]),
+            grid.get("nz", shape[2]),
+        ]
         self.grid_x.setValue(int(shape[0]))
         self.grid_y.setValue(int(shape[1]))
         self.grid_z.setValue(int(shape[2]))
@@ -2532,9 +2551,15 @@ class OutputsPage(Page):
         sim["sample_mode"] = self.sample_mode.currentData()
         sim["distance_sample_count"] = 0 if sim["sample_mode"] == "file" else self.sample_points.value()
         if sim["sample_mode"] == "grid":
-            sim["tissue_grid"] = {
-                "shape": [self.grid_x.value(), self.grid_y.value(), self.grid_z.value()]
-            }
+            grid = dict(sim.get("tissue_grid", {}))
+            grid.pop("shape", None)
+            grid.pop("dimensions", None)
+            grid.update(
+                nx=self.grid_x.value(),
+                ny=self.grid_y.value(),
+                nz=self.grid_z.value(),
+            )
+            sim["tissue_grid"] = grid
         if sim["sample_mode"] == "file":
             sim["sample_points_path"] = self.sample_file.text()
         else:
@@ -2937,24 +2962,6 @@ class AnalysisPage(Page):
         self.vessel_field = _combo([])
         self.tissue_field = _combo([])
         self.colormap = _combo([(name.capitalize(), name) for name in COLORMAPS])
-        self.vessel_limit = _combo(
-            [
-                ("None", "none"),
-                ("1,000 vessels", 1000),
-                ("5,000 vessels (recommended)", 5000),
-                ("20,000 vessels", 20000),
-                ("All vessels", "all"),
-            ]
-        )
-        _set_combo(self.vessel_limit, 5000)
-        self.tissue_mode = _combo(
-            [
-                ("None", "none"),
-                ("Nearest inlets (10,000)", "near"),
-                ("Random sample (10,000)", "random"),
-                ("All tissue points", "all"),
-            ]
-        )
         self.vessel_opacity = _double(1.0, 0.0, 1.0, 2, 0.05)
         self.tissue_opacity = _double(0.35, 0.0, 1.0, 2, 0.05)
         self.vessel_min = QLineEdit()
@@ -2974,12 +2981,6 @@ class AnalysisPage(Page):
             row_of(
                 labeled("Vessels", self.vessel_field),
                 labeled("Tissue", self.tissue_field),
-            )
-        )
-        render.add(
-            row_of(
-                labeled("Vessels shown", self.vessel_limit),
-                labeled("Tissue points shown", self.tissue_mode),
             )
         )
         render.add(labeled("Colormap", self.colormap))
@@ -3027,8 +3028,6 @@ class AnalysisPage(Page):
             self.vessel_field,
             self.tissue_field,
             self.colormap,
-            self.vessel_limit,
-            self.tissue_mode,
             self.vessel_scale,
             self.tissue_scale,
             self.concentration_unit,
@@ -3050,9 +3049,6 @@ class AnalysisPage(Page):
     def load(self, config):
         settings = config.get("gui", {}).get("analysis", {})
         _set_combo(self.colormap, settings.get("colormap", "plasma"))
-        maximum = settings.get("max_vessels", 5000)
-        _set_combo(self.vessel_limit, "all" if maximum == "all" else int(maximum))
-        _set_combo(self.tissue_mode, settings.get("tissue_mode", "near"))
         self.vessel_opacity.setValue(float(settings.get("vessel_opacity", 1.0)))
         self.tissue_opacity.setValue(float(settings.get("tissue_opacity", 0.35)))
         self.vessel_min.setText(str(settings.get("vessel_min", "")))
@@ -3068,8 +3064,6 @@ class AnalysisPage(Page):
     def write(self, config):
         config.setdefault("gui", {})["analysis"] = {
             "colormap": self.colormap.currentData(),
-            "max_vessels": self.vessel_limit.currentData(),
-            "tissue_mode": self.tissue_mode.currentData(),
             "vessel_opacity": self.vessel_opacity.value(),
             "tissue_opacity": self.tissue_opacity.value(),
             "vessel_field": self.vessel_field.currentData(),
@@ -3186,31 +3180,13 @@ class AnalysisPage(Page):
         if not job or not Path(job.output_dir, "manifest.json").exists():
             self.render_requested.emit("", {})
             return
-        limit = self.vessel_limit.currentData()
-        if limit == "all":
-            self.render_note.set_message(
-                "All vessels selected — viewport may respond slowly",
-                "warning",
-            )
-        elif isinstance(limit, (int, float)) and int(limit) > 5000:
-            self.render_note.set_message(
-                "Large vessel preview — viewport may respond slowly", "warning"
-            )
-        else:
-            self.render_note.setVisible(False)
-        if self.tissue_mode.currentData() == "all":
-            self.render_note.set_message(
-                "All tissue points selected — viewport may respond slowly",
-                "warning",
-            )
+        self.render_note.setVisible(False)
         self.render_requested.emit(
             str(Path(job.output_dir) / "manifest.json"),
             {
                 "vessel_field": self.vessel_field.currentData(),
                 "tissue_field": self.tissue_field.currentData(),
                 "colormap": self.colormap.currentData(),
-                "vessel_limit": limit,
-                "tissue_mode": self.tissue_mode.currentData(),
                 "vessel_opacity": self.vessel_opacity.value(),
                 "tissue_opacity": self.tissue_opacity.value(),
                 "vessel_range": (
@@ -3354,7 +3330,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1180, 720)
         self.config = default_project()
         self.project_path: Path | None = None
-        self.project_dir = (Path.cwd() / "CASCADE_Project").resolve()
+        self.project_dir = _default_project_directory()
         self.hardware = hardware_info()
         self.runner = JobRunner(self.project_dir, self)
         self._preview_process: QProcess | None = None
@@ -3568,6 +3544,7 @@ class MainWindow(QMainWindow):
         queue.set_runner(self.runner)
         analysis.set_runner(self.runner)
         analysis.render_requested.connect(self._render_analysis)
+        self.preview.view_settings_changed.connect(self._viewer_settings_changed)
         self.preview.result_fields_loaded.connect(analysis.set_render_fields)
         self.preview.selection_changed.connect(analysis.set_selection)
         self.runner.running_changed.connect(self._preview_running_changed)
@@ -3582,6 +3559,7 @@ class MainWindow(QMainWindow):
         self.pages[2].auto_roots.toggled.connect(self._sync_inlet_condition_count)
         self.pages[2].roots.textChanged.connect(self._sync_inlet_condition_count)
         self.pages[3].changed.connect(self._schedule_status_refresh)
+        self.pages[5].preview_changed.connect(self._schedule_output_preview_refresh)
         self._wire_live_validation()
 
     def _build_menu(self):
@@ -3632,10 +3610,15 @@ class MainWindow(QMainWindow):
             if outputs is None or source is None or not outputs.isAncestorOf(source):
                 self._preview_timer.start()
 
+    def _schedule_output_preview_refresh(self, *_):
+        if not self._initializing and self.nav.currentRow() == 5:
+            self._preview_timer.start()
+
     def _load_pages(self):
         for page in self.pages[:6]:
             page.load(self.config)
         self.pages[7].load(self.config)
+        self.preview.load_view_settings(self.config)
         self._network_source_changed()
         self._sync_inlet_condition_count()
         self._update_project_label()
@@ -3678,6 +3661,7 @@ class MainWindow(QMainWindow):
             for page in self.pages[:6]:
                 page.write(updated)
             self.pages[7].write(updated)
+            updated.setdefault("gui", {})["viewer"] = self.preview.view_settings()
             if updated.get("gui", {}).get("network_source") == "lattice":
                 if updated.setdefault("simulation", {}).get("concentration_solver") not in {
                     "network_ext",
@@ -3753,6 +3737,15 @@ class MainWindow(QMainWindow):
         if self.nav.currentRow() == 7:
             self.preview.show_result(manifest_path, options)
 
+    def _viewer_settings_changed(self):
+        if self._initializing:
+            return
+        index = self.nav.currentRow()
+        if index == 7:
+            self.pages[7]._request_render()
+        elif index not in {6}:
+            self._preview_timer.start()
+
     def _preview_running_changed(self, running):
         self.backdrop.set_animation_enabled(running)
         self._update_solver_status()
@@ -3780,7 +3773,7 @@ class MainWindow(QMainWindow):
         settings = config.get("settings", {})
         gui = config.get("gui", {})
         relevant = {
-            "preview_version": 2,
+            "preview_version": 4,
             "domain": deepcopy(config.get("domain", {})),
             "network": deepcopy(config.get("network", {})),
             "growth": deepcopy(config.get("growth", {})),
@@ -3871,7 +3864,7 @@ class MainWindow(QMainWindow):
             "Preparing the uploaded domain for preview…"
             if uploaded_domain
             else (
-                "Growing reusable preview seed  │  up to 100 vessels per inlet…"
+                "Growing reusable preview seed  │  up to about 1,000 vessel segments total…"
                 if source == "svv_generated"
                 else "Loading a bounded network preview…"
             )
@@ -4109,7 +4102,7 @@ class MainWindow(QMainWindow):
             return
         self.config = default_project()
         self.project_path = None
-        self.project_dir = (Path.cwd() / "CASCADE_Project").resolve()
+        self.project_dir = _default_project_directory()
         self.runner.replace_project(self.project_dir)
         self._load_pages()
         self.nav.setCurrentRow(0)

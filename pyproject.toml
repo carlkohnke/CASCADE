@@ -1,12 +1,13 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "cascade-vascular"
 version = "0.1.0rc3"
-description = "CASCADE vascular growth, simulation, and tissue oxygen workflows built around public svVascularize."
+description = "CASCADE vascular growth, simulation, and tissue oxygen workflows."
 readme = "README.md"
+license-files = ["LICENSE"]
 requires-python = ">=3.9,<3.10"
 dependencies = [
     "svv==0.0.48",
@@ -38,7 +39,7 @@ gpu-cu13 = [
 gpu-cu12 = ["cupy-cuda12x>=13"]
 gpu-cu11 = ["cupy-cuda11x>=13"]
 gui = ["PySide6>=6.6", "psutil>=5.9"]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.16"]
 
 [project.scripts]
 cascade = "cascade.cli:main"
@@ -52,4 +53,12 @@ where = ["src"]
 include = ["cascade*"]
 
 [tool.setuptools.package-data]
-cascade = ["gui/assets/*.svg", "assets/domains/*.stl"]
+cascade = [
+    "assets/domains/*.stl",
+    "gui/assets/*.svg",
+    "gui/native/*.cs",
+    "gui/shaders/*.frag",
+    "gui/shaders/*.vert",
+    "runtime/cuda/*.cu",
+    "runtime/cuda/*.cuh",
+]

@@ -106,6 +106,7 @@ def default_project() -> dict[str, Any]:
             "qin_target_ul_min": 100.0,
             "concentration_solver": "network_ext",
             "distance_sample_count": 10000,
+            "tissue_grid": {"nx": 20, "ny": 20, "nz": 20},
             "viability_threshold": ALPHA_MMHG,
         }
     )
@@ -194,8 +195,12 @@ def default_project() -> dict[str, Any]:
             "colormap": "plasma",
             "vessel_opacity": 1.0,
             "tissue_opacity": 0.45,
-            "max_vessels": 5000,
+        },
+        "viewer": {
+            "vessel_mode": "near",
+            "vessel_limit": 5000,
             "tissue_mode": "near",
+            "tissue_limit": 10000,
         },
     }
     return config
@@ -401,7 +406,13 @@ def estimate_resources(
         points = 0
     elif sim.get("sample_mode", "random") == "grid":
         grid = sim.get("tissue_grid", {})
-        shape = grid.get("shape", grid.get("dimensions", [64, 64, 64]))
+        fallback = list(grid.get("shape", grid.get("dimensions", [20, 20, 20])) or [])
+        fallback = (fallback + [20, 20, 20])[:3]
+        shape = (
+            grid.get("nx", fallback[0]),
+            grid.get("ny", fallback[1]),
+            grid.get("nz", fallback[2]),
+        )
         points = math.prod(int(v) for v in shape)
     else:
         points = max(int(sim.get("distance_sample_count", 0)), 0)

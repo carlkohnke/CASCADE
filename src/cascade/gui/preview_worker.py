@@ -22,6 +22,16 @@ from cascade._svv_domain.domain import Domain
 from cascade._svv_domain.routines.tetrahedralize import tetrahedralize
 
 
+PREVIEW_TERMINAL_BUDGET = 500
+PREVIEW_VESSEL_LIMIT = 5000
+
+
+def _bounded_preview_target(target: int, tree_count: int = 1) -> int:
+    """Keep common trees exact within one shared interactive preview budget."""
+    per_tree_limit = max(PREVIEW_TERMINAL_BUDGET // max(int(tree_count), 1), 1)
+    return min(max(int(target), 1), per_tree_limit)
+
+
 def main(argv=None) -> int:
     # Preview trees contain at most a few thousand segments.  The production
     # default reserves four million rows and needlessly costs ~1 GB here.
@@ -52,7 +62,9 @@ def main(argv=None) -> int:
         if sweep_targets:
             final_target = min([final_target, *sweep_targets])
         # A binary SVV tree has approximately 2*T+1 segments for T terminal adds.
-        preview_target = min(max(final_target, 1), 50)
+        # Five hundred additions across all trees remains interactive at about
+        # 1,000 rendered segments while preserving common single-tree settings.
+        preview_target = _bounded_preview_target(final_target, n_trees)
         network["target_terminal_counts"] = [preview_target] * n_trees
         network.pop("target_total_terminal_count", None)
         network.pop("target_terminal_count", None)
@@ -87,7 +99,7 @@ def main(argv=None) -> int:
     starts, ends, radii, alpha, tree_ids = [], [], [], [], []
     root_radii = []
     totals = [int(getattr(tree, "segment_count", 0) or 0) for tree in build.trees]
-    allocations = _fair_allocations(totals, 5000)
+    allocations = _fair_allocations(totals, PREVIEW_VESSEL_LIMIT)
     for tree_id, (tree, take) in enumerate(zip(build.trees, allocations)):
         total = int(getattr(tree, "segment_count", 0) or 0)
         n = min(total, int(take))
@@ -124,6 +136,14 @@ def main(argv=None) -> int:
         "trees": len(build.trees),
         "segments": totals,
         "shown_segments": allocations,
+        "requested_segments": (
+            [2 * final_target + 1] * n_trees if source == "svv_generated" else totals
+        ),
+        "requested_terminal_target": final_target if source == "svv_generated" else None,
+        "preview_terminal_target": preview_target if source == "svv_generated" else None,
+        "preview_limited": bool(
+            source == "svv_generated" and preview_target < final_target
+        ),
         "root_radii_cm": root_radii,
         "domain_surface_repaired": bool(
             getattr(build.domain, "surface_repaired_for_tetgen", False)

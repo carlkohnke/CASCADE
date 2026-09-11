@@ -38,6 +38,7 @@ from .theme import Tokens
 
 _ACTIVE_NATIVE_PICKERS: set[subprocess.Popen] = set()
 _CANCELLED_NATIVE_PICKERS: set[subprocess.Popen] = set()
+_NATIVE_PICKER_SOURCE = Path(__file__).with_name("native") / "CascadePickerNative.cs"
 
 
 class ChoiceComboBox(QComboBox):
@@ -458,9 +459,10 @@ def choose_native_path(
         except (OSError, subprocess.SubprocessError, UnicodeError):
             if parent is not None and not parent.window().isVisible():
                 return ""
-            # A styled Qt chooser remains a usable fallback if Windows interop
-            # has been disabled for this WSL distribution.
-            options = QFileDialog.Options() | QFileDialog.DontUseNativeDialog
+            # Let Qt request the desktop-native chooser as the fallback too.
+            # Forcing Qt's built-in dialog here produced the unfamiliar,
+            # application-styled file browser this bridge is meant to avoid.
+            options = QFileDialog.Options()
     else:
         options = QFileDialog.Options()
     if mode == "directory":
@@ -503,35 +505,12 @@ def _windows_native_picker(
     heartbeat.write_text(str(time.time()), encoding="utf-8")
     heartbeat_windows = _ps_quote(heartbeat_windows_raw)
 
+    native_source_windows = _ps_quote(_to_windows_path(str(_NATIVE_PICKER_SOURCE)))
+
     owner_setup = f"""
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class CascadePickerNative {{
-    private delegate bool EnumThreadDelegate(IntPtr hWnd, IntPtr lParam);
-    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
-    [DllImport("user32.dll")] private static extern bool EnumThreadWindows(uint id, EnumThreadDelegate callback, IntPtr data);
-    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
-    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
-    [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-    public static void FocusDialog(IntPtr owner) {{
-        EnumThreadWindows(GetCurrentThreadId(), delegate(IntPtr hWnd, IntPtr data) {{
-            if (hWnd != owner && IsWindowVisible(hWnd)) {{ BringWindowToTop(hWnd); SetForegroundWindow(hWnd); }}
-            return true;
-        }}, IntPtr.Zero);
-    }}
-    public static void CloseWindows(IntPtr owner) {{
-        EnumThreadWindows(GetCurrentThreadId(), delegate(IntPtr hWnd, IntPtr data) {{
-            if (hWnd != owner) PostMessage(hWnd, 0x0010, IntPtr.Zero, IntPtr.Zero);
-            return true;
-        }}, IntPtr.Zero);
-        PostMessage(owner, 0x0010, IntPtr.Zero, IntPtr.Zero);
-    }}
-}}
-'@
+Add-Type -Path '{native_source_windows}'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $owner = New-Object System.Windows.Forms.Form
 $owner.Text = 'CASCADE Studio file selection'
@@ -577,14 +556,8 @@ $owner.Dispose()
 
     if mode == "directory":
         script = owner_setup + f"""
-$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = '{title}'
-$dialog.SelectedPath = '{initial_ps}'
-$dialog.ShowNewFolderButton = $true
-$result = $dialog.ShowDialog($owner)
-if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{
-    [Console]::Write($dialog.SelectedPath)
-}}
+$selectedFolder = [CascadePickerNative]::PickFolder($owner.Handle, '{title}', '{initial_ps}')
+if ($selectedFolder) {{ [Console]::Write($selectedFolder) }}
 """ + owner_cleanup
     else:
         dialog_class = "SaveFileDialog" if mode == "save" else "OpenFileDialog"

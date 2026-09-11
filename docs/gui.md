@@ -11,7 +11,13 @@ python setup_env.py --gui --gpu cu13
 .venv/bin/python -m cascade.gui
 ```
 
-Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `--gpu` for CPU-only work). After an editable install, `cascade-gui` is equivalent. On WSL, double-click `launch_gui_windows.vbs` for a console-free launch; `launch_gui_windows.bat` is the visible diagnostic fallback. Both Windows launchers resolve the checkout containing them, so they do not depend on a user-specific path. Linux and macOS users can run `./launch_gui.sh` after making it executable.
+New projects default to `~/CASCADE Projects/Untitled`. Set
+`CASCADE_PROJECT_DIR` to choose another location. The repository launcher also
+uses a sibling `CASCADE-workbench/projects/CASCADE_Project` directory when that
+workbench exists, keeping generated projects and GUI state out of the source
+tree.
+
+Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `--gpu` for CPU-only work). After an editable install, `cascade-gui` is equivalent. On WSL, double-click `GUI Launchers/launch_gui_windows.vbs` for a console-free launch; `GUI Launchers/launch_gui_windows.bat` is the visible diagnostic fallback. Both Windows launchers resolve the checkout containing their folder, so they do not depend on a user-specific path. Linux and macOS users can run `./GUI\ Launchers/launch_gui.sh` after making it executable.
 
 ## Guided workflow
 
@@ -22,11 +28,22 @@ Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `-
 5. **Solver** selects the flow/concentration/Cext path, Graetz or well-mixed closure, finite-radius terms, quadrature, iterations, convergence, backend, and expert runtime overrides. Controls that do not apply are grayed out.
 6. **Outputs** chooses sampling and file products, creates Cartesian parameter sweeps, and shows a hardware estimate before queueing.
 7. **Run** saves a frozen settings file for every job and runs jobs sequentially in isolated Python processes, with stage, progress, cancellation, and logs.
-8. **Results** inspects summary data and scalar-colored vessel/tissue output in the shared interactive viewport. A separate full viewer remains available for unusually large or detailed views.
+8. **Results** inspects summary data and scalar-colored vessel/tissue output in the shared interactive viewport.
 
 The tissue-point selector supports random points, a structured Cartesian grid, or a fixed CSV/NPY/NPZ coordinate file. Fixed files make validation runs evaluate identical coordinates; CSV columns are `x,y,z` in centimetres, while NPZ uses `points` or `sample_points` with shape `(N, 3)`.
 
-The viewport remains the primary workspace through setup and analysis. Drag to rotate, scroll to zoom, and use **Home** to reset the camera. In Results, click a rendered vessel or tissue point to inspect its exported numeric fields in the right-side inspector.
+The viewport remains the primary workspace through setup and analysis. Drag to rotate, scroll to zoom, and use **Home** to reset the camera. The gear beside Home opens viewer-wide vessel and tissue sampling controls: choose nearest-inlet, deterministic random, all, or none, and type an explicit display limit. These project-backed controls apply consistently to setup and Results; Results retains only field, colormap, range, scale, opacity, and unit controls. In Results, click a rendered vessel or tissue point to inspect its exported numeric fields in the right-side inspector.
+
+The interactive viewport uses a retained OpenGL renderer by default. Vessel
+endpoints, radii, colors, and opacity are uploaded once and expanded into
+round screen-space capsules in one instanced draw; tissue samples are uploaded
+as one point cloud. Camera movement changes shader uniforms rather than
+reprojecting and repainting every object in Python. Hardware OpenGL displays up
+to one million tissue points, while software OpenGL uses a conservative 50,000
+point budget. Headless/minimal Qt sessions automatically retain the QPainter
+fallback. Set `CASCADE_RENDER_BACKEND=software` before launch to force that
+fallback for graphics-driver troubleshooting, or `CASCADE_RENDER_BACKEND=gpu`
+to require OpenGL.
 
 For generated SVV trees, a lightweight branching cue appears immediately and is replaced automatically by the exact reusable seed. The inlet is placed on the primitive-domain boundary by default. Segment radii are hydraulically sized from total inlet flow and the inlet–outlet pressure drop; changing either value rebuilds the preview seed and updates the reported inlet radius. Disable automatic inlet placement to enter one or more explicit root locations and directions.
 
@@ -51,7 +68,7 @@ Inlet and outlet locations are entered as one `x, y, z` point per line and snap 
 - A worker exits after its job, releasing its Python, CUDA, and allocator state.
 - Summary-only output is the default. Per-segment CSV, tissue CSV, and VTK output display a peak-memory warning.
 - The hardware estimate reserves the larger of 2 GiB or 10% of system RAM for the OS.
-- The in-window viewport caps previews at 5,000 vessels by default and releases its arrays while the queue is running. The optional full viewer is a separate process and should be closed before a large GPU simulation.
+- Viewer-wide typed limits default to 5,000 vessels and 10,000 tissue points and apply to both setup and Results. Generated-network seed construction has its own approximately 1,000-segment responsiveness budget because tree growth, rather than rendering, dominates that path. The OpenGL viewport admits up to 250,000 vessels and 1,000,000 tissue points on hardware acceleration, or 50,000 of each with software OpenGL; the QPainter fallback uses 5,000 vessels and 10,000 tissue points. The status strip always reports displayed versus underlying counts, and the viewport releases CPU/GPU scene buffers while the queue is running.
 - Float32 and Int32 are the default export/cache choices where the runtime supports them; the core svVascularize compute path remains float64.
 
 The estimate is intentionally conservative, not a guarantee. FFT workspaces, sparse factorization fill-in, driver allocations, and user-selected expert settings can change peak memory substantially.

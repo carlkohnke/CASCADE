@@ -1,0 +1,4 @@
+# CUDA 11.x GPU/Cext install.
+# Use this only on machines with a compatible NVIDIA driver/CUDA runtime.
+-r base.txt
+cupy-cuda11x>=13

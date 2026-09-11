@@ -19,9 +19,7 @@ This repository targets the public `svv==0.0.48` API. CASCADE-owned compatibilit
 
 The current version is `0.1.0rc3`. It preserves the locally qualified M2/M3 numerical and performance baseline and adds a full CLI/package hardening pass.
 
-The numerical and performance gates are recorded in [the rc2 release report](docs/release-0.1.0rc2.md); the subsequent CLI/package audit is recorded in [the rc3 release report](docs/release-0.1.0rc3.md). Repository publication, licensing, and remote CI are separate M4 gates and are not claimed here.
-
-The living internal production tracker, test plan, work log, decisions, and evidence map begin at [docs/internal/README.md](docs/internal/README.md). These records are maintained throughout the release and testing process but excluded from published package artifacts.
+Repository publication and remote CI remain separate release gates and are not claimed here. Detailed maintainer records, release history, and machine-specific validation evidence are retained outside the public repository.
 
 ## Requirements
 
@@ -39,7 +37,7 @@ python setup_env.py \
   --venv .venv \
   --dev \
   --gui \
-  --constraints locks/requirements-py39-cpu.txt
+  --constraints requirements/locks/py39-cpu.txt
 source .venv/bin/activate
 cascade doctor --no-gpu-probe
 ```
@@ -52,7 +50,7 @@ python setup_env.py \
   --dev \
   --gui \
   --gpu cu13 \
-  --constraints locks/requirements-py39-cu13.txt \
+  --constraints requirements/locks/py39-cu13.txt \
   --cuda-path /path/to/targets/x86_64-linux
 
 source .venv/bin/activate
@@ -92,9 +90,10 @@ The generated starter is CPU-safe. `cascade self-test` verifies a bounded
 loaded-tree solve, VTK/CSV export, manifest provenance, and the qualified public
 `svv` dependency using only installed package contents. Add `--require-gpu` to
 exercise an actual CUDA Cext solve and GPU tissue calculation. Full M2/M3 legacy
-equivalence campaigns require the repository validation harness plus the
+equivalence campaigns require a separate maintainer workbench containing the
 external, hash-frozen multi-gigabyte fixtures and oracle environment; those
-scientific inputs are intentionally not bundled in the wheel.
+scientific inputs and internal campaign records are intentionally not bundled
+with the source repository or wheel.
 
 Settings use five principal sections:
 
@@ -143,8 +142,6 @@ Unknown top-level and core-section settings are rejected so spelling mistakes ca
 }
 ```
 
-More configurations are provided in `examples/`.
-
 ## Custom domains
 
 File-backed domains use surface/volume meshes readable by PyVista. CASCADE Studio also includes the packaged `bivent3.stl` heart surface. Legacy `.dmn` loading remains available for frozen internal inputs, but `.dmn` is not a supported cross-version interchange format:
@@ -153,14 +150,14 @@ File-backed domains use surface/volume meshes readable by PyVista. CASCADE Studi
 {
   "domain": {
     "type": "file",
-    "path": "domains/my_domain.vtp",
+    "path": "my_domain.vtp",
     "side_length": 1.0,
     "random_seed": 42
   }
 }
 ```
 
-Relative paths are resolved against the settings file. Store reusable meshes under `domains/` or beside the configuration that uses them.
+Relative paths are resolved against the settings file. Store a mesh beside the configuration that uses it, or provide an absolute path.
 
 ## Custom vascular geometry
 
@@ -260,14 +257,18 @@ See [docs/gui.md](docs/gui.md).
 
 ```bash
 python -m pip install '.[dev,gui]'
-pytest -q
+python -m ruff check --select E9,F63,F7,F82 src setup_env.py
 python -m build
+cascade self-test
 ```
 
-The release smoke suite must also be run against an installed wheel from outside the source checkout.
-
-Legacy equivalence is run as an isolated, file-based comparison: install the CASCADE wheel in one clean environment and run the frozen external oracle in its own environment. CASCADE does not import or bundle the legacy scripts. The exact internal inventory and M2 protocol are tracked under `docs/internal/` and `validation/results/` in the Git repository; they are intentionally excluded from release archives.
+Legacy equivalence is run as an isolated, file-based comparison: install the CASCADE wheel in one clean environment and run the frozen external oracle in its own environment. CASCADE does not import or bundle legacy scripts, private fixtures, or internal validation records.
 
 ## Reproducibility
 
 Keep the settings JSON, domain/network inputs, `manifest.json`, dependency lock, and raw command log together for every production run. Do not modify the installed public `svv` package; CASCADE-specific compatibility code belongs under `src/cascade/` and should be retired when the corresponding behavior is available upstream.
+
+## License
+
+CASCADE is provided under Stanford's academic, non-commercial license. Review
+the complete terms in [LICENSE](LICENSE) before accessing or using the software.

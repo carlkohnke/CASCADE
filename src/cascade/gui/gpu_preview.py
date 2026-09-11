@@ -27,8 +27,8 @@ from PySide6.QtOpenGL import (
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from .preview import (
-    _MAP_STOPS,
+from .visualization.common import _MAP_STOPS
+from .visualization.fields import (
     _legend_tick_values,
     _line_array,
     _normalize_with_scale,

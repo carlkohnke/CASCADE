@@ -42,11 +42,11 @@ gui = ["PySide6>=6.6", "psutil>=5.9"]
 dev = ["pytest>=8", "ruff>=0.16"]
 
 [project.scripts]
-cascade = "cascade.cli:main"
+cascade = "cascade.commands.main:main"
 cascade-gui = "cascade.gui.main:main"
 cascade-viewer = "cascade.gui.viewer:main"
-cascade-export-heart = "cascade.heart_export:main"
-cascade-doctor = "cascade.doctor:main"
+cascade-export-heart = "cascade.workflows.heart:main"
+cascade-doctor = "cascade.diagnostics.environment:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

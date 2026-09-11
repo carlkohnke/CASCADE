@@ -12,8 +12,8 @@ import pyvista as pv
 from scipy.spatial import cKDTree
 from sklearn.neighbors import BallTree
 
-from cascade.config import load_config
-from cascade.growth import (
+from cascade.configuration.models import load_config
+from cascade.vessels.build import (
     build_or_load_network,
     resolve_domain_path,
     save_network_if_requested,

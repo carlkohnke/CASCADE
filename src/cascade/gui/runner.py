@@ -140,7 +140,7 @@ class JobRunner(QObject):
         self._save_emit()
         self.running_changed.emit(True)
         process.start(
-            sys.executable, ["-m", "cascade.cli", "run", "--settings", job.settings_path]
+            sys.executable, ["-m", "cascade.commands.main", "run", "--settings", job.settings_path]
         )
 
     def _read_output(self) -> None:

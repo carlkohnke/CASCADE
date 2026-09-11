@@ -1,0 +1,200 @@
+"""Domain configuration page."""
+
+from __future__ import annotations
+
+from cascade.gui._common import (
+    Any,
+    Card,
+    Path,
+    PathPicker,
+    QLabel,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+    _combo,
+    _double,
+    _set_combo,
+    _spin,
+    labeled,
+    row_of,
+)
+
+from cascade.gui.pages.base import (
+    Page,
+)
+
+class DomainPage(Page):
+    def __init__(self, parent=None):
+        super().__init__(
+            "Domain",
+            "",
+            parent,
+        )
+        card = Card(
+            "Tissue volume",
+            "The domain is centered at the origin unless an uploaded mesh defines otherwise.",
+        )
+        self.kind = _combo(
+            [
+                ("Box", "box"),
+                ("Sphere", "sphere"),
+                ("Biventricular heart (bivent3)", "bivent3"),
+                ("Upload mesh / .dmn", "file"),
+            ]
+        )
+        card.add(labeled("Domain source", self.kind, important=True))
+        self.stack = QStackedWidget()
+        self.box_x = _double(1.0, 1e-6, 1e6)
+        self.box_y = _double(1.0, 1e-6, 1e6)
+        self.box_z = _double(1.0, 1e-6, 1e6)
+        box_panel = QWidget()
+        box_layout = QVBoxLayout(box_panel)
+        box_layout.setContentsMargins(0, 0, 0, 0)
+        box_layout.addWidget(
+            row_of(
+                labeled("X length (cm)", self.box_x),
+                labeled("Y length (cm)", self.box_y),
+                labeled("Z length (cm)", self.box_z),
+            )
+        )
+        self.stack.addWidget(box_panel)
+        self.sphere_radius = _double(0.5, 1e-6, 1e6)
+        self.sphere_detail = _combo(
+            [
+                ("Coarse (about 144 surface patches)", "12x8"),
+                ("Fine (about 7,936 surface patches)", "64x64"),
+            ]
+        )
+        sphere_panel = QWidget()
+        sphere_layout = QVBoxLayout(sphere_panel)
+        sphere_layout.setContentsMargins(0, 0, 0, 0)
+        sphere_layout.addWidget(labeled("Radius (cm)", self.sphere_radius))
+        sphere_layout.addWidget(
+            labeled(
+                "Surface detail",
+                self.sphere_detail,
+                "Coarse is the default and is about 55× smaller than Fine, which matches the former sphere resolution.",
+            )
+        )
+        self.stack.addWidget(sphere_panel)
+        heart_panel = QWidget()
+        heart_layout = QVBoxLayout(heart_panel)
+        heart_layout.setContentsMargins(0, 0, 0, 0)
+        heart_description = QLabel(
+            "Use the packaged bivent3 STL heart surface. CASCADE resolves the "
+            "mesh from the installed package, so saved projects remain portable."
+        )
+        heart_description.setWordWrap(True)
+        heart_description.setMinimumWidth(0)
+        heart_layout.addWidget(heart_description)
+        self.stack.addWidget(heart_panel)
+        self.domain_path = PathPicker(
+            caption="Choose tissue domain",
+            file_filter="Domain and mesh (*.dmn *.stl *.vtk *.vtp *.vtu *.ply *.obj);;All files (*)",
+        )
+        self.stack.addWidget(
+            labeled(
+                "Domain file",
+                self.domain_path,
+                "Use a watertight surface/volume mesh or a verified CASCADE .dmn file.",
+            )
+        )
+        card.add(self.stack)
+        self.seed = _spin(42, 0, 2_147_483_647)
+        card.add(
+            labeled(
+                "Random seed",
+                self.seed,
+                "Controls domain sampling and reproducible vessel growth.",
+            )
+        )
+        self.column.addWidget(card)
+        self.kind.currentIndexChanged.connect(self.stack.setCurrentIndex)
+        self.finish()
+
+    def load(self, config):
+        domain = config.get("domain", {})
+        kind = domain.get("type", domain.get("kind", "cube"))
+        path_name = Path(str(domain.get("path") or "")).name.lower()
+        visible_kind = (
+            "box"
+            if kind == "cube"
+            else "bivent3"
+            if kind == "file" and path_name == "bivent3.stl"
+            else kind
+        )
+        _set_combo(
+            self.kind,
+            visible_kind if visible_kind in {"box", "sphere", "bivent3"} else "file",
+        )
+        self.stack.setCurrentIndex(self.kind.currentIndex())
+        self.box_x.setValue(
+            float(domain.get("x_length", domain.get("side_length", 1.0)))
+        )
+        self.box_y.setValue(
+            float(domain.get("y_length", domain.get("side_length", 1.0)))
+        )
+        self.box_z.setValue(
+            float(domain.get("z_length", domain.get("side_length", 1.0)))
+        )
+        self.sphere_radius.setValue(float(domain.get("radius", 0.5)))
+        theta = int(domain.get("theta_resolution", 12))
+        phi = int(domain.get("phi_resolution", 8))
+        detail = f"{theta}x{phi}"
+        if detail not in {"12x8", "64x64"}:
+            detail = "12x8"
+        _set_combo(self.sphere_detail, detail)
+        self.domain_path.setText(str(domain.get("path") or ""))
+        self.seed.setValue(int(domain.get("random_seed", 42)))
+
+    def write(self, config):
+        kind = self.kind.currentData()
+        domain: dict[str, Any] = {"type": kind, "random_seed": self.seed.value()}
+        if kind == "box":
+            domain.update(
+                {
+                    "side_length": max(
+                        self.box_x.value(), self.box_y.value(), self.box_z.value()
+                    ),
+                    "x_length": self.box_x.value(),
+                    "y_length": self.box_y.value(),
+                    "z_length": self.box_z.value(),
+                }
+            )
+        elif kind == "sphere":
+            theta, phi = (
+                int(value)
+                for value in str(self.sphere_detail.currentData() or "12x8").split("x")
+            )
+            domain.update(
+                {
+                    "side_length": 2 * self.sphere_radius.value(),
+                    "radius": self.sphere_radius.value(),
+                    "center": [0.0, 0.0, 0.0],
+                    "theta_resolution": theta,
+                    "phi_resolution": phi,
+                }
+            )
+        elif kind == "bivent3":
+            domain.update(
+                {
+                    "type": "file",
+                    "path": "bivent3.stl",
+                }
+            )
+        else:
+            domain.update(
+                {
+                    "type": "file",
+                    "side_length": max(
+                        self.box_x.value(), self.box_y.value(), self.box_z.value()
+                    ),
+                    "path": self.domain_path.text(),
+                }
+            )
+        config["domain"] = domain
+
+
+
+
+__all__ = ('DomainPage',)

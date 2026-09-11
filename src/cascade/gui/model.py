@@ -14,9 +14,9 @@ import subprocess
 from typing import Any, Iterable
 from uuid import uuid4
 
-from cascade.config import example_config, parse_config
-from cascade.lattice import channel_count
-from cascade.resources import resolve_domain_path
+from cascade.configuration.models import example_config, parse_config
+from cascade.vessels.lattice import channel_count
+from cascade.utils.resources import resolve_domain_path
 
 from . import GUI_SCHEMA_VERSION
 

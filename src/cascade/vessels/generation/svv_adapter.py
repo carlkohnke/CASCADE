@@ -1,3 +1,5 @@
+"""Expose stable Domain, Tree, and Forest types across supported SVV installations."""
+
 from __future__ import annotations
 
 import os
@@ -12,7 +14,7 @@ from svv.tree.data.units import UnitSystem
 import svv.tree.tree as _tree_module
 from svv.tree.tree import Tree as _BaseTree
 
-from cascade._svv_domain.domain import Domain
+from cascade.domain.svv import Domain
 from .compatibility.branch_bifurcation import add_vessel as _cascade_add_vessel
 from .compatibility.branch_root import set_root as _cascade_set_root
 from .compatibility.forest import ForestCompatibilityMixin
@@ -79,8 +81,12 @@ class Tree(TreeCompatibilityMixin, _BaseTree):
             self._col21_cache = []
 
         self.data = TreeData.from_array(np.asarray(self.data, dtype=self.data_dtype))
-        self.preallocate = TreeData.from_array(np.asarray(self.preallocate, dtype=self.data_dtype))
-        self.preallocate_midpoints = np.asarray(self.preallocate_midpoints, dtype=self.data_dtype)
+        self.preallocate = TreeData.from_array(
+            np.asarray(self.preallocate, dtype=self.data_dtype)
+        )
+        self.preallocate_midpoints = np.asarray(
+            self.preallocate_midpoints, dtype=self.data_dtype
+        )
         if getattr(self, "connectivity", None) is not None:
             self.connectivity = np.asarray(self.connectivity, dtype=self.index_dtype)
 

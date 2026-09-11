@@ -12,12 +12,12 @@ import pyvista as pv
 from scipy.spatial import cKDTree
 from sklearn.neighbors import BallTree
 
-from cascade.configuration.models import load_config
+from cascade.configuration.schema import load_config
 from cascade.utils.resources import resolve_domain_path
 from cascade.vessels.build import build_or_load_network
 from cascade.vessels.cache import save_network_if_requested
-from cascade._svv_domain.domain import Domain
-from cascade._svv_domain.routines.tetrahedralize import tetrahedralize
+from cascade.domain.svv import Domain
+from cascade.domain.svv.routines.tetrahedralize import tetrahedralize
 
 
 PREVIEW_TERMINAL_BUDGET = 500
@@ -46,7 +46,9 @@ def main(argv=None) -> int:
     network = raw.setdefault("network", {})
     source = str(raw.get("gui", {}).get("network_source", "svv_generated"))
     if source == "svv_generated":
-        roots = network.get("roots") or ([network["root"]] if network.get("root") else [])
+        roots = network.get("roots") or (
+            [network["root"]] if network.get("root") else []
+        )
         n_trees = max(len(roots), 1)
         final_target = int(network.get("target_terminal_count") or 1)
         sweep_targets = [
@@ -125,7 +127,9 @@ def main(argv=None) -> int:
         ends=np.concatenate(ends, axis=0) if ends else np.empty((0, 3)),
         radii=np.concatenate(radii) if radii else np.empty((0,)),
         alpha=np.concatenate(alpha) if alpha else np.empty((0,)),
-        tree_ids=np.concatenate(tree_ids) if tree_ids else np.empty((0,), dtype=np.int32),
+        tree_ids=np.concatenate(tree_ids)
+        if tree_ids
+        else np.empty((0,), dtype=np.int32),
     )
     response = {
         "seed_path": str(seed_path) if seed_path else "",
@@ -137,8 +141,12 @@ def main(argv=None) -> int:
         "requested_segments": (
             [2 * final_target + 1] * n_trees if source == "svv_generated" else totals
         ),
-        "requested_terminal_target": final_target if source == "svv_generated" else None,
-        "preview_terminal_target": preview_target if source == "svv_generated" else None,
+        "requested_terminal_target": final_target
+        if source == "svv_generated"
+        else None,
+        "preview_terminal_target": preview_target
+        if source == "svv_generated"
+        else None,
         "preview_limited": bool(
             source == "svv_generated" and preview_target < final_target
         ),
@@ -147,7 +155,9 @@ def main(argv=None) -> int:
             getattr(build.domain, "surface_repaired_for_tetgen", False)
         ),
     }
-    (output / "response.json").write_text(json.dumps(response, indent=2), encoding="utf-8")
+    (output / "response.json").write_text(
+        json.dumps(response, indent=2), encoding="utf-8"
+    )
     print(json.dumps(response), flush=True)
     return 0
 
@@ -168,7 +178,15 @@ def _fast_file_preview_domain(config):
     """Prepare uploaded surfaces for preview growth in seconds, not minutes."""
     domain_config = config.domain
     kind = str(domain_config.kind).strip().lower()
-    if kind in {"cube", "box", "rectangular", "rectangular_box", "sphere", "pv.sphere", "pyvista_sphere"}:
+    if kind in {
+        "cube",
+        "box",
+        "rectangular",
+        "rectangular_box",
+        "sphere",
+        "pv.sphere",
+        "pyvista_sphere",
+    }:
         return None
     path = resolve_domain_path(
         domain_config.path,
@@ -212,7 +230,9 @@ def _fast_file_preview_domain(config):
     domain.original_boundary = surface
     domain.boundary = boundary
     domain.boundary_nodes = np.asarray(boundary.points, dtype=np.float64)
-    domain.boundary_vertices = np.asarray(boundary.faces, dtype=np.int64).reshape(-1, 4)[:, 1:]
+    domain.boundary_vertices = np.asarray(boundary.faces, dtype=np.int64).reshape(
+        -1, 4
+    )[:, 1:]
     domain.mesh = mesh
     domain.mesh_nodes = np.asarray(nodes, dtype=np.float64)
     domain.mesh_vertices = np.asarray(vertices, dtype=np.int64)

@@ -1,3 +1,9 @@
+"""Provide forest persistence, simulation-cache, and multi-tree behavior.
+
+The mixin streams large tree payloads, restores domain/tree relationships, and
+builds compact analysis caches without retaining duplicate preallocation arrays.
+"""
+
 from __future__ import annotations
 
 import gc

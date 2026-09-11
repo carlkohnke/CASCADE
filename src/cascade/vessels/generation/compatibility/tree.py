@@ -1,3 +1,9 @@
+"""Provide incremental growth and persistence behavior required by SVV tree objects.
+
+The mixin manages capacity, repeated branch insertion, equal-terminal growth,
+serialization, and restoration of the spatial indices used during construction.
+"""
+
 from __future__ import annotations
 
 import math

@@ -1,6 +1,6 @@
 """Domain construction entry points.
 
-These constructors are directly usable without importing the legacy runtime.
+These constructors are directly usable by command-line, GUI, and library code.
 """
 
 from __future__ import annotations
@@ -11,15 +11,14 @@ import random as _py_random
 import numpy as np
 import pyvista as pv
 
-from cascade.configuration import _legacy_state as _state
-from cascade.diagnostics.runtime import _require_domain_class
+from cascade.domain.svv import Domain
 
-def build_domain_from_pyvista(mesh, *, random_seed: int = 42) -> _state.Domain:
-    _require_domain_class()
+
+def build_domain_from_pyvista(mesh, *, random_seed: int = 42) -> Domain:
     if mesh is None:
         raise ValueError("mesh is required.")
     domain_mesh = mesh.copy(deep=True) if hasattr(mesh, "copy") else mesh
-    domain = _state.Domain(domain_mesh)
+    domain = Domain(domain_mesh)
     domain.random_seed = int(random_seed)
     np.random.seed(int(domain.random_seed))
     _py_random.seed(int(domain.random_seed))
@@ -30,7 +29,9 @@ def build_domain_from_pyvista(mesh, *, random_seed: int = 42) -> _state.Domain:
     return domain
 
 
-def build_domain(side_length: float = 1.0, *, mesh=None, random_seed: int = 42) -> _state.Domain:
+def build_domain(
+    side_length: float = 1.0, *, mesh=None, random_seed: int = 42
+) -> Domain:
     if mesh is None and not isinstance(side_length, Number):
         mesh = side_length
     if mesh is not None:
@@ -42,4 +43,4 @@ def build_domain(side_length: float = 1.0, *, mesh=None, random_seed: int = 42) 
     )
 
 
-__all__ = ['build_domain_from_pyvista', 'build_domain']
+__all__ = ["build_domain_from_pyvista", "build_domain"]

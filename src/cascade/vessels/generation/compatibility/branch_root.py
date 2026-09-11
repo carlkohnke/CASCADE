@@ -1,8 +1,10 @@
+"""Create and place the root segment for an SVV vascular tree."""
+
 import numpy
 
 from svv.tree.data.data import TreeData, TreeMap
 
-from cascade._svv_domain.routines.c_sample import pick_from_tetrahedron, pick_from_triangle, pick_from_line
+from cascade.domain.svv.routines.c_sample import pick_from_tetrahedron, pick_from_triangle, pick_from_line
 from svv.tree.utils.c_basis import basis
 from svv.tree.utils.c_update import update_resistance, update_radii
 

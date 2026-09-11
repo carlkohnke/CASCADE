@@ -1,7 +1,7 @@
-"""Compatibility facade for the modular CASCADE solver.
+"""Unified runtime namespace for CASCADE's scientific solver components.
 
-New code should import from ``cascade.flow`` or ``cascade.concentration``.
-This module preserves the pre-refactor runtime surface while callers migrate.
+The module exposes subsystem functions alongside the mutable settings applied
+for a run. Focused applications can import the owning subsystem directly.
 """
 
 from __future__ import annotations
@@ -9,12 +9,13 @@ from __future__ import annotations
 from types import ModuleType as _ModuleType
 import sys as _sys
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
+import cascade.concentration.properties as _implementation_properties
 import cascade.concentration.tissue.geometry as _implementation_0
 import cascade.exporting.schema as _implementation_1
 import cascade.diagnostics.runtime as _implementation_2
 import cascade.domain.builders as _implementation_3
-import cascade.vessels.generation.legacy as _implementation_4
+import cascade.vessels.generation.tree_ops as _implementation_4
 import cascade.domain.sampling as _implementation_5
 import cascade.domain.visualization as _implementation_6
 import cascade.flow.topology as _implementation_7
@@ -47,15 +48,63 @@ import cascade.concentration.tissue.gpu as _implementation_32
 import cascade.concentration.tissue.streaming as _implementation_33
 import cascade.concentration.tissue.greens as _implementation_34
 import cascade.concentration.tissue.metrics as _implementation_35
-import cascade.exporting.quadrature as _implementation_36
+import cascade.concentration.quadrature as _implementation_36
 import cascade.exporting.visualization as _implementation_37
 import cascade.exporting.statistics as _implementation_38
 import cascade.exporting.tables as _implementation_39
 import cascade.vessels.tree_cache as _implementation_40
-import cascade.simulation.network_solver as _implementation_41
+import cascade.flow.tree as _implementation_41
+import cascade.concentration.vessel.tree as _implementation_vessel_tree
 import cascade.simulation.network as _implementation_42
 
-_IMPLEMENTATIONS = (_implementation_0, _implementation_1, _implementation_2, _implementation_3, _implementation_4, _implementation_5, _implementation_6, _implementation_7, _implementation_8, _implementation_9, _implementation_10, _implementation_11, _implementation_network, _implementation_12, _implementation_13, _implementation_14, _implementation_15, _implementation_16, _implementation_17, _implementation_18, _implementation_19, _implementation_20, _implementation_21, _implementation_22, _implementation_23, _implementation_24, _implementation_25, _implementation_26, _implementation_27, _implementation_28, _implementation_29, _implementation_30, _implementation_31, _implementation_32, _implementation_33, _implementation_34, _implementation_35, _implementation_36, _implementation_37, _implementation_38, _implementation_39, _implementation_40, _implementation_41, _implementation_42)
+_IMPLEMENTATIONS = (
+    _implementation_properties,
+    _implementation_0,
+    _implementation_1,
+    _implementation_2,
+    _implementation_3,
+    _implementation_4,
+    _implementation_5,
+    _implementation_6,
+    _implementation_7,
+    _implementation_8,
+    _implementation_9,
+    _implementation_10,
+    _implementation_11,
+    _implementation_network,
+    _implementation_12,
+    _implementation_13,
+    _implementation_14,
+    _implementation_15,
+    _implementation_16,
+    _implementation_17,
+    _implementation_18,
+    _implementation_19,
+    _implementation_20,
+    _implementation_21,
+    _implementation_22,
+    _implementation_23,
+    _implementation_24,
+    _implementation_25,
+    _implementation_26,
+    _implementation_27,
+    _implementation_28,
+    _implementation_29,
+    _implementation_30,
+    _implementation_31,
+    _implementation_32,
+    _implementation_33,
+    _implementation_34,
+    _implementation_35,
+    _implementation_36,
+    _implementation_37,
+    _implementation_38,
+    _implementation_39,
+    _implementation_40,
+    _implementation_41,
+    _implementation_vessel_tree,
+    _implementation_42,
+)
 
 for _name, _value in vars(_state).items():
     if not _name.startswith("__"):

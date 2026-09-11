@@ -1,15 +1,15 @@
-"""Hematocrit propagation, caching, and nonlinear coupling.
-"""
+"""Hematocrit propagation, caching, and nonlinear coupling."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 
 try:
     from numba import njit
 except ImportError:  # pragma: no cover - dependency validation reports this earlier
+
     def njit(*args, **kwargs):
         def decorate(func):
             return func
@@ -28,14 +28,19 @@ def _normalize_hematocrit_model(value: str | None = None) -> str:
 
 def _tube_hematocrit_from_hd_radius(radii_cm: np.ndarray, hd: np.ndarray) -> np.ndarray:
     radii_arr = np.asarray(radii_cm, dtype=float)
-    hd_arr = np.clip(np.asarray(hd, dtype=float), _state.HEMATOCRIT_MIN, _state.HEMATOCRIT_MAX)
+    hd_arr = np.clip(
+        np.asarray(hd, dtype=float), _state.HEMATOCRIT_MIN, _state.HEMATOCRIT_MAX
+    )
     d_um = 2.0 * radii_arr * 1.0e4
-    ratio = hd_arr + (1.0 - hd_arr) * (1.0 + 1.7 * np.exp(-0.415 * d_um) - 0.6 * np.exp(-0.011 * d_um))
+    ratio = hd_arr + (1.0 - hd_arr) * (
+        1.0 + 1.7 * np.exp(-0.415 * d_um) - 0.6 * np.exp(-0.011 * d_um)
+    )
     ht = hd_arr * ratio
     return np.where((radii_arr > 0.0) & np.isfinite(radii_arr), ht, 0.0)
 
 
 if _state._HAVE_NUMBA:
+
     @njit(cache=True)
     def _phase_fraction_pries_numba(
         q_frac: float,
@@ -82,7 +87,6 @@ if _state._HAVE_NUMBA:
         if y < -50.0:
             return 0.0
         return 1.0 / (1.0 + np.exp(-y))
-
 
     @njit(cache=True)
     def _propagate_hematocrit_pries_numba(
@@ -204,13 +208,19 @@ def _topdown_order_for_tree_data(
             left_child = np.asarray(children[:, 0], dtype=np.int64)
             right_child = np.asarray(children[:, 1], dtype=np.int64)
         roots = np.flatnonzero(parents < 0).astype(np.int64)
-        order_candidate, n_order = _topdown_order_from_children_numba(left_child, right_child, roots, nseg)
+        order_candidate, n_order = _topdown_order_from_children_numba(
+            left_child, right_child, roots, nseg
+        )
         if int(n_order) == nseg:
             return order_candidate, "children_dfs"
         depths = np.asarray(data[:, 26], dtype=float)
-        return np.argsort(depths, kind="mergesort").astype(np.int64, copy=False), f"depth_sort_after_children_dfs_{int(n_order)}"
+        return np.argsort(depths, kind="mergesort").astype(
+            np.int64, copy=False
+        ), f"depth_sort_after_children_dfs_{int(n_order)}"
     depths = np.asarray(data[:, 26], dtype=float)
-    return np.argsort(depths, kind="mergesort").astype(np.int64, copy=False), "depth_sort"
+    return np.argsort(depths, kind="mergesort").astype(
+        np.int64, copy=False
+    ), "depth_sort"
 
 
 def _hematocrit_context_for_tree(tree) -> dict[str, np.ndarray | str | int]:
@@ -278,14 +288,16 @@ def _get_tree_hematocrit_cache(
     try:
         if int(getattr(tree, "_hematocrit_cache_nseg", -1)) != int(nseg):
             return None
-        if getattr(tree, "_hematocrit_cache_model", None) != _normalize_hematocrit_model(model):
+        if getattr(
+            tree, "_hematocrit_cache_model", None
+        ) != _normalize_hematocrit_model(model):
             return None
         flow_id = getattr(tree, "_hematocrit_cache_flows_id", None)
         fixed_flow_bc = bool(getattr(tree, "_hematocrit_cache_fixed_flow_bc", False))
         if not fixed_flow_bc and flows is not None and flow_id != id(flows):
             return None
-        HD = np.asarray(getattr(tree, "discharge_hematocrit"), dtype=np.float32)
-        HT = np.asarray(getattr(tree, "tube_hematocrit"), dtype=np.float32)
+        HD = np.asarray(tree.discharge_hematocrit, dtype=np.float32)
+        HT = np.asarray(tree.tube_hematocrit, dtype=np.float32)
         if HD.shape[0] != nseg or HT.shape[0] != nseg:
             return None
         if not (np.all(np.isfinite(HD)) and np.all(np.isfinite(HT))):
@@ -327,9 +339,13 @@ def compute_tree_hematocrit(
             float(_state.HEMATOCRIT_MAX),
         )
     elif mode == "pries_secomb" and flows is not None and not _state._HAVE_NUMBA:
-        raise RuntimeError("Pries-Secomb hematocrit propagation requires numba in this implementation.")
+        raise RuntimeError(
+            "Pries-Secomb hematocrit propagation requires numba in this implementation."
+        )
     else:
-        HD = np.full(nseg, np.clip(hd, _state.HEMATOCRIT_MIN, _state.HEMATOCRIT_MAX), dtype=float)
+        HD = np.full(
+            nseg, np.clip(hd, _state.HEMATOCRIT_MIN, _state.HEMATOCRIT_MAX), dtype=float
+        )
 
     HT = _tube_hematocrit_from_hd_radius(radii, HD)
 
@@ -337,6 +353,7 @@ def compute_tree_hematocrit(
 
 
 if _state._HAVE_NUMBA:
+
     @njit(cache=True)
     def _topdown_order_from_children_numba(
         left_child: np.ndarray,
@@ -376,4 +393,16 @@ if _state._HAVE_NUMBA:
         return order, n_order
 
 
-__all__ = ['_normalize_hematocrit_model', '_tube_hematocrit_from_hd_radius', '_phase_fraction_pries_numba', '_propagate_hematocrit_pries_numba', '_tree_exact_connectivity', '_topdown_order_for_tree_data', '_hematocrit_context_for_tree', '_store_tree_hematocrit_cache', '_get_tree_hematocrit_cache', 'compute_tree_hematocrit', '_topdown_order_from_children_numba']
+__all__ = [
+    "_normalize_hematocrit_model",
+    "_tube_hematocrit_from_hd_radius",
+    "_phase_fraction_pries_numba",
+    "_propagate_hematocrit_pries_numba",
+    "_tree_exact_connectivity",
+    "_topdown_order_for_tree_data",
+    "_hematocrit_context_for_tree",
+    "_store_tree_hematocrit_cache",
+    "_get_tree_hematocrit_cache",
+    "compute_tree_hematocrit",
+    "_topdown_order_from_children_numba",
+]

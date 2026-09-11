@@ -1,18 +1,27 @@
-"""Main-window shell, title bar, and GUI state coordination."""
+"""Main-window shell, title bar, and GUI state coordination.
+
+The window synchronizes page models, preview workers, job queues, and result
+navigation while leaving scientific calculations to the simulation services.
+"""
 
 from __future__ import annotations
 
-from cascade.gui._common import (
-    Any,
-    CasePreview,
-    FlowBackdrop,
-    JobRunner,
-    Path,
-    QAction,
+import hashlib
+import json
+import re
+import sys
+from PySide6.QtCore import (
+    QEvent,
+    QProcess,
+    QSize,
+    QTimer,
+    Qt,
+)
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
-    QEvent,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -22,37 +31,42 @@ from cascade.gui._common import (
     QListWidgetItem,
     QMainWindow,
     QMenuBar,
-    QMessageBox,
     QPlainTextEdit,
-    QProcess,
     QPushButton,
-    QSize,
     QSpinBox,
     QSplitter,
     QStackedWidget,
-    QTimer,
     QVBoxLayout,
     QWidget,
-    Qt,
-    StatusPill,
-    Tokens,
-    _default_project_directory,
-    _workflow_icon,
-    cancel_native_pickers,
-    choose_native_path,
+)
+from cascade.gui.model import (
     create_jobs,
-    datetime,
-    deepcopy,
     default_project,
     estimate_resources,
     hardware_info,
-    hashlib,
-    json,
     load_project,
-    re,
     save_project,
-    sys,
     validate_project,
+)
+from cascade.gui.preview import (
+    CasePreview,
+    FlowBackdrop,
+)
+from cascade.gui.runner import JobRunner
+from cascade.gui.theme import Tokens
+from cascade.gui.widgets import (
+    StatusPill,
+    cancel_native_pickers,
+    choose_native_path,
+)
+from copy import deepcopy
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from cascade.gui.ui_helpers import (
+    QMessageBox,
+    _default_project_directory,
+    _workflow_icon,
 )
 
 from cascade.gui.pages.analysis import (
@@ -86,6 +100,7 @@ from cascade.gui.pages.outputs import (
 from cascade.gui.pages.overview import (
     OverviewPage,
 )
+
 
 class WindowResizeHandle(QWidget):
     """Narrow frameless-window edge that delegates resizing to the compositor."""
@@ -141,7 +156,9 @@ class WindowTitleBar(QFrame):
         row.addWidget(self.close_button)
 
     @staticmethod
-    def _control(text: str, accessible_name: str, *, close: bool = False) -> QPushButton:
+    def _control(
+        text: str, accessible_name: str, *, close: bool = False
+    ) -> QPushButton:
         button = QPushButton(text)
         button.setFixedSize(44, 30)
         button.setFocusPolicy(Qt.NoFocus)
@@ -306,9 +323,7 @@ class MainWindow(QMainWindow):
         top_row = QHBoxLayout(top)
         top_row.setContentsMargins(16, 8, 16, 8)
         self.project_label = QLabel("Unsaved project")
-        self.project_label.setStyleSheet(
-            f"font-weight:650;color:{Tokens.TEXT_2};"
-        )
+        self.project_label.setStyleSheet(f"font-weight:650;color:{Tokens.TEXT_2};")
         self.validation_pill = StatusPill("Checking…")
         self.validation_pill.setToolTip("Click to review setup issues and warnings.")
         self.validation_pill.clicked.connect(self._show_validation_details)
@@ -418,11 +433,11 @@ class MainWindow(QMainWindow):
         self.runner.running_changed.connect(self._preview_running_changed)
         self.runner.jobs_changed.connect(self._update_solver_status)
         queue.add_requested.connect(self._enqueue)
-        self.pages[2].open_physics_requested.connect(
-            lambda: self.nav.setCurrentRow(3)
-        )
+        self.pages[2].open_physics_requested.connect(lambda: self.nav.setCurrentRow(3))
         self.pages[2].source.currentIndexChanged.connect(self._network_source_changed)
-        self.pages[2].topology.currentIndexChanged.connect(self._sync_inlet_condition_count)
+        self.pages[2].topology.currentIndexChanged.connect(
+            self._sync_inlet_condition_count
+        )
         self.pages[2].inlet_count.valueChanged.connect(self._sync_inlet_condition_count)
         self.pages[2].auto_roots.toggled.connect(self._sync_inlet_condition_count)
         self.pages[2].roots.textChanged.connect(self._sync_inlet_condition_count)
@@ -501,7 +516,9 @@ class MainWindow(QMainWindow):
         display_path = self.project_path
         while display_path.suffix:
             display_path = display_path.with_suffix("")
-        saved_at = datetime.fromtimestamp(self.project_path.stat().st_mtime).astimezone()
+        saved_at = datetime.fromtimestamp(
+            self.project_path.stat().st_mtime
+        ).astimezone()
         saved_text = saved_at.strftime("%b %-d, %Y, %-I:%M %p")
         label = f"Project {display_path.name}: Last saved {saved_text}"
         self.project_label.setText(label)
@@ -531,7 +548,9 @@ class MainWindow(QMainWindow):
             self.pages[7].write(updated)
             updated.setdefault("gui", {})["viewer"] = self.preview.view_settings()
             if updated.get("gui", {}).get("network_source") == "lattice":
-                if updated.setdefault("simulation", {}).get("concentration_solver") not in {
+                if updated.setdefault("simulation", {}).get(
+                    "concentration_solver"
+                ) not in {
                     "network_ext",
                     "network",
                     "network_ext_hybrid_bg",
@@ -664,14 +683,15 @@ class MainWindow(QMainWindow):
                 "sweeps": [
                     deepcopy(sweep)
                     for sweep in gui.get("sweeps", [])
-                    if sweep.get("path")
-                    == "network.target_terminal_count"
+                    if sweep.get("path") == "network.target_terminal_count"
                 ],
             },
         }
         if gui.get("network_source") == "svv_generated":
             relevant["network"].pop("input_path", None)
-        payload = json.dumps(relevant, sort_keys=True, separators=(",", ":"), default=str)
+        payload = json.dumps(
+            relevant, sort_keys=True, separators=(",", ":"), default=str
+        )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def _start_preview_seed(self, config, signature):
@@ -684,9 +704,10 @@ class MainWindow(QMainWindow):
         if response_path.exists():
             try:
                 response = json.loads(response_path.read_text(encoding="utf-8"))
-                if Path(str(response.get("geometry_path", ""))).exists() and Path(
-                    str(response.get("seed_path", ""))
-                ).exists():
+                if (
+                    Path(str(response.get("geometry_path", ""))).exists()
+                    and Path(str(response.get("seed_path", ""))).exists()
+                ):
                     self._preview_seed_signature = signature
                     self._preview_seed_response = response
                     self._preview_failed_signature = ""
@@ -713,8 +734,8 @@ class MainWindow(QMainWindow):
         process.setWorkingDirectory(str(Path(__file__).resolve().parents[2]))
         process.readyReadStandardOutput.connect(self._preview_seed_progress)
         process.finished.connect(
-            lambda code, status, sig=signature, folder=preview_dir: self._preview_seed_finished(
-                code, sig, folder
+            lambda code, status, sig=signature, folder=preview_dir: (
+                self._preview_seed_finished(code, sig, folder)
             )
         )
         self._preview_process = process
@@ -769,9 +790,7 @@ class MainWindow(QMainWindow):
         process = self._preview_process
         if process is None:
             return
-        chunk = bytes(process.readAllStandardOutput()).decode(
-            "utf-8", errors="replace"
-        )
+        chunk = bytes(process.readAllStandardOutput()).decode("utf-8", errors="replace")
         if not chunk:
             return
         self._preview_output_buffer += chunk
@@ -847,7 +866,11 @@ class MainWindow(QMainWindow):
         for line in reversed(meaningful):
             if line.startswith(("ValueError:", "RuntimeError:")):
                 return line.split(":", 1)[1].strip()
-        return meaningful[-1][-180:] if meaningful else "The seed worker stopped unexpectedly."
+        return (
+            meaningful[-1][-180:]
+            if meaningful
+            else "The seed worker stopped unexpectedly."
+        )
 
     def _refresh_status(self):
         config = self._collect(show_error=False)

@@ -1,7 +1,7 @@
 """Tissue concentration and viability metrics.
 
 This module composes the public flow and concentration implementations without
-depending on symbols injected by the legacy TissueSim compatibility facade.
+depending on import order or implicit namespace injection.
 """
 
 from __future__ import annotations
@@ -10,11 +10,12 @@ from typing import Dict
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
-from cascade.concentration.tissue.geometry import get_concentration_inlet
+from cascade.configuration import solver_state as _state
+from cascade.concentration.properties import get_concentration_inlet
 from cascade.concentration.tissue.greens import compute_tissue_samples_greens
+from cascade.concentration.vessel.tree import solve_tree_greens
 from cascade.flow.hematocrit import _tree_exact_connectivity
-from cascade.simulation.network_solver import solve_tree_greens
+
 
 def compute_concentration_profiles(
     tree,
@@ -70,7 +71,15 @@ def compute_concentration_metrics(
     )
 
     vessel_map = getattr(tree, "vessel_map", {}) or {}
-    terminals = [idx for idx in range(cout.size) if not vessel_map.get(idx, {}).get("downstream")] if vessel_map else []
+    terminals = (
+        [
+            idx
+            for idx in range(cout.size)
+            if not vessel_map.get(idx, {}).get("downstream")
+        ]
+        if vessel_map
+        else []
+    )
     if not terminals:
         data = np.asarray(tree.data[: cout.size], dtype=float)
         conn = _tree_exact_connectivity(tree, data)
@@ -95,9 +104,20 @@ def compute_concentration_metrics(
     tissue_vals = tissue_conc[mask]
     tissue_avg = float(np.nanmean(tissue_vals)) if tissue_vals.size else float("nan")
 
-    if np.isfinite(_state.CONC_MAX_FOR_NORMALIZATION) and _state.CONC_MAX_FOR_NORMALIZATION != 0.0:
-        ratio_lq = c_lq / _state.CONC_MAX_FOR_NORMALIZATION if np.isfinite(c_lq) else float("nan")
-        ratio_tiss = tissue_avg / _state.CONC_MAX_FOR_NORMALIZATION if np.isfinite(tissue_avg) else float("nan")
+    if (
+        np.isfinite(_state.CONC_MAX_FOR_NORMALIZATION)
+        and _state.CONC_MAX_FOR_NORMALIZATION != 0.0
+    ):
+        ratio_lq = (
+            c_lq / _state.CONC_MAX_FOR_NORMALIZATION
+            if np.isfinite(c_lq)
+            else float("nan")
+        )
+        ratio_tiss = (
+            tissue_avg / _state.CONC_MAX_FOR_NORMALIZATION
+            if np.isfinite(tissue_avg)
+            else float("nan")
+        )
         fractions = {}
         if tissue_vals.size:
             normalized = tissue_vals / _state.CONC_MAX_FOR_NORMALIZATION
@@ -110,11 +130,30 @@ def compute_concentration_metrics(
             ]:
                 fractions[key] = float(np.mean(normalized >= threshold))
         else:
-            fractions = {k: float("nan") for k in ["FracAbove50pct", "FracAbove25pct", "FracAbove10pct", "FracAbove5pct", "FracAbove1pct"]}
+            fractions = {
+                k: float("nan")
+                for k in [
+                    "FracAbove50pct",
+                    "FracAbove25pct",
+                    "FracAbove10pct",
+                    "FracAbove5pct",
+                    "FracAbove1pct",
+                ]
+            }
     else:
         ratio_lq = float("nan")
         ratio_tiss = float("nan")
-        fractions = {k: float("nan") for k in ["FracAbove50pct", "FracAbove25pct", "FracAbove10pct", "FracAbove5pct", "FracAbove1pct"]}
+        fractions = {
+            k: float("nan")
+            for k in [
+                "FracAbove50pct",
+                "FracAbove25pct",
+                "FracAbove10pct",
+                "FracAbove5pct",
+                "FracAbove1pct",
+            ]
+        }
     return ratio_lq, ratio_tiss, fractions
 
-__all__ = ['compute_concentration_profiles', 'compute_concentration_metrics']
+
+__all__ = ["compute_concentration_profiles", "compute_concentration_metrics"]

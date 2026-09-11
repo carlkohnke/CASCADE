@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from cascade.gui.visualization.common import (
-    Any,
-    QApplication,
+import math
+import os
+from typing import Any
+
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import (
     QColor,
     QIcon,
     QOffscreenSurface,
@@ -12,18 +15,15 @@ from cascade.gui.visualization.common import (
     QPainter,
     QPen,
     QPixmap,
-    QPointF,
     QPolygonF,
     QSurfaceFormat,
-    QWidget,
-    Qt,
-    math,
-    os,
 )
+from PySide6.QtWidgets import QApplication, QWidget
 
 from cascade.gui.visualization.canvas import (
     GeometryCanvas,
 )
+
 
 def _preview_tree_count(config: dict[str, Any], inlet_points=None) -> int:
     network = config.get("network", {})
@@ -82,7 +82,9 @@ def _home_icon() -> QIcon:
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.setPen(QPen(QColor("#E6E8EE"), 1.9, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    painter.setPen(
+        QPen(QColor("#E6E8EE"), 1.9, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    )
     painter.setBrush(Qt.NoBrush)
     painter.drawPolyline(
         QPolygonF([QPointF(4.0, 11.0), QPointF(12.0, 4.2), QPointF(20.0, 11.0)])
@@ -164,6 +166,12 @@ def _opengl_33_available() -> bool:
     return supported
 
 
-
-
-__all__ = ('_preview_tree_count', '_count_status', '_seed_count_status', '_home_icon', '_settings_icon', '_create_geometry_canvas', '_opengl_33_available')
+__all__ = (
+    "_preview_tree_count",
+    "_count_status",
+    "_seed_count_status",
+    "_home_icon",
+    "_settings_icon",
+    "_create_geometry_canvas",
+    "_opengl_33_available",
+)

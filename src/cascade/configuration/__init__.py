@@ -1,14 +1,17 @@
 """Typed configuration models and runtime bridges."""
 
-from cascade.core.lazy import resolve_export
+from cascade.utils.lazy import resolve_export
 
 _EXPORTS = {
-    "RunConfig": ("cascade.configuration.models", "RunConfig"),
+    "RunConfig": ("cascade.configuration.schema", "RunConfig"),
     "RuntimeConfiguration": ("cascade.configuration.runtime", "RuntimeConfiguration"),
-    "apply_runtime_settings": ("cascade.configuration.bridge", "apply_runtime_settings"),
-    "load_config": ("cascade.configuration.models", "load_config"),
+    "apply_runtime_settings": (
+        "cascade.configuration.bridge",
+        "apply_runtime_settings",
+    ),
+    "load_config": ("cascade.configuration.schema", "load_config"),
     "load_runtime_module": ("cascade.configuration.bridge", "load_runtime_module"),
-    "parse_config": ("cascade.configuration.models", "parse_config"),
+    "parse_config": ("cascade.configuration.schema", "parse_config"),
 }
 __all__ = sorted(_EXPORTS)
 

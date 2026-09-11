@@ -1,6 +1,6 @@
 """CSV, VTK, manifest, and scientific-report output."""
 
-from cascade.core.lazy import resolve_export
+from cascade.utils.lazy import resolve_export
 
 _EXPORTS = {
     "export_run": ("cascade.exporting.run", "export_run"),

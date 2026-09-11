@@ -121,7 +121,9 @@ def generate_lattice(
         outlet_anchors = list(outlet_nodes)
         outlet_connections = 0
     if set(inlet_anchors) & set(outlet_anchors):
-        raise ValueError("an inlet and outlet snapped to the same retained lattice node")
+        raise ValueError(
+            "an inlet and outlet snapped to the same retained lattice node"
+        )
     nodes, edge_nodes, inlet_nodes, outlet_nodes = _keep_flow_components(
         nodes, edge_nodes, inlet_nodes, outlet_nodes
     )
@@ -342,7 +344,9 @@ def _attach_boundary_points(
     for raw in points:
         point = np.asarray(raw, dtype=float)
         if point.shape != (3,) or not np.isfinite(point).all():
-            raise ValueError("each inlet/outlet location must contain three finite coordinates")
+            raise ValueError(
+                "each inlet/outlet location must contain three finite coordinates"
+            )
         anchor = int(np.argmin(np.sum((base - point) ** 2, axis=1)))
         if float(np.linalg.norm(base[anchor] - point)) <= tolerance:
             boundary = anchor
@@ -361,9 +365,7 @@ def _attach_boundary_points(
             else:
                 boundary = len(node_list)
                 node_list.append(point.copy())
-                edge = (
-                    (boundary, anchor) if boundary_first else (anchor, boundary)
-                )
+                edge = (boundary, anchor) if boundary_first else (anchor, boundary)
                 edge_list.append(edge)
                 added += 1
         if boundary not in boundary_nodes:
@@ -396,9 +398,13 @@ def _subdivide(nodes, edges, subdivisions):
 
 def _clip_to_domain(nodes, edges, node_inside):
     try:
-        inside = np.asarray(node_inside(np.asarray(nodes, dtype=float)), dtype=bool).reshape(-1)
+        inside = np.asarray(
+            node_inside(np.asarray(nodes, dtype=float)), dtype=bool
+        ).reshape(-1)
     except Exception as exc:
-        raise ValueError(f"could not evaluate lattice nodes against the domain: {exc}") from exc
+        raise ValueError(
+            f"could not evaluate lattice nodes against the domain: {exc}"
+        ) from exc
     if inside.size != nodes.shape[0]:
         raise ValueError(
             f"domain containment returned {inside.size} values for {nodes.shape[0]} lattice nodes"

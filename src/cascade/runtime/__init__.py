@@ -1,4 +1,4 @@
-"""Compatibility access to legacy runtime modules.
+"""Runtime access to the unified TissueSim namespace.
 
 Scientific APIs live in their named subsystem packages. TissueSim remains
 lazy so importing a low-level solver never initializes the full engine.

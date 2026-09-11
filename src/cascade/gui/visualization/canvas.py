@@ -2,6 +2,21 @@
 
 from __future__ import annotations
 
+import math
+import os
+
+import numpy as np
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QColor,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
+)
+from PySide6.QtWidgets import QSizePolicy, QWidget
+
 from cascade.gui.visualization.fields import (
     _legend_tick_values,
     _line_array,
@@ -13,26 +28,8 @@ from cascade.gui.visualization.fields import (
     _values,
 )
 
-from cascade.gui.visualization.common import (
-    QColor,
-    QLinearGradient,
-    QPainter,
-    QPainterPath,
-    QPen,
-    QPoint,
-    QPointF,
-    QPolygonF,
-    QRectF,
-    QSizePolicy,
-    QTimer,
-    QWidget,
-    Qt,
-    Signal,
-    _MAP_STOPS,
-    math,
-    np,
-    os,
-)
+from cascade.gui.visualization.palette import _MAP_STOPS
+
 
 class FlowBackdrop(QWidget):
     """Dark application surface with restrained animated data-flow edges."""
@@ -248,14 +245,14 @@ class GeometryCanvas(QWidget):
     def _orbit(self, horizontal: float, vertical: float) -> None:
         """Orbit around the current screen axes without Euler-angle poles."""
         self._rotation = (
-            self._rotation_x(vertical)
-            @ self._rotation_y(horizontal)
-            @ self._rotation
+            self._rotation_x(vertical) @ self._rotation_y(horizontal) @ self._rotation
         )
 
     def set_domain_mode(self, mode: str) -> None:
         value = str(mode).lower()
-        self.domain_mode = value if value in {"none", "surface", "wireframe"} else "wireframe"
+        self.domain_mode = (
+            value if value in {"none", "surface", "wireframe"} else "wireframe"
+        )
         self.update()
 
     def _fit_bounds(self) -> None:
@@ -290,8 +287,10 @@ class GeometryCanvas(QWidget):
         perspective = 1.0 / np.clip(1.55 - 0.42 * depth, 0.75, 2.2)
         scale = min(self.width(), self.height()) * self._zoom
         screen = np.column_stack(
-            (self.width() * 0.5 + x * scale * perspective,
-             self.height() * 0.5 - y * scale * perspective)
+            (
+                self.width() * 0.5 + x * scale * perspective,
+                self.height() * 0.5 - y * scale * perspective,
+            )
         )
         return screen, depth
 
@@ -373,12 +372,18 @@ class GeometryCanvas(QWidget):
                 kind, j = int(kinds[scene_item]), int(indices[scene_item])
                 if kind == 0:
                     amount = float(triangle_light[j])
-                    painter.setBrush(QColor(
-                        int(104 + 35 * amount), int(48 + 22 * amount),
-                        int(164 + 45 * amount), int(34 + 18 * amount),
-                    ))
+                    painter.setBrush(
+                        QColor(
+                            int(104 + 35 * amount),
+                            int(48 + 22 * amount),
+                            int(164 + 45 * amount),
+                            int(34 + 18 * amount),
+                        )
+                    )
                     painter.setPen(QPen(QColor(205, 126, 244, 68), 0.65))
-                    painter.drawPolygon(QPolygonF([QPointF(*point) for point in triangles[j]]))
+                    painter.drawPolygon(
+                        QPolygonF([QPointF(*point) for point in triangles[j]])
+                    )
                 elif kind == 1:
                     painter.setPen(QPen(QColor(190, 100, 238, 210), 1.3))
                     painter.drawLine(
@@ -395,20 +400,26 @@ class GeometryCanvas(QWidget):
                     painter.setPen(
                         QPen(color, float(radius_widths[j]), Qt.SolidLine, Qt.RoundCap)
                     )
-                    painter.drawLine(QPointF(*vessel_starts[j]), QPointF(*vessel_ends[j]))
+                    painter.drawLine(
+                        QPointF(*vessel_starts[j]), QPointF(*vessel_ends[j])
+                    )
 
         if 0 <= self._selected_tissue < len(self.tissue_points):
-            selected, _ = self._project(self.tissue_points[self._selected_tissue : self._selected_tissue + 1])
-            painter.setPen(QPen(QColor(246, 184, 74, 235), 7.0, Qt.SolidLine, Qt.RoundCap))
+            selected, _ = self._project(
+                self.tissue_points[self._selected_tissue : self._selected_tissue + 1]
+            )
+            painter.setPen(
+                QPen(QColor(246, 184, 74, 235), 7.0, Qt.SolidLine, Qt.RoundCap)
+            )
             painter.drawPoint(QPointF(*selected[0]))
         if 0 <= self._selected_vessel < len(vessel_starts):
             j = self._selected_vessel
-            painter.setPen(QPen(QColor(246, 184, 74, 225), 3.0, Qt.SolidLine, Qt.RoundCap))
+            painter.setPen(
+                QPen(QColor(246, 184, 74, 225), 3.0, Qt.SolidLine, Qt.RoundCap)
+            )
             painter.drawLine(QPointF(*vessel_starts[j]), QPointF(*vessel_ends[j]))
 
-        self._draw_boundary_points(
-            painter, self.inlet_points, QColor("#6FE3BC"), "IN"
-        )
+        self._draw_boundary_points(painter, self.inlet_points, QColor("#6FE3BC"), "IN")
         self._draw_boundary_points(
             painter, self.outlet_points, QColor("#FF9D78"), "OUT"
         )
@@ -437,7 +448,9 @@ class GeometryCanvas(QWidget):
         ):
             self._draw_vascular_motif(painter)
             painter.setPen(QColor("#B9BBC3"))
-            painter.drawText(self.rect(), Qt.AlignCenter | Qt.TextWordWrap, self.message)
+            painter.drawText(
+                self.rect(), Qt.AlignCenter | Qt.TextWordWrap, self.message
+            )
 
         if self._has_geometry():
             self._draw_scale_bar(painter)
@@ -457,11 +470,14 @@ class GeometryCanvas(QWidget):
             color_index = np.zeros(len(screen_points), dtype=np.int16)
         else:
             normalized = np.nan_to_num(
-                np.asarray(normalized_values, dtype=float), nan=0.0, posinf=1.0, neginf=0.0
+                np.asarray(normalized_values, dtype=float),
+                nan=0.0,
+                posinf=1.0,
+                neginf=0.0,
             )
-            color_index = np.rint(np.clip(normalized, 0.0, 1.0) * (color_bins - 1)).astype(
-                np.int16
-            )
+            color_index = np.rint(
+                np.clip(normalized, 0.0, 1.0) * (color_bins - 1)
+            ).astype(np.int16)
         opacity = np.clip(
             self.tissue_opacity * np.asarray(self.tissue_alpha, dtype=float), 0.0, 1.0
         )
@@ -497,7 +513,9 @@ class GeometryCanvas(QWidget):
         # Five labelled ticks make the scale useful at a glance. Keep both
         # legends apart on narrow preview panes rather than letting labels
         # collide in the middle.
-        width = max(180.0, min(340.0, (float(self.width()) - 2.0 * margin - 40.0) / 2.0))
+        width = max(
+            180.0, min(340.0, (float(self.width()) - 2.0 * margin - 40.0) / 2.0)
+        )
         height = 12.0
         left = margin if side == "left" else float(self.width()) - width - margin
         painter.save()
@@ -525,7 +543,9 @@ class GeometryCanvas(QWidget):
         for index, value in enumerate(tick_values):
             fraction = index / max(len(tick_values) - 1, 1)
             x = left + width * fraction
-            painter.drawLine(QPointF(x, bar_top + height), QPointF(x, bar_top + height + 4.0))
+            painter.drawLine(
+                QPointF(x, bar_top + height), QPointF(x, bar_top + height + 4.0)
+            )
             tick_text = _scientific(value)
             text_width = float(metrics.horizontalAdvance(tick_text))
             text_left = min(max(x - text_width / 2.0, left), left + width - text_width)
@@ -575,7 +595,9 @@ class GeometryCanvas(QWidget):
         font = painter.font()
         font.setPixelSize(11)
         painter.setFont(font)
-        painter.setPen(QPen(QColor(224, 226, 232, 220), 1.4, Qt.SolidLine, Qt.SquareCap))
+        painter.setPen(
+            QPen(QColor(224, 226, 232, 220), 1.4, Qt.SolidLine, Qt.SquareCap)
+        )
         painter.drawLine(QPointF(left, baseline), QPointF(right, baseline))
         painter.drawLine(QPointF(left, baseline - 4), QPointF(left, baseline + 4))
         painter.drawLine(QPointF(right, baseline - 4), QPointF(right, baseline + 4))
@@ -598,10 +620,7 @@ class GeometryCanvas(QWidget):
         ratio = np.clip(np.nan_to_num(radii / reference, nan=0.0), 0.0, 1.0)
         screen_scale = max(min(self.width(), self.height()) * self._zoom, 1.0)
         physical_diameter = (
-            2.0
-            * np.maximum(radii, 0.0)
-            * screen_scale
-            / max(self._span, 1e-12)
+            2.0 * np.maximum(radii, 0.0) * screen_scale / max(self._span, 1e-12)
         )
         widths = 0.75 + physical_diameter + 0.55 * np.sqrt(ratio)
         return np.clip(np.nan_to_num(widths, nan=0.8), 0.8, 12.0)
@@ -641,11 +660,11 @@ class GeometryCanvas(QWidget):
         painter.save()
         painter.setPen(QPen(QColor(106, 56, 194, 34), 1.0, Qt.SolidLine, Qt.RoundCap))
         paths = (
-            ((.08, .78), (.24, .70), (.31, .55), (.45, .50)),
-            ((.30, .57), (.38, .43), (.52, .40), (.64, .25)),
-            ((.43, .50), (.54, .57), (.67, .55), (.80, .67)),
-            ((.52, .40), (.60, .31), (.70, .30), (.83, .18)),
-            ((.65, .55), (.73, .47), (.80, .46), (.91, .36)),
+            ((0.08, 0.78), (0.24, 0.70), (0.31, 0.55), (0.45, 0.50)),
+            ((0.30, 0.57), (0.38, 0.43), (0.52, 0.40), (0.64, 0.25)),
+            ((0.43, 0.50), (0.54, 0.57), (0.67, 0.55), (0.80, 0.67)),
+            ((0.52, 0.40), (0.60, 0.31), (0.70, 0.30), (0.83, 0.18)),
+            ((0.65, 0.55), (0.73, 0.47), (0.80, 0.46), (0.91, 0.36)),
         )
         for start, control_a, control_b, end in paths:
             path = QPainterPath(QPointF(start[0] * w, start[1] * h))
@@ -693,7 +712,11 @@ class GeometryCanvas(QWidget):
             distances = np.linalg.norm(projection - click, axis=1)
             index = int(np.argmin(distances))
             if float(distances[index]) < best_distance:
-                best_kind, best_index, best_distance = "vessel", index, float(distances[index])
+                best_kind, best_index, best_distance = (
+                    "vessel",
+                    index,
+                    float(distances[index]),
+                )
         if self.tissue_points.size:
             ids = np.arange(len(self.tissue_points), dtype=int)
             screen, _ = self._project(self.tissue_points[ids])
@@ -710,10 +733,10 @@ class GeometryCanvas(QWidget):
         )
 
     def wheelEvent(self, event) -> None:
-        self._zoom = float(np.clip(self._zoom * np.exp(event.angleDelta().y() / 1100.0), 0.18, 4.0))
+        self._zoom = float(
+            np.clip(self._zoom * np.exp(event.angleDelta().y() / 1100.0), 0.18, 4.0)
+        )
         self.update()
 
 
-
-
-__all__ = ('FlowBackdrop', '_FlowEdge', 'GeometryCanvas')
+__all__ = ("FlowBackdrop", "_FlowEdge", "GeometryCanvas")

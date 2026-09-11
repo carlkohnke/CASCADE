@@ -1,6 +1,6 @@
 """Streaming tissue Green's-function workers.
 
-These workers are deliberately independent of the legacy TissueSim facade so
+These workers use explicit dependencies so
 they can be used safely by serial and multiprocessing execution paths.
 """
 
@@ -15,7 +15,10 @@ from cascade.concentration.tissue.geometry import (
     _prepare_tissue_geometry_from_context,
 )
 
-def _process_cext_tissue_chunk(start_idx: int, end_idx: int, data: dict) -> tuple[int, np.ndarray]:
+
+def _process_cext_tissue_chunk(
+    start_idx: int, end_idx: int, data: dict
+) -> tuple[int, np.ndarray]:
     points_si = data["points_si"]
     nearest_idx = data["nearest_idx"]
     keep_mask = data["keep_mask"]
@@ -55,7 +58,9 @@ def _process_cext_tissue_chunk(start_idx: int, end_idx: int, data: dict) -> tupl
                 r = float(np.linalg.norm(point - source_point))
                 if r <= 1e-12 or r > window_factor * source_lambda:
                     continue
-                kernel = math.exp(-r / source_lambda) / (4.0 * math.pi * diffusivity_si * r)
+                kernel = math.exp(-r / source_lambda) / (
+                    4.0 * math.pi * diffusivity_si * r
+                )
                 q = float(q_weighted_gl[source_seg, source_node])
                 o2_weight = 0.0
                 if mono2_weight_gl is not None:
@@ -72,8 +77,10 @@ def _process_cext_tissue_chunk(start_idx: int, end_idx: int, data: dict) -> tupl
                         mu2 = min((tdotr * tdotr) / max(r * r, 1e-30), 1.0)
                         inv_r = 1.0 / r
                         inv_l = 1.0 / source_lambda
-                        pH = ((1.0 - 3.0 * mu2) * (inv_r * inv_r + inv_l * inv_r)
-                              + (1.0 - mu2) * inv_l * inv_l) * kernel
+                        pH = (
+                            (1.0 - 3.0 * mu2) * (inv_r * inv_r + inv_l * inv_r)
+                            + (1.0 - mu2) * inv_l * inv_l
+                        ) * kernel
                         total += o2_weight * pH
                 seg_contributed = True
             if seg_contributed:
@@ -86,7 +93,9 @@ def _process_cext_tissue_chunk(start_idx: int, end_idx: int, data: dict) -> tupl
     return start_idx, out
 
 
-def _compute_cext_streaming_tissue_chunk(task: tuple[int, int, int, dict]) -> tuple[int, int, int, np.ndarray, np.ndarray, int, int]:
+def _compute_cext_streaming_tissue_chunk(
+    task: tuple[int, int, int, dict],
+) -> tuple[int, int, int, np.ndarray, np.ndarray, int, int]:
     chunk_i, start_idx, end_idx, state = task
     chunk_cache = _prepare_tissue_geometry_from_context(
         state["points"][start_idx:end_idx],
@@ -95,7 +104,9 @@ def _compute_cext_streaming_tissue_chunk(task: tuple[int, int, int, dict]) -> tu
     )
     before_candidates = int(np.count_nonzero(chunk_cache["nearest_idx"] >= 0))
     if state["prune_by_window"]:
-        chunk_cache = _compact_tissue_cache_by_influence(chunk_cache, state["influence_radius"])
+        chunk_cache = _compact_tissue_cache_by_influence(
+            chunk_cache, state["influence_radius"]
+        )
     after_candidates = int(np.count_nonzero(chunk_cache["nearest_idx"] >= 0))
     worker_data = {
         "points_si": chunk_cache["points_si"],
@@ -114,7 +125,15 @@ def _compute_cext_streaming_tissue_chunk(task: tuple[int, int, int, dict]) -> tu
     }
     _, out = _process_cext_tissue_chunk(0, end_idx - start_idx, worker_data)
     keep_mask = np.asarray(chunk_cache["keep_mask"], dtype=bool)
-    return chunk_i, start_idx, end_idx, keep_mask, np.asarray(out, dtype=float), before_candidates, after_candidates
+    return (
+        chunk_i,
+        start_idx,
+        end_idx,
+        keep_mask,
+        np.asarray(out, dtype=float),
+        before_candidates,
+        after_candidates,
+    )
 
 
-__all__ = ['_process_cext_tissue_chunk', '_compute_cext_streaming_tissue_chunk']
+__all__ = ["_process_cext_tissue_chunk", "_compute_cext_streaming_tissue_chunk"]

@@ -31,9 +31,8 @@ repository root. The codebase itself begins at `src/cascade/`.
 
 | Package | Responsibility |
 | --- | --- |
-| `cascade.configuration` | Validated run models, immutable runtime settings, and the temporary legacy-state bridge |
-| `cascade.core` | Typed problem/result contracts and package infrastructure |
-| `cascade.domain` | Domain construction, file-backed geometry, grids, and point sampling |
+| `cascade.configuration` | Typed run models, parsing/validation, examples, immutable runtime configuration, nested solver-setting sections, and the temporary legacy-state bridge |
+| `cascade.domain` | Domain construction, SVV-compatible geometry implementation, file-backed geometry, grids, and point sampling |
 | `cascade.vessels` | Simple/lattice geometry, connectivity, growth, caching, target allocation, and vessel result contracts |
 | `cascade.vessels.generation` | Public `svv` adapter and isolated compatibility implementations |
 | `cascade.flow` | Topology, Kirchhoff pressure/flow solving, viscosity, rheology, and hematocrit |
@@ -44,13 +43,14 @@ repository root. The codebase itself begins at `src/cascade/`.
 | `cascade.simulation` | End-to-end network/forest execution, sweeps, interventions, and result aggregation |
 | `cascade.gui` | GUI pages, window coordination, preview geometry, rendering, workers, and widgets |
 | `cascade.commands` | Thin command-line parsing and dispatch |
-| `cascade.accelerators` | GPU availability and backend selection |
-| `cascade.diagnostics` | Installation and runtime diagnostics |
-| `cascade.validation` | Bounded installed-package smoke validation |
-| `cascade.utils` | Execution guards and packaged-resource resolution |
+| `cascade.accelerators` | GPU availability, backend selection, and packaged CUDA kernels |
+| `cascade.diagnostics` | Installation/runtime diagnostics and the bounded installed-package self-test |
+| `cascade.utils` | Generic execution, hashing, lazy-export, and packaged-resource helpers |
 | `cascade.assets` | Packaged domains, vascular seeds, and immutable numerical tables |
 
-The package root intentionally contains only `cascade/__init__.py`; application
+The package root intentionally contains only `cascade/__init__.py` plus a
+private `_svv_domain.py` compatibility bridge for loading historical domain
+objects. The implementation itself lives in `cascade.domain.svv`; application
 modules live in the package that owns their behavior.
 
 Within `cascade.concentration.vessel`, `network.py` owns the arbitrary-network
@@ -62,31 +62,35 @@ Within `cascade.flow`, `kirchhoff.py` owns backend-independent orchestration
 and the tree-specialized solve, while `linear_system.py` owns sparse/dense
 matrix assembly, conditioning diagnostics, and linear-solver dispatch.
 
+The scientific subsystems are peers rather than children of `simulation`.
+`cascade.simulation` conducts them; it does not own their implementations.
+Its `network.py` adapts trees and arbitrary graphs to those subsystem APIs,
+while `simple.py` performs the same orchestration for channels, lattices, and
+custom segment networks. Their geometry remains under `cascade.vessels`.
+
 ## Numerical boundaries
 
 The solver passes explicit typed inputs and results at its public boundaries:
 `FlowProblem`, `FlowResult`, `VesselConcentrationProblem`,
 `VesselConcentrationResult`, `TissueOxygenProblem`, and `TissueOxygenResult`.
-These contracts validate array shape, topology, and physical scalar inputs
-before numerical work begins.
+Each contract lives beside the subsystem that owns it and validates array
+shape, topology, and physical scalar inputs before numerical work begins.
 
 The finite-radius Green's-function kernels load a versioned Bessel table from
 `cascade.assets.numerics`. Its `K1/K0` values are generated with exponentially
 scaled Bessel functions so the ratio remains stable at large arguments. The
-Graetz closure likewise loads precomputed 8-radial-node, 4-mode bases for plug
-and Poiseuille profiles over `1e-8 <= Bi <= 1e6`, with 128 samples per decade.
-These are fixed release assets, not per-run caches or user-selectable
-discretizations; corrupt or missing assets fail immediately with a diagnostic.
+Graetz closure loads precomputed 8-radial-node, 4-mode bases for plug and
+Poiseuille profiles over `1e-8 <= Bi <= 1e6`, with 128 samples per decade. The
+reference-compatible 6-node, 3-mode, 16-sample profile remains packaged and
+selectable for reproducing the locked validation campaigns. These are fixed
+release assets, not per-run caches; unsupported discretizations and corrupt or
+missing assets fail immediately with a diagnostic.
 
-The former TissueSim implementation is decomposed across the flow,
-concentration, domain, exporting, simulation, and diagnostic packages.
-`cascade.runtime.tissuesim` is now a small compatibility facade for existing
-callers and frozen validation workflows. It is not the owner of the numerical
-implementation. Its mutable state is isolated in
-`cascade.configuration._legacy_state`; new application code should use typed
-configuration and subsystem entry points. The facade and state bridge are
-transitional and should be removed after downstream callers have migrated and
-the final parity campaign passes.
+`cascade.runtime.tissuesim` provides a unified runtime namespace, while each
+numerical implementation lives in its owning flow, concentration, domain, or
+simulation package. Mutable settings are centralized in
+`cascade.configuration.solver_state`; typed configuration and subsystem entry
+points are preferred for focused library integrations.
 
 Anatomical heart forests, generated forests, single trees, lattices, channels,
 and custom networks all use `cascade run`. Shared multi-network Cext lives under

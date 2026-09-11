@@ -1,11 +1,10 @@
-"""Typed-to-legacy runtime configuration bridge."""
+"""Apply typed run configuration to the shared scientific solver state."""
 
 from __future__ import annotations
 
-from cascade.vessels._build_common import (
-    RunConfig,
-    RuntimeConfiguration,
-)
+from cascade.configuration.schema import RunConfig
+from cascade.configuration.runtime import RuntimeConfiguration
+
 
 def load_runtime_module():
     from cascade.runtime import tissuesim as ts
@@ -22,6 +21,4 @@ def apply_runtime_settings(ts, config: RunConfig) -> None:
         print(f"Warning: {warning}", flush=True)
 
 
-
-
-__all__ = ('load_runtime_module', 'apply_runtime_settings')
+__all__ = ("load_runtime_module", "apply_runtime_settings")

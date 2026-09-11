@@ -1,3 +1,5 @@
+"""Discover available CPU/GPU capabilities and select the requested execution backend."""
+
 from __future__ import annotations
 
 import ctypes
@@ -94,7 +96,11 @@ def preload_cuda_component_libraries() -> tuple[str, ...]:
     # nvJitLink must be globally visible before cuFFT is loaded.
     for library_name in ("libnvJitLink.so.13", "libcufft.so.12"):
         library_path = next(
-            (directory / library_name for directory in directories if (directory / library_name).is_file()),
+            (
+                directory / library_name
+                for directory in directories
+                if (directory / library_name).is_file()
+            ),
             None,
         )
         if library_path is None:
@@ -102,7 +108,9 @@ def preload_cuda_component_libraries() -> tuple[str, ...]:
         try:
             ctypes.CDLL(str(library_path), mode=ctypes.RTLD_GLOBAL)
         except OSError as exc:
-            raise RuntimeError(f"Could not load CUDA component library {library_path}: {exc}") from exc
+            raise RuntimeError(
+                f"Could not load CUDA component library {library_path}: {exc}"
+            ) from exc
     return tuple(str(path) for path in directories)
 
 
@@ -117,9 +125,9 @@ def gpu_requested(config: Any) -> bool:
     cext = settings.get("cext", {})
     tissue = settings.get("tissue", {})
     cext_mode = str(cext.get("accel_mode", "gpu")).strip().lower()
-    tissue_mode = str(
-        simulation.tissue_accel or tissue.get("accel_mode", "gpu")
-    ).strip().lower()
+    tissue_mode = (
+        str(simulation.tissue_accel or tissue.get("accel_mode", "gpu")).strip().lower()
+    )
 
     if solver in {
         "network_ext",
@@ -165,11 +173,16 @@ def probe_gpu_runtime(*, timeout_s: float = 30.0) -> GpuProbeResult:
             if source_config.is_file():
                 try:
                     candidates.append(
-                        Path(source_config.read_text(encoding="utf-8").strip()).expanduser()
+                        Path(
+                            source_config.read_text(encoding="utf-8").strip()
+                        ).expanduser()
                     )
                 except OSError:
                     pass
-        candidates.extend(Path(value) for value in ("/usr/local/cuda", "/usr/local/cuda-13", "/usr/local/cuda-12"))
+        candidates.extend(
+            Path(value)
+            for value in ("/usr/local/cuda", "/usr/local/cuda-13", "/usr/local/cuda-12")
+        )
         for candidate in candidates:
             if (candidate / "include" / "cuda_fp16.h").is_file():
                 probe_env["CUDA_PATH"] = str(candidate)

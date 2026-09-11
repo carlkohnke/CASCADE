@@ -1,35 +1,46 @@
-"""Flow and oxygen physics configuration page."""
+"""Flow and oxygen physics configuration page.
+
+The page maps physical boundary conditions, fluid properties, inlet values,
+hematocrit, and tissue-consumption choices to validated configuration fields.
+"""
 
 from __future__ import annotations
 
-from cascade.gui._common import (
-    ALPHA_MMHG,
-    Banner,
-    Card,
+from PySide6.QtWidgets import (
     QCheckBox,
     QLineEdit,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
+)
+from cascade.gui.model import (
+    ALPHA_MMHG,
+    flow_from_ul_min,
+    flow_to_ul_min,
+    oxygen_from_concentration,
+    oxygen_to_concentration,
+    pressure_from_pa,
+    pressure_to_pa,
+)
+from cascade.gui.widgets import (
+    Banner,
+    Card,
     UnitValue,
+    labeled,
+    row_of,
+)
+from cascade.gui.ui_helpers import (
     _combo,
     _concentration_unit,
     _double,
     _set_combo,
     _value,
-    flow_from_ul_min,
-    flow_to_ul_min,
-    labeled,
-    oxygen_from_concentration,
-    oxygen_to_concentration,
-    pressure_from_pa,
-    pressure_to_pa,
-    row_of,
 )
 
 from cascade.gui.pages.base import (
     Page,
 )
+
 
 class PhysicsPage(Page):
     def __init__(self, parent=None):
@@ -80,7 +91,9 @@ class PhysicsPage(Page):
             "Inlet-specific conditions",
             "Use different boundary conditions for each tree in a forest.",
         )
-        self.use_inlet_conditions = QCheckBox("Set conditions separately for each inlet")
+        self.use_inlet_conditions = QCheckBox(
+            "Set conditions separately for each inlet"
+        )
         self.inlet_selector = _combo([])
         self.inlet_condition_stack = QStackedWidget()
         self._inlet_widgets: list[dict[str, UnitValue]] = []
@@ -92,9 +105,7 @@ class PhysicsPage(Page):
         self.inlet_selector.currentIndexChanged.connect(
             self.inlet_condition_stack.setCurrentIndex
         )
-        self.use_inlet_conditions.toggled.connect(
-            self.inlet_condition_stack.setEnabled
-        )
+        self.use_inlet_conditions.toggled.connect(self.inlet_condition_stack.setEnabled)
         self.use_inlet_conditions.toggled.connect(self.inlet_selector.setEnabled)
         self.use_inlet_conditions.toggled.connect(lambda *_: self.changed.emit())
         self.inlet_card.setVisible(False)
@@ -164,8 +175,8 @@ class PhysicsPage(Page):
             row_of(
                 labeled("Discharge hematocrit", self.hematocrit, important=True),
                 labeled(
-                "Hemoglobin O₂ capacity per Hct",
-                self.hb_capacity,
+                    "Hemoglobin O₂ capacity per Hct",
+                    self.hb_capacity,
                     "Oxygen-carrying capacity normalized by hematocrit.",
                 ),
             )
@@ -289,9 +300,17 @@ class PhysicsPage(Page):
             fields["inlet_o2"], oxygen_to_concentration, oxygen_from_concentration
         )
         layout.addWidget(labeled("Inlet flow", fields["flow"], important=True))
-        layout.addWidget(labeled("Inlet pressure", fields["inlet_pressure"], important=True))
-        layout.addWidget(labeled("Outlet / reference pressure", fields["outlet_pressure"], important=True))
-        layout.addWidget(labeled("Inlet concentration", fields["inlet_o2"], important=True))
+        layout.addWidget(
+            labeled("Inlet pressure", fields["inlet_pressure"], important=True)
+        )
+        layout.addWidget(
+            labeled(
+                "Outlet / reference pressure", fields["outlet_pressure"], important=True
+            )
+        )
+        layout.addWidget(
+            labeled("Inlet concentration", fields["inlet_o2"], important=True)
+        )
         for widget in fields.values():
             widget.valueChanged.connect(lambda *_: self.changed.emit())
             widget.unitChanged.connect(lambda *_: self.changed.emit())
@@ -303,12 +322,16 @@ class PhysicsPage(Page):
         for fields in self._inlet_widgets:
             conditions.append(
                 {
-                    "flow_ul_min": flow_to_ul_min(fields["flow"].value(), fields["flow"].unit()),
+                    "flow_ul_min": flow_to_ul_min(
+                        fields["flow"].value(), fields["flow"].unit()
+                    ),
                     "inlet_pressure_pa": pressure_to_pa(
-                        fields["inlet_pressure"].value(), fields["inlet_pressure"].unit()
+                        fields["inlet_pressure"].value(),
+                        fields["inlet_pressure"].unit(),
                     ),
                     "outlet_pressure_pa": pressure_to_pa(
-                        fields["outlet_pressure"].value(), fields["outlet_pressure"].unit()
+                        fields["outlet_pressure"].value(),
+                        fields["outlet_pressure"].unit(),
                     ),
                     "inlet_concentration_mmol_l": oxygen_to_concentration(
                         fields["inlet_o2"].value(), fields["inlet_o2"].unit()
@@ -349,13 +372,21 @@ class PhysicsPage(Page):
     @staticmethod
     def _set_inlet_condition(fields, condition) -> None:
         fields["flow"].setValue(
-            flow_from_ul_min(float(condition.get("flow_ul_min", 100.0)), fields["flow"].unit())
+            flow_from_ul_min(
+                float(condition.get("flow_ul_min", 100.0)), fields["flow"].unit()
+            )
         )
         fields["inlet_pressure"].setValue(
-            pressure_from_pa(float(condition.get("inlet_pressure_pa", 66661.0)), fields["inlet_pressure"].unit())
+            pressure_from_pa(
+                float(condition.get("inlet_pressure_pa", 66661.0)),
+                fields["inlet_pressure"].unit(),
+            )
         )
         fields["outlet_pressure"].setValue(
-            pressure_from_pa(float(condition.get("outlet_pressure_pa", 40000.0)), fields["outlet_pressure"].unit())
+            pressure_from_pa(
+                float(condition.get("outlet_pressure_pa", 40000.0)),
+                fields["outlet_pressure"].unit(),
+            )
         )
         fields["inlet_o2"].setValue(
             oxygen_from_concentration(
@@ -433,9 +464,13 @@ class PhysicsPage(Page):
         self.viability_enabled.setChecked(threshold is not None)
         self.viability.setUnit(_concentration_unit(gui.get("viability_unit", "mmHg")))
         self.viability.setValue(
-            oxygen_from_concentration(float(threshold or ALPHA_MMHG), self.viability.unit())
+            oxygen_from_concentration(
+                float(threshold or ALPHA_MMHG), self.viability.unit()
+            )
         )
-        conditions = list(config.get("simulation", {}).get("inlet_conditions", []) or [])
+        conditions = list(
+            config.get("simulation", {}).get("inlet_conditions", []) or []
+        )
         self.set_inlet_count(max(1, len(conditions)))
         self.use_inlet_conditions.setChecked(bool(conditions))
         for fields, condition in zip(self._inlet_widgets, conditions):
@@ -517,6 +552,4 @@ class PhysicsPage(Page):
         )
 
 
-
-
-__all__ = ('PhysicsPage',)
+__all__ = ("PhysicsPage",)

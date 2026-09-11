@@ -14,6 +14,7 @@ _EXPORTS = {
     "severinghaus_dSdP": (".greens", "severinghaus_dSdP"),
     "severinghaus_saturation": (".greens", "severinghaus_saturation"),
     "solve_network_concentrations": (".network", "solve_network_concentrations"),
+    "solve_tree_greens": (".tree", "solve_tree_greens"),
 }
 
 __all__ = list(_EXPORTS)

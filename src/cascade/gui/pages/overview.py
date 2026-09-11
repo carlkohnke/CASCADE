@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-from cascade.gui._common import (
-    Card,
+from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QLabel,
     QLineEdit,
     QVBoxLayout,
     QWidget,
-    Tokens,
-    human_bytes,
+)
+from cascade.gui.model import human_bytes
+from cascade.gui.theme import Tokens
+from cascade.gui.widgets import (
+    Card,
     labeled,
 )
 
 from cascade.gui.pages.base import (
     Page,
 )
+
 
 class OverviewPage(Page):
     def __init__(self, hardware, parent=None):
@@ -88,6 +91,4 @@ class OverviewPage(Page):
         )
 
 
-
-
-__all__ = ('OverviewPage',)
+__all__ = ("OverviewPage",)

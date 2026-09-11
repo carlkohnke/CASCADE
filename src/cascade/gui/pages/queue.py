@@ -2,37 +2,48 @@
 
 from __future__ import annotations
 
-from cascade.gui._common import (
-    Card,
-    FocusPlainTextEdit,
-    JobRunner,
-    Path,
+from PySide6.QtCore import (
+    QSize,
+    QTimer,
+    Qt,
+    Signal,
+)
+from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QProgressBar,
     QPushButton,
-    QSize,
     QTableWidget,
     QTableWidgetItem,
-    QTimer,
     QVBoxLayout,
     QWidget,
-    Qt,
-    Signal,
-    Tokens,
-    _queue_action_icon,
-    datetime,
+)
+from cascade.gui.model import (
     open_folder,
     open_path,
+)
+from cascade.gui.runner import JobRunner
+from cascade.gui.theme import Tokens
+from cascade.gui.widgets import (
+    Card,
+    FocusPlainTextEdit,
+)
+from datetime import (
+    datetime,
     timezone,
+)
+from pathlib import Path
+from cascade.gui.ui_helpers import (
+    QMessageBox,
+    _queue_action_icon,
 )
 
 from cascade.gui.pages.base import (
     Page,
 )
+
 
 class QueuePage(Page):
     add_requested = Signal(bool)
@@ -251,7 +262,11 @@ class QueuePage(Page):
         try:
             start = datetime.fromisoformat(str(started))
             finished = getattr(job, "finished_at", None)
-            end = datetime.fromisoformat(str(finished)) if finished else datetime.now(timezone.utc)
+            end = (
+                datetime.fromisoformat(str(finished))
+                if finished
+                else datetime.now(timezone.utc)
+            )
             if start.tzinfo is None:
                 start = start.replace(tzinfo=timezone.utc)
             if end.tzinfo is None:
@@ -368,6 +383,4 @@ class QueuePage(Page):
             self._show_selected_log()
 
 
-
-
-__all__ = ('QueuePage',)
+__all__ = ("QueuePage",)

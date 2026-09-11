@@ -1,3 +1,5 @@
+"""Repair and validate parent/child connectivity in vascular trees."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -11,10 +13,17 @@ def repair_tree_parent_columns(tree: Any) -> int:
         return 0
     data = np.asarray(tree.data[:seg_count])
     index_dtype = getattr(tree, "index_dtype", np.int64)
-    conn = np.nan_to_num(data[:, 15:18], nan=-1.0).astype(index_dtype)
+    exact_connectivity = getattr(tree, "connectivity", None)
+    if (
+        exact_connectivity is not None
+        and np.asarray(exact_connectivity).shape == (seg_count, 3)
+    ):
+        conn = np.asarray(exact_connectivity, dtype=index_dtype).copy()
+    else:
+        conn = np.nan_to_num(data[:, 15:18], nan=-1.0).astype(index_dtype)
 
     child_conn = conn[:, 0:2]
-    child_conn[data[:, 15:17] < 0] = -1
+    child_conn[child_conn < 0] = -1
     conn[:, 0:2] = child_conn
 
     rows = np.arange(seg_count, dtype=np.int64)
@@ -29,23 +38,32 @@ def repair_tree_parent_columns(tree: Any) -> int:
         max_child = int(valid_children.max())
         if max_child >= seg_count:
             row = int(rows[valid][int(np.argmax(valid_children))])
-            raise RuntimeError(f"Connectivity child index out of range: row={row} child={max_child}")
+            raise RuntimeError(
+                f"Connectivity child index out of range: row={row} child={max_child}"
+            )
         np.add.at(child_counts, valid_children, 1)
         parent[valid_children] = rows[valid]
     duplicate_children = np.flatnonzero(child_counts > 1)
     if duplicate_children.size:
-        raise RuntimeError(f"Connectivity has duplicate child references: {duplicate_children[:5].tolist()}")
+        raise RuntimeError(
+            f"Connectivity has duplicate child references: {duplicate_children[:5].tolist()}"
+        )
 
     changed = conn[:, 2].astype(np.int64, copy=False) != parent
     n_changed = int(np.count_nonzero(changed))
     conn[:, 2] = parent.astype(conn.dtype, copy=False)
     data_conn = conn.astype(float)
     data_conn[data_conn < 0] = np.nan
-    tree.data[:seg_count, 15:18] = data_conn.astype(np.asarray(tree.data).dtype, copy=False)
-    try:
-        tree.preallocate[:seg_count, 15:18] = data_conn.astype(np.asarray(tree.preallocate).dtype, copy=False)
-    except Exception:
-        pass
+    data_dtype = np.asarray(tree.data).dtype
+    can_embed_exactly = data_dtype == np.dtype(np.float64) or seg_count <= 2**24
+    if can_embed_exactly:
+        tree.data[:seg_count, 15:18] = data_conn.astype(data_dtype, copy=False)
+        try:
+            tree.preallocate[:seg_count, 15:18] = data_conn.astype(
+                np.asarray(tree.preallocate).dtype, copy=False
+            )
+        except Exception:
+            pass
     tree.connectivity = conn.astype(index_dtype, copy=False)
     return n_changed
 
@@ -58,8 +76,22 @@ def connectivity_report(tree: Any, *, geometry_atol: float = 1.0e-6) -> dict[str
     n = int(getattr(tree, "segment_count", 0) or 0)
     data = np.asarray(tree.data[:n])
     if n == 0:
-        return {"segments": 0, "roots": [], "reachable": 0, "bad_parent": 0, "bad_child": 0, "bad_geom": 0}
-    conn = np.nan_to_num(data[:, 15:18], nan=-1).astype(int)
+        return {
+            "segments": 0,
+            "roots": [],
+            "reachable": 0,
+            "bad_parent": 0,
+            "bad_child": 0,
+            "bad_geom": 0,
+        }
+    exact_connectivity = getattr(tree, "connectivity", None)
+    if (
+        exact_connectivity is not None
+        and np.asarray(exact_connectivity).shape == (n, 3)
+    ):
+        conn = np.asarray(exact_connectivity, dtype=np.int64)
+    else:
+        conn = np.nan_to_num(data[:, 15:18], nan=-1).astype(np.int64)
     roots = np.flatnonzero(conn[:, 2] < 0)
     row_ids = np.arange(n, dtype=np.int64)
 
@@ -92,7 +124,8 @@ def connectivity_report(tree: Any, *, geometry_atol: float = 1.0e-6) -> dict[str
         child_links_back = conn[child_ids, 2] == parent_rows
         bad_child += int(np.count_nonzero(~child_links_back))
         geom_ok = np.all(
-            np.abs(data[parent_rows, 3:6] - data[child_ids, 0:3]) <= float(geometry_atol),
+            np.abs(data[parent_rows, 3:6] - data[child_ids, 0:3])
+            <= float(geometry_atol),
             axis=1,
         )
         bad_geom += int(np.count_nonzero(child_links_back & ~geom_ok))
@@ -108,7 +141,9 @@ def connectivity_report(tree: Any, *, geometry_atol: float = 1.0e-6) -> dict[str
     }
 
 
-def validate_trees(trees: list[Any], *, fail: bool, geometry_atol: float) -> list[dict[str, Any]]:
+def validate_trees(
+    trees: list[Any], *, fail: bool, geometry_atol: float
+) -> list[dict[str, Any]]:
     reports = []
     for tree_id, tree in enumerate(trees):
         report = connectivity_report(tree, geometry_atol=float(geometry_atol))
@@ -122,7 +157,9 @@ def validate_trees(trees: list[Any], *, fail: bool, geometry_atol: float) -> lis
             or int(report["bad_geom"]) > 0
         )
         if fail and bad:
-            raise RuntimeError(f"Connectivity validation failed for tree {tree_id}: {report}")
+            raise RuntimeError(
+                f"Connectivity validation failed for tree {tree_id}: {report}"
+            )
     return reports
 
 

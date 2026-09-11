@@ -1,42 +1,22 @@
-# This module centralizes optional-runtime capability detection; many imports
-# therefore appear unused within this file itself.
-# ruff: noqa: F401
 """Optional scientific-runtime and hardware capability detection.
 
-Scientific modules import ordinary dependencies directly. The central legacy
-settings bridge imports only the capability flags and optional runtime handles
+Scientific modules import ordinary dependencies directly. The shared solver
+state imports only the capability flags and optional runtime handles
 defined here so availability is detected once per process.
 """
+
 from __future__ import annotations
 
-import argparse
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import csv
-import hashlib
-import math
 import os
-import json
+from importlib import import_module
 from pathlib import Path
 import sys
-import threading
-from time import perf_counter
-import time
-import traceback
-import cProfile
-import pstats
-import random as _py_random
-
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
-
-import numpy as np
-import pyvista as pv
-from numbers import Number
-
-from cascade.runtime.cuda import load_cuda_source
 
 try:
-    from vtkmodules.vtkCommonCore import vtkLogger as _vtkLogger, vtkObject as _vtkObject
+    from vtkmodules.vtkCommonCore import (
+        vtkLogger as _vtkLogger,
+        vtkObject as _vtkObject,
+    )
 except Exception:  # pragma: no cover
     _vtkLogger = None
     _vtkObject = None
@@ -49,37 +29,33 @@ else:
         pass
 
 try:
-    profile
-except NameError:  # pragma: no cover
-    def profile(func):
-        return func
-
-try:
-    from scipy.special import k0 as _bessel_k0, k1 as _bessel_k1, kve as _bessel_kve
+    import_module("scipy")
     _HAVE_SCIPY = True
 except Exception:  # pragma: no cover
     _HAVE_SCIPY = False
 try:
-    import scipy.sparse as _sp
-    import scipy.sparse.linalg as _splinalg
-    import scipy.linalg as _scipy_linalg
+    import_module("scipy.sparse")
+    import_module("scipy.sparse.linalg")
+    _scipy_linalg = import_module("scipy.linalg")
     _HAVE_SCIPY_SPARSE = True
 except Exception:  # pragma: no cover
     _scipy_linalg = None
     _HAVE_SCIPY_SPARSE = False
 try:
-    from scipy.spatial import cKDTree as _cKDTree
+    import_module("scipy.spatial")
     _HAVE_SCIPY_SPATIAL = True
 except Exception:  # pragma: no cover
     _HAVE_SCIPY_SPATIAL = False
 try:
     from scipy import ndimage as _scipy_ndimage
+
     _HAVE_SCIPY_NDIMAGE = True
 except Exception:  # pragma: no cover
     _scipy_ndimage = None
     _HAVE_SCIPY_NDIMAGE = False
 try:
-    from numba import get_num_threads, njit, prange, set_num_threads
+    from numba import get_num_threads, set_num_threads
+
     _HAVE_NUMBA = True
 except Exception:  # pragma: no cover
     _HAVE_NUMBA = False
@@ -87,6 +63,7 @@ except Exception:  # pragma: no cover
     set_num_threads = None  # type: ignore[assignment]
 
 _compute_cext_batch_numba = None
+
 
 def _configure_cupy_cuda_path() -> None:
     """Point CuPy/NVRTC at conda-installed CUDA headers when available."""
@@ -116,7 +93,10 @@ def _configure_cupy_cuda_path() -> None:
                 configured = None
             if configured is not None:
                 candidates.append(configured)
-    candidates.extend(Path(path) for path in ("/usr/local/cuda", "/usr/local/cuda-13", "/usr/local/cuda-12"))
+    candidates.extend(
+        Path(path)
+        for path in ("/usr/local/cuda", "/usr/local/cuda-13", "/usr/local/cuda-12")
+    )
     for target in candidates:
         if (target / "include" / "cuda_fp16.h").exists():
             os.environ["CUDA_PATH"] = str(target)
@@ -126,13 +106,15 @@ def _configure_cupy_cuda_path() -> None:
 _configure_cupy_cuda_path()
 try:
     import cupy as _cp
+
     _HAVE_CUPY = True
 except Exception:  # pragma: no cover
     _cp = None  # type: ignore[assignment]
     _HAVE_CUPY = False
 
 try:
-    from cascade.vessels.generation.svv_adapter import Domain, Tree
+    from cascade.domain.svv import Domain
+    from cascade.vessels.generation.svv_adapter import Tree
 except ModuleNotFoundError as exc:  # pragma: no cover
     _IMPORT_ERROR = exc
     Domain = None  # type: ignore[assignment]
@@ -141,4 +123,20 @@ else:
     _IMPORT_ERROR = None
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "Domain",
+    "Tree",
+    "_HAVE_CUPY",
+    "_HAVE_NUMBA",
+    "_HAVE_SCIPY",
+    "_HAVE_SCIPY_NDIMAGE",
+    "_HAVE_SCIPY_SPARSE",
+    "_HAVE_SCIPY_SPATIAL",
+    "_IMPORT_ERROR",
+    "_compute_cext_batch_numba",
+    "_cp",
+    "_scipy_linalg",
+    "_scipy_ndimage",
+    "get_num_threads",
+    "set_num_threads",
+]

@@ -8,5 +8,5 @@ recursive-include src/cascade/gui/native *.cs
 recursive-include src/cascade/gui/shaders *.frag *.vert
 recursive-include src/cascade/assets/domains *.stl
 recursive-include src/cascade/assets/numerics *.npz
-recursive-include src/cascade/runtime/cuda *.cu *.cuh
+recursive-include src/cascade/accelerators/cuda *.cu *.cuh
 global-exclude *.py[cod] __pycache__

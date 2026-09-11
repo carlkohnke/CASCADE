@@ -1,5 +1,4 @@
-"""Vessel concentration backend selection.
-"""
+"""Vessel concentration backend selection."""
 
 from __future__ import annotations
 
@@ -7,8 +6,10 @@ from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
-from cascade.concentration.external_field.diagnostics import _default_cext_timing_details
+from cascade.configuration import solver_state as _state
+from cascade.concentration.external_field.diagnostics import (
+    _default_cext_timing_details,
+)
 from cascade.concentration.external_field.hybrid_coupled_solver import (
     _solve_channel_concentrations_topdown_ext_hybrid_bg,
 )
@@ -28,9 +29,19 @@ def _resolve_concentration_solver(value: str | None) -> str:
     if value is None:
         value = _state.CONCENTRATION_SOLVER
     mode = str(value).strip().lower()
-    if mode in ("topdown", "network", "network_ext", "topdown_ext", "topdown_ext_hybrid_bg", "network_ext_hybrid_bg", "topdown_ext_treecode"):
+    if mode in (
+        "topdown",
+        "network",
+        "network_ext",
+        "topdown_ext",
+        "topdown_ext_hybrid_bg",
+        "network_ext_hybrid_bg",
+        "topdown_ext_treecode",
+    ):
         return mode
-    raise ValueError("concentration solver must be 'topdown', 'network', 'network_ext', 'topdown_ext', 'topdown_ext_hybrid_bg', 'network_ext_hybrid_bg', or 'topdown_ext_treecode'.")
+    raise ValueError(
+        "concentration solver must be 'topdown', 'network', 'network_ext', 'topdown_ext', 'topdown_ext_hybrid_bg', 'network_ext_hybrid_bg', or 'topdown_ext_treecode'."
+    )
 
 
 def _solve_channel_concentrations(
@@ -53,7 +64,7 @@ def _solve_channel_concentrations(
     solver: str | None = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     mode = _resolve_concentration_solver(solver)
-    # Mutable runtime state is centralized in configuration._legacy_state.
+    # Mutable runtime state is centralized in configuration.solver_state.
     _state._LAST_CONCENTRATION_TIMINGS = _default_cext_timing_details()
     _state._LAST_CEXT_SOURCE_STATE = None
     if mode == "topdown":
@@ -102,7 +113,9 @@ def _solve_channel_concentrations(
                 "prox_ids": np.asarray(prox_ids, dtype=np.int64),
                 "dist_ids": np.asarray(dist_ids, dtype=np.int64),
                 "inlet_nodes": tuple(int(node) for node in inlet_nodes),
-                "outlet_nodes": None if outlet_nodes is None else tuple(int(node) for node in outlet_nodes),
+                "outlet_nodes": None
+                if outlet_nodes is None
+                else tuple(int(node) for node in outlet_nodes),
             },
         )
     if mode == "topdown_ext_hybrid_bg":
@@ -141,7 +154,9 @@ def _solve_channel_concentrations(
                 "prox_ids": np.asarray(prox_ids, dtype=np.int64),
                 "dist_ids": np.asarray(dist_ids, dtype=np.int64),
                 "inlet_nodes": tuple(int(node) for node in inlet_nodes),
-                "outlet_nodes": None if outlet_nodes is None else tuple(int(node) for node in outlet_nodes),
+                "outlet_nodes": None
+                if outlet_nodes is None
+                else tuple(int(node) for node in outlet_nodes),
             },
         )
     if mode == "topdown_ext_treecode":
@@ -177,4 +192,4 @@ def _solve_channel_concentrations(
     return cin, cout
 
 
-__all__ = ['_resolve_concentration_solver', '_solve_channel_concentrations']
+__all__ = ["_resolve_concentration_solver", "_solve_channel_concentrations"]

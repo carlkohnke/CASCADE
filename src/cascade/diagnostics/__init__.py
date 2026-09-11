@@ -1,6 +1,6 @@
 """Environment inspection and runtime diagnostics."""
 
-from cascade.core.lazy import resolve_export
+from cascade.utils.lazy import resolve_export
 
 _EXPORTS = {
     "collect_diagnostics": ("cascade.diagnostics.environment", "collect_diagnostics"),

@@ -1,8 +1,8 @@
 """Sparse and tree-specialized Kirchhoff pressure-flow solvers.
 
-The numerical implementations retain legacy configuration defaults for older
-callers, while the public ``solve_flow`` API supplies solver and boundary-mode
-choices explicitly.
+The numerical implementations accept defaults from the active run state, while
+the public ``solve_flow`` API can supply solver and boundary-mode choices
+explicitly.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import Sequence, Tuple
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 
 from .linear_system import (
     _fixed_terminal_flows_numba,
@@ -22,7 +22,7 @@ from .linear_system import (
     _solve_kirchhoff_sparse,
     solve_kirchhoff_dirichlet,
 )
-from .topology import _build_node_indices, _normalize_kirchhoff_bc_mode
+from .topology import _normalize_kirchhoff_bc_mode
 
 
 def _kirchhoff_rhs_anchor_and_root(
@@ -46,9 +46,8 @@ def _kirchhoff_rhs_anchor_and_root(
         rhs[outlet_arr] -= outlet_share
 
     anchor = max(num_nodes - 1, 0)
-    if (
-        (inlet_arr.size and bool(np.any(inlet_arr == anchor)))
-        or (outlet_arr.size and bool(np.any(outlet_arr == anchor)))
+    if (inlet_arr.size and bool(np.any(inlet_arr == anchor))) or (
+        outlet_arr.size and bool(np.any(outlet_arr == anchor))
     ):
         anchor = max(num_nodes - 2, 0)
     return rhs, root_node, anchor
@@ -61,8 +60,12 @@ def _kirchhoff_residual_norms(
     rhs: np.ndarray,
     num_nodes: int,
 ) -> tuple[float, float]:
-    balance = np.bincount(prox_ids, weights=flows, minlength=num_nodes).astype(float, copy=False)
-    balance -= np.bincount(dist_ids, weights=flows, minlength=num_nodes).astype(float, copy=False)
+    balance = np.bincount(prox_ids, weights=flows, minlength=num_nodes).astype(
+        float, copy=False
+    )
+    balance -= np.bincount(dist_ids, weights=flows, minlength=num_nodes).astype(
+        float, copy=False
+    )
     resid = balance - rhs
     abs_norm = float(np.linalg.norm(resid))
     rhs_norm = float(np.linalg.norm(rhs))
@@ -82,7 +85,9 @@ def solve_kirchhoff_tree(
     boundary_condition: str | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if not _state._HAVE_NUMBA:
-        raise RuntimeError("Tree Kirchhoff solver requires numba; use a sparse Kirchhoff solver instead.")
+        raise RuntimeError(
+            "Tree Kirchhoff solver requires numba; use a sparse Kirchhoff solver instead."
+        )
 
     prox_ids = np.asarray(prox_ids, dtype=np.int64).reshape(-1)
     dist_ids = np.asarray(dist_ids, dtype=np.int64).reshape(-1)
@@ -110,19 +115,23 @@ def solve_kirchhoff_tree(
             outlet_arr,
         )
         rhs_diag = rhs
-        pressures, flows, n_flow_nodes, n_pressure_nodes = _kirchhoff_tree_neumann_numba(
-            prox_ids,
-            dist_ids,
-            np.maximum(resistances, 1e-30),
-            rhs,
-            int(root_node),
-            int(anchor),
-            int(num_nodes),
+        pressures, flows, n_flow_nodes, n_pressure_nodes = (
+            _kirchhoff_tree_neumann_numba(
+                prox_ids,
+                dist_ids,
+                np.maximum(resistances, 1e-30),
+                rhs,
+                int(root_node),
+                int(anchor),
+                int(num_nodes),
+            )
         )
         solver_used = "tree_neumann"
     else:
         if outlet_arr.size == 0:
-            raise ValueError("At least one terminal pressure node is required for the mixed tree Kirchhoff solve.")
+            raise ValueError(
+                "At least one terminal pressure node is required for the mixed tree Kirchhoff solve."
+            )
         pressures, flows, n_flow_nodes, n_pressure_nodes = _kirchhoff_tree_mixed_numba(
             prox_ids,
             dist_ids,
@@ -144,11 +153,17 @@ def solve_kirchhoff_tree(
             f"flow_nodes={n_flow_nodes}/{num_nodes} pressure_nodes={n_pressure_nodes}/{num_nodes}"
         )
     if not np.all(np.isfinite(pressures)) or not np.all(np.isfinite(flows)):
-        raise RuntimeError("Tree Kirchhoff solver produced non-finite pressures or flows.")
+        raise RuntimeError(
+            "Tree Kirchhoff solver produced non-finite pressures or flows."
+        )
 
     if _state.KIRCHHOFF_DIAGNOSTICS:
-        balance = np.bincount(prox_ids, weights=flows, minlength=int(num_nodes)).astype(float, copy=False)
-        balance -= np.bincount(dist_ids, weights=flows, minlength=int(num_nodes)).astype(float, copy=False)
+        balance = np.bincount(prox_ids, weights=flows, minlength=int(num_nodes)).astype(
+            float, copy=False
+        )
+        balance -= np.bincount(
+            dist_ids, weights=flows, minlength=int(num_nodes)
+        ).astype(float, copy=False)
         if bc_mode == "legacy_equal_terminal_flow":
             check_mask = np.ones(int(num_nodes), dtype=bool)
         else:
@@ -156,7 +171,11 @@ def solve_kirchhoff_tree(
             check_mask[outlet_arr] = False
         resid = balance[check_mask] - rhs_diag[check_mask]
         rhs_norm = float(np.linalg.norm(rhs_diag[check_mask]))
-        rel_resid = float(np.linalg.norm(resid) / rhs_norm) if rhs_norm > 0.0 else float(np.linalg.norm(resid))
+        rel_resid = (
+            float(np.linalg.norm(resid) / rhs_norm)
+            if rhs_norm > 0.0
+            else float(np.linalg.norm(resid))
+        )
         print(
             f"Kirchhoff diagnostics: solver_used={solver_used} "
             f"bc={bc_mode} solve_time={solve_s:.3f}s true_rel_resid={rel_resid:.3e}"
@@ -166,7 +185,9 @@ def solve_kirchhoff_tree(
 
 
 def _relative_l2(a: np.ndarray, b: np.ndarray) -> float:
-    diff = np.asarray(a, dtype=float).reshape(-1) - np.asarray(b, dtype=float).reshape(-1)
+    diff = np.asarray(a, dtype=float).reshape(-1) - np.asarray(b, dtype=float).reshape(
+        -1
+    )
     denom = float(np.linalg.norm(np.asarray(b, dtype=float).reshape(-1)))
     num = float(np.linalg.norm(diff))
     return num / denom if denom > 0.0 else num
@@ -216,8 +237,12 @@ def solve_kirchhoff(
             p_sparse, q_sparse = sparse_result[0], sparse_result[1]
             pressure_rel_l2 = _relative_l2(p_tree, p_sparse)
             flow_rel_l2 = _relative_l2(q_tree, q_sparse)
-            pressure_max_abs = float(np.max(np.abs(p_tree - p_sparse))) if p_tree.size else 0.0
-            flow_max_abs = float(np.max(np.abs(q_tree - q_sparse))) if q_tree.size else 0.0
+            pressure_max_abs = (
+                float(np.max(np.abs(p_tree - p_sparse))) if p_tree.size else 0.0
+            )
+            flow_max_abs = (
+                float(np.max(np.abs(q_tree - q_sparse))) if q_tree.size else 0.0
+            )
             speedup = t_sparse / max(t_tree, 1e-30)
             print(
                 "Kirchhoff tree validation: "
@@ -240,6 +265,16 @@ def solve_kirchhoff(
     )
 
 
-
-
-__all__ = ['_solve_kirchhoff_sparse', '_fixed_terminal_flows_numba', '_pressures_from_tree_flows_numba', '_kirchhoff_tree_neumann_numba', '_kirchhoff_tree_mixed_numba', '_kirchhoff_rhs_anchor_and_root', '_kirchhoff_residual_norms', 'solve_kirchhoff_tree', '_relative_l2', 'solve_kirchhoff', 'solve_kirchhoff_dirichlet']
+__all__ = [
+    "_solve_kirchhoff_sparse",
+    "_fixed_terminal_flows_numba",
+    "_pressures_from_tree_flows_numba",
+    "_kirchhoff_tree_neumann_numba",
+    "_kirchhoff_tree_mixed_numba",
+    "_kirchhoff_rhs_anchor_and_root",
+    "_kirchhoff_residual_norms",
+    "solve_kirchhoff_tree",
+    "_relative_l2",
+    "solve_kirchhoff",
+    "solve_kirchhoff_dirichlet",
+]

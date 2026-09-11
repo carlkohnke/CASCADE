@@ -1,14 +1,16 @@
+"""Build deterministic line, lattice, and custom-graph vessel geometries without solving them."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 import csv
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 
-from cascade.configuration.models import RunConfig, _reject_unknown
+from cascade.configuration.parsing import reject_unknown
+from cascade.configuration.schema import RunConfig
 from .lattice import LATTICE_TYPES, generate_lattice
 
 
@@ -39,18 +41,53 @@ class SimpleNetwork:
 
 
 def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
+    """Build a deterministic vessel graph from the configured simple geometry.
+
+    Line and lattice modes synthesize nodes and edges; custom mode validates the
+    supplied graph. Domain clipping and connectivity repair happen here, while
+    flow and concentration are deferred to ``simulation.simple``.
+    """
+
     raw = dict(config.network.simple or {})
-    _reject_unknown(
+    reject_unknown(
         raw,
         {
-            "mode", "channel_mode", "axis", "channel_axis", "radius_cm", "channel_radius_cm",
-            "z_from_bottom_cm", "channel_z_from_bottom_cm", "flow_ul_min", "qin_ul_min",
-            "concentration_inlet", "conc_inlet", "solve_channels_separately", "edge_extension_frac",
-            "edge_channel_extension_frac", "y_offsets_cm", "channel_y_offsets_cm", "snake_arc_segments",
-            "snake_straight_segments", "lattice_type", "cells", "cells_per_axis", "inlet_points_cm",
-            "outlet_points_cm", "radius_expression", "subdivisions", "segment_subdivisions",
-            "diffusivity", "vmax", "km", "omega", "window_factor",
-            "path", "geometry_path", "inlet_nodes", "outlet_nodes",
+            "mode",
+            "channel_mode",
+            "axis",
+            "channel_axis",
+            "radius_cm",
+            "channel_radius_cm",
+            "z_from_bottom_cm",
+            "channel_z_from_bottom_cm",
+            "flow_ul_min",
+            "qin_ul_min",
+            "concentration_inlet",
+            "conc_inlet",
+            "solve_channels_separately",
+            "edge_extension_frac",
+            "edge_channel_extension_frac",
+            "y_offsets_cm",
+            "channel_y_offsets_cm",
+            "snake_arc_segments",
+            "snake_straight_segments",
+            "lattice_type",
+            "cells",
+            "cells_per_axis",
+            "inlet_points_cm",
+            "outlet_points_cm",
+            "radius_expression",
+            "subdivisions",
+            "segment_subdivisions",
+            "diffusivity",
+            "vmax",
+            "km",
+            "omega",
+            "window_factor",
+            "path",
+            "geometry_path",
+            "inlet_nodes",
+            "outlet_nodes",
         },
         "network.simple",
     )
@@ -60,12 +97,22 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
     mode = str(raw.get("mode", raw.get("channel_mode", "onechannel"))).strip().lower()
     axis = str(raw.get("axis", raw.get("channel_axis", "x"))).strip().lower()
     radius = float(raw.get("radius_cm", raw.get("channel_radius_cm", 0.015)))
-    z_from_bottom = float(raw.get("z_from_bottom_cm", raw.get("channel_z_from_bottom_cm", dims[2] * 0.5)))
-    flow_ul_min = float(raw.get("flow_ul_min", raw.get("qin_ul_min", config.simulation.qin_target_ul_min)))
-    inlet_conc = float(raw.get("concentration_inlet", raw.get("conc_inlet", ts.get_concentration_inlet(config.simulation.fluid))))
+    z_from_bottom = float(
+        raw.get("z_from_bottom_cm", raw.get("channel_z_from_bottom_cm", dims[2] * 0.5))
+    )
+    flow_ul_min = float(
+        raw.get(
+            "flow_ul_min", raw.get("qin_ul_min", config.simulation.qin_target_ul_min)
+        )
+    )
+    configured_inlet_conc = raw.get("concentration_inlet", raw.get("conc_inlet"))
     solve_separate = _as_bool(raw.get("solve_channels_separately"), True)
-    edge_extension_frac = float(raw.get("edge_extension_frac", raw.get("edge_channel_extension_frac", 0.0)))
-    y_offsets = raw.get("y_offsets_cm", raw.get("channel_y_offsets_cm", [-0.2, 0.0, 0.2]))
+    edge_extension_frac = float(
+        raw.get("edge_extension_frac", raw.get("edge_channel_extension_frac", 0.0))
+    )
+    y_offsets = raw.get(
+        "y_offsets_cm", raw.get("channel_y_offsets_cm", [-0.2, 0.0, 0.2])
+    )
     snake_arc_segments = int(raw.get("snake_arc_segments", 5))
     snake_straight_segments = int(raw.get("snake_straight_segments", 5))
 
@@ -75,15 +122,19 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
     if mode == "custom":
         geometry_path = raw.get("path", raw.get("geometry_path"))
         if not geometry_path:
-            raise ValueError("network.simple.path is required for custom geometry mode.")
+            raise ValueError(
+                "network.simple.path is required for custom geometry mode."
+            )
         path = Path(str(geometry_path)).expanduser()
         if not path.is_absolute() and config.settings_path is not None:
             path = config.settings_path.parent / path
-        starts, ends, radii, lengths, inlet_nodes, outlet_nodes, prox_ids, dist_ids = _load_custom_geometry(
-            path.resolve(),
-            default_radius_cm=radius,
-            inlet_nodes=raw.get("inlet_nodes"),
-            outlet_nodes=raw.get("outlet_nodes"),
+        starts, ends, radii, lengths, inlet_nodes, outlet_nodes, prox_ids, dist_ids = (
+            _load_custom_geometry(
+                path.resolve(),
+                default_radius_cm=radius,
+                inlet_nodes=raw.get("inlet_nodes"),
+                outlet_nodes=raw.get("outlet_nodes"),
+            )
         )
         solve_separate = False
     elif is_lattice:
@@ -96,7 +147,9 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
             inlet_points_cm=raw.get("inlet_points_cm"),
             outlet_points_cm=raw.get("outlet_points_cm"),
             radius_expression=raw.get("radius_expression"),
-            subdivisions=int(raw.get("subdivisions", raw.get("segment_subdivisions", 1))),
+            subdivisions=int(
+                raw.get("subdivisions", raw.get("segment_subdivisions", 1))
+            ),
             center_cm=domain_center,
             node_inside=domain.within,
         )
@@ -119,24 +172,25 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
             "outlet_points_cm": np.asarray(lattice["outlet_points_cm"]).tolist(),
             "inlet_connection_count": int(lattice["inlet_connection_count"]),
             "outlet_connection_count": int(lattice["outlet_connection_count"]),
-            "bounding_box_center_cm": np.asarray(lattice["bounding_box_center_cm"]).tolist(),
+            "bounding_box_center_cm": np.asarray(
+                lattice["bounding_box_center_cm"]
+            ).tolist(),
             "nodes_removed_by_domain": int(lattice["nodes_removed_by_domain"]),
             "edges_removed_by_domain": int(lattice["edges_removed_by_domain"]),
         }
-        if str(getattr(ts, "KIRCHHOFF_SOLVER", "tree")).strip().lower().startswith("tree"):
-            print("Lattice graph selected: switching Kirchhoff solver from tree to spsolve.", flush=True)
-            ts.KIRCHHOFF_SOLVER = "spsolve"
     else:
-        starts, ends, radii, lengths, inlet_nodes, outlet_nodes, prox_ids, dist_ids = _build_channels(
-            ts,
-            dims=dims,
-            mode=mode,
-            axis=axis,
-            radius_cm=radius,
-            z_from_bottom_cm=z_from_bottom,
-            y_offsets_cm=y_offsets,
-            snake_arc_segments=snake_arc_segments,
-            snake_straight_segments=snake_straight_segments,
+        starts, ends, radii, lengths, inlet_nodes, outlet_nodes, prox_ids, dist_ids = (
+            _build_channels(
+                ts,
+                dims=dims,
+                mode=mode,
+                axis=axis,
+                radius_cm=radius,
+                z_from_bottom_cm=z_from_bottom,
+                y_offsets_cm=y_offsets,
+                snake_arc_segments=snake_arc_segments,
+                snake_straight_segments=snake_straight_segments,
+            )
         )
     tissue_starts, tissue_ends, decay_starts, decay_ends = _extended_tissue_geometry(
         starts,
@@ -145,61 +199,11 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
         extension_frac=edge_extension_frac,
     )
 
-    fluid = config.simulation.fluid
-    q_inlet_cm3_s = flow_ul_min * 1.0e-3 / 60.0
-    mu_base = _fluid_mu_base(ts, fluid)
-    mu_vals = ts.segment_viscosity_from_radius(radii, mu_base, fluid)
-    resistances = (8.0 * mu_vals * lengths) / (np.pi * np.maximum(radii, 1.0e-12) ** 4)
-    diffusivity = float(raw.get("diffusivity", ts.SOLUTE_DIFFUSIVITY))
-    vmax = float(raw.get("vmax", ts.VMAX_MM))
-    km = float(raw.get("km", ts.K_M_MM))
-    if solve_separate and starts.shape[0] > 1 and mode == "multichannel":
-        flows, cin, cout = _solve_independent_channels(
-            ts,
-            starts,
-            radii,
-            lengths,
-            q_inlet_cm3_s,
-            inlet_conc,
-            fluid,
-            diffusivity=diffusivity,
-            vmax=vmax,
-            km=km,
-        )
-    else:
-        _pressures, flows, *_ = ts.solve_kirchhoff(
-            prox_ids,
-            dist_ids,
-            resistances,
-            inlet_nodes,
-            q_inlet_cm3_s,
-            outlet_nodes,
-        )
-        cin, cout, _node_conc, _history = ts.solve_network_concentrations(
-            starts,
-            ends,
-            radii,
-            lengths,
-            flows,
-            inlet_nodes,
-            outlet_nodes,
-            inlet_conc,
-            fluid=fluid,
-            prox_ids=prox_ids,
-            dist_ids=dist_ids,
-            diffusivity=diffusivity,
-            vmax=vmax,
-            km=km,
-            omega=float(raw.get("omega", getattr(ts, "OMEGA", 0.5))),
-        )
-
+    flows = np.full(lengths.shape, np.nan, dtype=float)
+    cin = np.full(lengths.shape, np.nan, dtype=float)
+    cout = np.full(lengths.shape, np.nan, dtype=float)
     data = _simple_tree_data(starts, ends, radii, lengths, flows)
-    params = SimpleNamespace(
-        root_pressure=float(getattr(ts, "ROOT_PRESSURE", np.nan)),
-        terminal_pressure=float(getattr(ts, "TERMINAL_PRESSURE", np.nan)),
-        root_flow=float(np.sum(np.abs(flows))),
-        terminal_flow=float(np.mean(np.abs(flows))) if flows.size else np.nan,
-    )
+    params = None
     return SimpleNetwork(
         starts=starts,
         ends=ends,
@@ -227,78 +231,14 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
             "box_dimensions_cm": [float(v) for v in dims],
             "radius_cm": float(radius),
             "flow_ul_min": float(flow_ul_min),
-            "concentration_inlet": float(inlet_conc),
+            "concentration_inlet": (
+                None if configured_inlet_conc is None else float(configured_inlet_conc)
+            ),
+            "solve_channels_separately": bool(solve_separate),
             "edge_extension_frac": float(edge_extension_frac),
             **lattice_meta,
         },
     )
-
-
-def simple_details(network: SimpleNetwork, sample_points: np.ndarray, ts, config: RunConfig) -> tuple[dict[str, Any], dict[str, Any]]:
-    raw = dict(config.network.simple or {})
-    if sample_points.size:
-        mask, tissue_conc = ts.compute_tissue_samples_greens(
-            sample_points,
-            network.tissue_starts,
-            network.tissue_ends,
-            network.radii,
-            network.cin,
-            network.flows,
-            diffusivity=float(raw.get("diffusivity", ts.SOLUTE_DIFFUSIVITY)),
-            vmax=float(raw.get("vmax", ts.VMAX_MM)),
-            km=float(raw.get("km", ts.K_M_MM)),
-            window_factor=float(raw.get("window_factor", ts.WINDOW_FACTOR)),
-            inlet_concentration=float(network.metadata["concentration_inlet"]),
-            tissue_cache=None,
-        )
-        keep = np.asarray(mask, dtype=bool)
-        tissue_points = sample_points[keep]
-        tissue_values = np.asarray(tissue_conc, dtype=float)[keep]
-    else:
-        tissue_points = np.empty((0, 3), dtype=float)
-        tissue_values = np.empty((0,), dtype=float)
-
-    total_volume = float(np.nansum(np.pi * network.radii * network.radii * network.lengths))
-    conc_max = float(getattr(ts, "CONC_MAX_FOR_NORMALIZATION", np.nan))
-    mean_tissue = float(np.nanmean(tissue_values)) if tissue_values.size else np.nan
-    summary = {
-        "target_terminals": int(network.n_terminals),
-        "cube_side_length": float(config.domain.side_length),
-        "distance_sample_count": int(sample_points.shape[0]),
-        "concentration_solver": "simple_channel",
-        "finite_radius_o2_terms": str(getattr(ts, "FINITE_RADIUS_O2_TERMS", "none")),
-        "lumen_wall_closure": str(getattr(ts, "LUMEN_WALL_CLOSURE", "wellmixed")),
-        "total_volume": total_volume,
-        "total_flowrate": float(np.nansum(np.abs(network.flows))),
-        "pressure_in_root": float(getattr(network.parameters, "root_pressure", np.nan)),
-        "pressure_out_terminals": float(getattr(network.parameters, "terminal_pressure", np.nan)),
-        "avg_radius": float(np.nanmean(network.radii)) if network.radii.size else np.nan,
-        "avg_length": float(np.nanmean(network.lengths)) if network.lengths.size else np.nan,
-        "total_length": float(np.nansum(network.lengths)),
-        "avg_distance_to_channel": np.nan,
-        "terminal_segments": int(network.n_terminals),
-        "total_segments": int(network.segment_count),
-        "dlp_angle": 0.0,
-        "Rnet": np.nan,
-        "dRnet": np.nan,
-        "Qmin_over_Qinlet": float(np.nanmin(np.abs(network.flows)) / max(np.nansum(np.abs(network.flows)), 1.0e-30)) if network.flows.size else np.nan,
-        "C_LQ_over_Cmax": float(np.nanmean(network.cout) / conc_max) if np.isfinite(conc_max) and conc_max else np.nan,
-        "C_tiss_over_Cmax": mean_tissue / conc_max if np.isfinite(mean_tissue) and np.isfinite(conc_max) and conc_max else np.nan,
-        "inlet_flow_ul_per_min": float(network.metadata["flow_ul_min"]),
-    }
-    details = {
-        "starts": network.starts,
-        "ends": network.ends,
-        "radii": network.radii,
-        "lengths": network.lengths,
-        "flows": network.flows,
-        "cin": network.cin,
-        "cout": network.cout,
-        "tissue_points": tissue_points,
-        "tissue_values": tissue_values,
-        "inlet_concentration": float(network.metadata["concentration_inlet"]),
-    }
-    return summary, details
 
 
 def _domain_dimensions(config: RunConfig) -> tuple[float, float, float]:
@@ -330,7 +270,11 @@ def _domain_bounds(domain, config: RunConfig) -> tuple[np.ndarray, np.ndarray]:
             return lower, upper
 
     dims = np.asarray(_domain_dimensions(config), dtype=float)
-    if str(config.domain.kind).strip().lower() in {"sphere", "pv.sphere", "pyvista_sphere"}:
+    if str(config.domain.kind).strip().lower() in {
+        "sphere",
+        "pv.sphere",
+        "pyvista_sphere",
+    }:
         radius = float(
             config.domain.radius
             if config.domain.radius is not None
@@ -360,7 +304,9 @@ def _build_channels(
     y_half = y_len / 2.0
     z = -z_len / 2.0 + float(z_from_bottom_cm)
     if mode not in {"onechannel", "single", "multichannel", "snake"}:
-        raise ValueError("simple mode must be 'onechannel', 'multichannel', or 'snake'.")
+        raise ValueError(
+            "simple mode must be 'onechannel', 'multichannel', or 'snake'."
+        )
     if mode == "single":
         mode = "onechannel"
     if mode == "snake":
@@ -403,7 +349,16 @@ def _load_custom_geometry(
     default_radius_cm: float,
     inlet_nodes: Any = None,
     outlet_nodes: Any = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[int], list[int], np.ndarray, np.ndarray]:
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    list[int],
+    list[int],
+    np.ndarray,
+    np.ndarray,
+]:
     """Load an explicit segment network from CSV or NPZ.
 
     CSV requires start_x/start_y/start_z and end_x/end_y/end_z in centimetres.
@@ -422,11 +377,20 @@ def _load_custom_geometry(
         coordinate_fields = ("start_x", "start_y", "start_z", "end_x", "end_y", "end_z")
         missing = [name for name in coordinate_fields if name not in rows[0]]
         if missing:
-            raise ValueError(f"Custom geometry CSV is missing columns: {', '.join(missing)}")
-        starts = np.asarray([[float(row[name]) for name in coordinate_fields[:3]] for row in rows], dtype=float)
-        ends = np.asarray([[float(row[name]) for name in coordinate_fields[3:]] for row in rows], dtype=float)
+            raise ValueError(
+                f"Custom geometry CSV is missing columns: {', '.join(missing)}"
+            )
+        starts = np.asarray(
+            [[float(row[name]) for name in coordinate_fields[:3]] for row in rows],
+            dtype=float,
+        )
+        ends = np.asarray(
+            [[float(row[name]) for name in coordinate_fields[3:]] for row in rows],
+            dtype=float,
+        )
         radii = np.asarray(
-            [float(row.get("radius_cm") or default_radius_cm) for row in rows], dtype=float
+            [float(row.get("radius_cm") or default_radius_cm) for row in rows],
+            dtype=float,
         )
         if {"prox_id", "dist_id"}.issubset(rows[0]):
             prox_ids = np.asarray([int(row["prox_id"]) for row in rows], dtype=np.int64)
@@ -437,7 +401,11 @@ def _load_custom_geometry(
         with np.load(path, allow_pickle=False) as data:
             starts = np.asarray(data["starts"], dtype=float)
             ends = np.asarray(data["ends"], dtype=float)
-            radii = np.asarray(data["radii"], dtype=float) if "radii" in data else np.full(starts.shape[0], default_radius_cm)
+            radii = (
+                np.asarray(data["radii"], dtype=float)
+                if "radii" in data
+                else np.full(starts.shape[0], default_radius_cm)
+            )
             if "prox_ids" in data and "dist_ids" in data:
                 prox_ids = np.asarray(data["prox_ids"], dtype=np.int64)
                 dist_ids = np.asarray(data["dist_ids"], dtype=np.int64)
@@ -447,28 +415,58 @@ def _load_custom_geometry(
         raise ValueError("Custom geometry must be a .csv or .npz file.")
 
     if starts.ndim != 2 or starts.shape[1] != 3 or ends.shape != starts.shape:
-        raise ValueError("Custom geometry starts and ends must have shape (n_segments, 3).")
-    if radii.shape != (starts.shape[0],) or np.any(~np.isfinite(radii)) or np.any(radii <= 0.0):
-        raise ValueError("Custom geometry radii must be finite, positive, and one per segment.")
+        raise ValueError(
+            "Custom geometry starts and ends must have shape (n_segments, 3)."
+        )
+    if (
+        radii.shape != (starts.shape[0],)
+        or np.any(~np.isfinite(radii))
+        or np.any(radii <= 0.0)
+    ):
+        raise ValueError(
+            "Custom geometry radii must be finite, positive, and one per segment."
+        )
     if prox_ids.shape != (starts.shape[0],) or dist_ids.shape != (starts.shape[0],):
-        raise ValueError("Custom geometry node ID arrays must contain one value per segment.")
+        raise ValueError(
+            "Custom geometry node ID arrays must contain one value per segment."
+        )
     if np.any(prox_ids < 0) or np.any(dist_ids < 0) or np.any(prox_ids == dist_ids):
-        raise ValueError("Custom geometry node IDs must be non-negative and each segment must connect distinct nodes.")
+        raise ValueError(
+            "Custom geometry node IDs must be non-negative and each segment must connect distinct nodes."
+        )
 
     lengths = np.linalg.norm(ends - starts, axis=1)
-    if np.any(~np.isfinite(starts)) or np.any(~np.isfinite(ends)) or np.any(lengths <= 0.0):
-        raise ValueError("Custom geometry coordinates must be finite and segments must have positive length.")
+    if (
+        np.any(~np.isfinite(starts))
+        or np.any(~np.isfinite(ends))
+        or np.any(lengths <= 0.0)
+    ):
+        raise ValueError(
+            "Custom geometry coordinates must be finite and segments must have positive length."
+        )
 
-    inferred_inlets = sorted(set(int(v) for v in prox_ids) - set(int(v) for v in dist_ids))
-    inferred_outlets = sorted(set(int(v) for v in dist_ids) - set(int(v) for v in prox_ids))
-    inlet_list = inferred_inlets if inlet_nodes is None else [int(v) for v in inlet_nodes]
-    outlet_list = inferred_outlets if outlet_nodes is None else [int(v) for v in outlet_nodes]
+    inferred_inlets = sorted(
+        set(int(v) for v in prox_ids) - set(int(v) for v in dist_ids)
+    )
+    inferred_outlets = sorted(
+        set(int(v) for v in dist_ids) - set(int(v) for v in prox_ids)
+    )
+    inlet_list = (
+        inferred_inlets if inlet_nodes is None else [int(v) for v in inlet_nodes]
+    )
+    outlet_list = (
+        inferred_outlets if outlet_nodes is None else [int(v) for v in outlet_nodes]
+    )
     if not inlet_list or not outlet_list:
-        raise ValueError("Custom geometry must define or imply at least one inlet and one outlet node.")
+        raise ValueError(
+            "Custom geometry must define or imply at least one inlet and one outlet node."
+        )
     return starts, ends, radii, lengths, inlet_list, outlet_list, prox_ids, dist_ids
 
 
-def _infer_node_ids(starts: np.ndarray, ends: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _infer_node_ids(
+    starts: np.ndarray, ends: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     points = np.vstack((starts, ends))
     rounded = np.round(points, decimals=12)
     _unique, inverse = np.unique(rounded, axis=0, return_inverse=True)
@@ -476,7 +474,9 @@ def _infer_node_ids(starts: np.ndarray, ends: np.ndarray) -> tuple[np.ndarray, n
     return inverse[:count].astype(np.int64), inverse[count:].astype(np.int64)
 
 
-def _snake_channel_points(z: float, arc_segments: int, straight_segments: int = 5) -> np.ndarray:
+def _snake_channel_points(
+    z: float, arc_segments: int, straight_segments: int = 5
+) -> np.ndarray:
     def arc(center, radius, theta_start, theta_end, n_segments, *, x_sign):
         theta = np.linspace(theta_start, theta_end, n_segments + 1, dtype=float)
         cx, cy, cz = center
@@ -492,27 +492,43 @@ def _snake_channel_points(z: float, arc_segments: int, straight_segments: int = 
     second_turn_start = np.array([0.325, 0.0, z], dtype=float)
     second_turn_end = np.array([0.325, 0.2, z], dtype=float)
     outlet = np.array([-0.53, 0.2, z], dtype=float)
-    first_arc = arc((-0.325, -0.1, z), 0.1, -np.pi / 2.0, np.pi / 2.0, nseg, x_sign=-1.0)
+    first_arc = arc(
+        (-0.325, -0.1, z), 0.1, -np.pi / 2.0, np.pi / 2.0, nseg, x_sign=-1.0
+    )
     second_arc = arc((0.325, 0.1, z), 0.1, -np.pi / 2.0, np.pi / 2.0, nseg, x_sign=1.0)
+
     def straight(start, end):
         return np.linspace(start, end, straight_nseg + 1, dtype=float)
 
     # Every straight run and each half-turn receive their own controllable
     # tessellation.  This is the geometry used by both the solver and setup
     # preview, keeping the visible path identical to a completed result.
-    return np.vstack((
-        straight(inlet, first_turn_start),
-        first_arc[1:],
-        straight(first_turn_end, second_turn_start)[1:],
-        second_arc[1:],
-        straight(second_turn_end, outlet)[1:],
-    ))
+    return np.vstack(
+        (
+            straight(inlet, first_turn_start),
+            first_arc[1:],
+            straight(first_turn_end, second_turn_start)[1:],
+            second_arc[1:],
+            straight(second_turn_end, outlet)[1:],
+        )
+    )
 
 
-def _extended_tissue_geometry(starts: np.ndarray, ends: np.ndarray, *, dims: tuple[float, float, float], extension_frac: float):
+def _extended_tissue_geometry(
+    starts: np.ndarray,
+    ends: np.ndarray,
+    *,
+    dims: tuple[float, float, float],
+    extension_frac: float,
+):
     frac = float(extension_frac)
     if frac <= 0.0 or starts.size == 0:
-        return starts.copy(), ends.copy(), np.zeros(starts.shape[0]), np.linalg.norm(ends - starts, axis=1)
+        return (
+            starts.copy(),
+            ends.copy(),
+            np.zeros(starts.shape[0]),
+            np.linalg.norm(ends - starts, axis=1),
+        )
     starts_ext = starts.copy()
     ends_ext = ends.copy()
     decay_start = np.zeros(starts.shape[0], dtype=float)
@@ -529,8 +545,13 @@ def _extended_tissue_geometry(starts: np.ndarray, ends: np.ndarray, *, dims: tup
         direction = vec / seg_len
         axis = int(np.argmax(np.abs(direction)))
         extension = frac * float(extents[axis])
-        start_hits = np.any(np.isclose(starts[i], mins, atol=tol) | np.isclose(starts[i], maxs, atol=tol))
-        end_hits = np.any(np.isclose(ends[i], mins, atol=tol) | np.isclose(ends[i], maxs, atol=tol))
+        start_hits = np.any(
+            np.isclose(starts[i], mins, atol=tol)
+            | np.isclose(starts[i], maxs, atol=tol)
+        )
+        end_hits = np.any(
+            np.isclose(ends[i], mins, atol=tol) | np.isclose(ends[i], maxs, atol=tol)
+        )
         if start_hits:
             starts_ext[i] -= direction * extension
             decay_start[i] += extension
@@ -538,38 +559,6 @@ def _extended_tissue_geometry(starts: np.ndarray, ends: np.ndarray, *, dims: tup
         if end_hits:
             ends_ext[i] += direction * extension
     return starts_ext, ends_ext, decay_start, decay_end
-
-
-def _solve_independent_channels(ts, starts, radii, lengths, q_inlet_cm3_s, inlet_conc, fluid, *, diffusivity, vmax, km):
-    flows = np.full((starts.shape[0],), float(q_inlet_cm3_s), dtype=float)
-    cin = np.full((starts.shape[0],), float(inlet_conc), dtype=float)
-    cout = np.empty_like(cin)
-    for i in range(starts.shape[0]):
-        if str(fluid).lower() == "blood":
-            ht = ts.tube_hematocrit(radii[i], hd=ts.HD_DISCHARGE)
-            ccap = ts.segment_O2_capacity_from_HT(ht)
-            decay = ts._blood_greens_decay_factor(
-                flows[i] * ts.CM3_TO_M3,
-                radii[i] * ts.CM_TO_M,
-                lengths[i] * ts.CM_TO_M,
-                float(diffusivity) * ts.CM2_TO_M2,
-                float(vmax),
-                float(km),
-                cin[i],
-                ccap,
-            )
-        else:
-            decay = ts._greens_decay_factor(
-                flows[i] * ts.CM3_TO_M3,
-                radii[i] * ts.CM_TO_M,
-                lengths[i] * ts.CM_TO_M,
-                float(diffusivity) * ts.CM2_TO_M2,
-                float(vmax),
-                float(km),
-                cin[i],
-            )
-        cout[i] = cin[i] * decay
-    return flows, cin, cout
 
 
 def _simple_tree_data(starts, ends, radii, lengths, flows) -> np.ndarray:
@@ -581,17 +570,6 @@ def _simple_tree_data(starts, ends, radii, lengths, flows) -> np.ndarray:
     data[:, 21] = radii
     data[:, 22] = flows
     return data
-
-
-def _fluid_mu_base(ts, fluid: str) -> float:
-    fluid_mode = str(fluid or "").lower()
-    if fluid_mode in {"water", "cell media", "media"}:
-        rho = 0.99336
-        nu = 0.6959 / 100.0
-        return rho * nu
-    if fluid_mode == "blood":
-        return float(getattr(ts, "MU_PLASMA_CGS", 0.012))
-    raise ValueError(f"Unsupported simple-channel fluid: {fluid!r}")
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:

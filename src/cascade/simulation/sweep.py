@@ -1,3 +1,5 @@
+"""Expand parameter sweeps and execute each case through the unified simulation engine."""
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -8,11 +10,11 @@ from typing import Any
 
 import numpy as np
 
-from cascade.configuration.models import RunConfig, parse_config
+from cascade.configuration.schema import RunConfig, parse_config
 from cascade.exporting.run import _summary_fieldnames, _write_csv
 from cascade.utils.execution import release_completed_case_memory
 from cascade.configuration.bridge import apply_runtime_settings, load_runtime_module
-from cascade.domain.workflow import build_domain
+from cascade.domain.workflow import build_domain, prepare_sample_points
 from cascade.utils.resources import resolve_path
 from cascade.vessels.build import build_or_load_network
 from cascade.vessels.cache import save_network_if_requested
@@ -20,13 +22,19 @@ from cascade.vessels.conditions import _make_forest
 from cascade.vessels.growth import (
     _build_configured_trees,
     _extend_trees_to_targets,
-    _pre_sample_points,
 )
 from cascade.vessels.results import NetworkBuildResult
 from .engine import run_simulation
 
 
 def run_sweep(settings_path: str | Path) -> dict[str, str]:
+    """Expand a settings file into cases and execute the unified run pipeline.
+
+    Geometry is reused only when its defining inputs match. Each fluid, size,
+    flow, and terminal-count combination receives independent solver state and
+    is aggregated into the configured sweep outputs.
+    """
+
     path = Path(settings_path).expanduser().resolve()
     with path.open("r", encoding="utf-8") as handle:
         raw = json.load(handle)
@@ -38,12 +46,20 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
     fluids = _fluid_values(raw, sweep)
     side_lengths = _float_values(
         sweep.get("side_lengths", sweep.get("cube_side_lengths")),
-        fallback=[_domain_section(raw).get("side_length", _domain_section(raw).get("side_len", 1.0))],
+        fallback=[
+            _domain_section(raw).get(
+                "side_length", _domain_section(raw).get("side_len", 1.0)
+            )
+        ],
         name="sweep.side_lengths",
     )
     qin_values = _float_values(
         sweep.get("qin_target_ul_min_values", sweep.get("qin_target_values")),
-        fallback=[_simulation_section(raw).get("qin_target_ul_min", _simulation_section(raw).get("qin_target", 900.0))],
+        fallback=[
+            _simulation_section(raw).get(
+                "qin_target_ul_min", _simulation_section(raw).get("qin_target", 900.0)
+            )
+        ],
         name="sweep.qin_target_ul_min_values",
     )
     distance_counts = _int_values(
@@ -56,7 +72,10 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
     output_csv = _output_csv_path(raw, sweep, path)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     work_dir = resolve_path(
-        sweep.get("work_dir", sweep.get("out_dir", _outputs_section(raw).get("out_dir", "cascade_sweep"))),
+        sweep.get(
+            "work_dir",
+            sweep.get("out_dir", _outputs_section(raw).get("out_dir", "cascade_sweep")),
+        ),
         base_dir=path.parent,
     )
     if work_dir is None:
@@ -65,7 +84,9 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
 
     write_network = _as_bool(sweep.get("save_final_network"), False)
     legacy_columns_only = _as_bool(sweep.get("legacy_columns_only"), False)
-    legacy_single_trial_std_nan = _as_bool(sweep.get("legacy_single_trial_std_nan"), False)
+    legacy_single_trial_std_nan = _as_bool(
+        sweep.get("legacy_single_trial_std_nan"), False
+    )
     rows: list[dict[str, Any]] = []
     timings: list[dict[str, Any]] = []
     t_sweep = perf_counter()
@@ -74,11 +95,17 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         base_raw = deepcopy(raw)
         base_raw.pop("sweep", None)
         base_raw.setdefault("domain", {})["side_length"] = float(side_len)
-        base_raw.setdefault("simulation", {})["distance_sample_count"] = max(distance_counts) if distance_counts else 0
-        base_raw.setdefault("outputs", {})["out_dir"] = str(work_dir / f"side_{_label(side_len)}")
+        base_raw.setdefault("simulation", {})["distance_sample_count"] = (
+            max(distance_counts) if distance_counts else 0
+        )
+        base_raw.setdefault("outputs", {})["out_dir"] = str(
+            work_dir / f"side_{_label(side_len)}"
+        )
         base_raw.setdefault("outputs", {})["save_network"] = bool(write_network)
 
-        build_config = _config_for(path, base_raw, target=targets[0], fluid=fluids[0], qin=qin_values[0])
+        build_config = _config_for(
+            path, base_raw, target=targets[0], fluid=fluids[0], qin=qin_values[0]
+        )
         ts = load_runtime_module()
         apply_runtime_settings(ts, build_config)
 
@@ -88,7 +115,9 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
             loaded = build_or_load_network(build_config)
             domain = loaded.domain
             sample_points = np.asarray(
-                loaded.sample_points if loaded.sample_points is not None else np.empty((0, 3)),
+                loaded.sample_points
+                if loaded.sample_points is not None
+                else np.empty((0, 3)),
                 dtype=float,
             )
             sample_meta = loaded.sample_meta
@@ -104,7 +133,9 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
             domain_s = perf_counter() - t0
 
             t0 = perf_counter()
-            sample_points, sample_meta = _pre_sample_points(ts, domain, build_config)
+            sample_points, sample_meta = prepare_sample_points(
+                domain, build_config, ts=ts
+            )
             sample_s = perf_counter() - t0
             sample_points = np.asarray(
                 sample_points if sample_points is not None else np.empty((0, 3)),
@@ -117,14 +148,26 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         for target_raw in targets:
             target = max(int(target_raw), 1)
             target_raw_config = deepcopy(base_raw)
-            target_raw_config.setdefault("network", {})["target_terminal_count"] = int(target)
+            target_raw_config.setdefault("network", {})["target_terminal_count"] = int(
+                target
+            )
             target_raw_config["network"].pop("target_terminal_counts", None)
             target_raw_config["network"].pop("target_counts", None)
 
-            grow_config = _config_for(path, target_raw_config, target=target, fluid=fluids[0], qin=qin_values[0])
+            grow_config = _config_for(
+                path,
+                target_raw_config,
+                target=target,
+                fluid=fluids[0],
+                qin=qin_values[0],
+            )
             apply_runtime_settings(ts, grow_config)
-            grow_config.simulation.distance_sample_count = int(max(distance_counts) if distance_counts else 0)
-            grow_config.outputs.out_dir = str(work_dir / f"side_{_label(side_len)}" / f"target_{target:08d}")
+            grow_config.simulation.distance_sample_count = int(
+                max(distance_counts) if distance_counts else 0
+            )
+            grow_config.outputs.out_dir = str(
+                work_dir / f"side_{_label(side_len)}" / f"target_{target:08d}"
+            )
 
             t0 = perf_counter()
             if explicit_input and target != int(targets[0]):
@@ -135,38 +178,60 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                 )
             if trees is None:
                 trees = _build_configured_trees(ts, domain, grow_config)
-                forest = _make_forest(grow_config, domain, trees) if grow_config.network_mode == "forest" else None
+                forest = (
+                    _make_forest(grow_config, domain, trees)
+                    if grow_config.network_mode == "forest"
+                    else None
+                )
             elif explicit_input:
                 pass
             elif target < previous_target:
-                raise ValueError("sweep target_terminal_counts must be non-decreasing for in-memory growth reuse.")
+                raise ValueError(
+                    "sweep target_terminal_counts must be non-decreasing for in-memory growth reuse."
+                )
             elif target > previous_target:
-                _extend_trees_to_targets(ts, trees, domain, grow_config, [target] * len(trees), forest=forest)
+                _extend_trees_to_targets(
+                    ts, trees, domain, grow_config, [target] * len(trees), forest=forest
+                )
             growth_s = perf_counter() - t0
             previous_target = max(previous_target, target)
 
             if trees is None:
                 raise RuntimeError("Sweep failed to build any trees.")
 
-            target_counts = list(loaded_target_counts) if loaded_target_counts is not None else [target] * len(trees)
+            target_counts = (
+                list(loaded_target_counts)
+                if loaded_target_counts is not None
+                else [target] * len(trees)
+            )
             build = NetworkBuildResult(
                 domain=domain,
                 trees=trees,
                 forest=forest,
                 target_counts=target_counts,
-                build_timings={"domain_s": domain_s, "sample_points_s": sample_s, "growth_s": growth_s},
+                build_timings={
+                    "domain_s": domain_s,
+                    "sample_points_s": sample_s,
+                    "growth_s": growth_s,
+                },
                 sample_points=sample_points,
                 sample_meta=sample_meta,
             )
 
             for qin in qin_values:
                 for sample_count in distance_counts:
-                    points = sample_points[: int(sample_count)] if sample_points.size else sample_points
+                    points = (
+                        sample_points[: int(sample_count)]
+                        if sample_points.size
+                        else sample_points
+                    )
                     for fluid in fluids:
                         run_raw = deepcopy(target_raw_config)
                         run_raw.setdefault("simulation", {})["fluid"] = str(fluid)
                         run_raw["simulation"]["qin_target_ul_min"] = float(qin)
-                        run_raw["simulation"]["distance_sample_count"] = int(sample_count)
+                        run_raw["simulation"]["distance_sample_count"] = int(
+                            sample_count
+                        )
                         run_raw.setdefault("outputs", {})["out_dir"] = str(
                             work_dir
                             / f"side_{_label(side_len)}"
@@ -176,12 +241,16 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                             / str(fluid)
                         )
                         run_raw["outputs"]["save_network"] = bool(write_network)
-                        config = _config_for(path, run_raw, target=target, fluid=fluid, qin=qin)
+                        config = _config_for(
+                            path, run_raw, target=target, fluid=fluid, qin=qin
+                        )
                         config.simulation.distance_sample_count = int(sample_count)
                         apply_runtime_settings(ts, config)
 
                         t0 = perf_counter()
-                        result = run_simulation(domain, trees, target_counts, config, sample_points=points)
+                        result = run_simulation(
+                            domain, trees, target_counts, config, sample_points=points
+                        )
                         sim_s = perf_counter() - t0
                         if legacy_single_trial_std_nan:
                             for row in result.summary_rows:
@@ -201,9 +270,8 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                             }
                         )
                         del result
-                        # Keep the allocator pools inside this strictly sequential
-                        # worker. This matches the accelerated legacy sweep's warm
-                        # execution model without retaining completed result arrays.
+                        # Keep allocator pools warm inside this sequential worker
+                        # without retaining completed result arrays.
                         release_completed_case_memory(ts, trim_accelerator_pools=False)
 
             if write_network:
@@ -212,7 +280,9 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
     preferred_fields = _summary_fieldnames()
     write_rows = rows
     if legacy_columns_only and preferred_fields:
-        write_rows = [{field: row.get(field, "") for field in preferred_fields} for row in rows]
+        write_rows = [
+            {field: row.get(field, "") for field in preferred_fields} for row in rows
+        ]
     _write_csv(output_csv, write_rows, preferred_fields=preferred_fields)
     manifest_path = output_csv.with_name(output_csv.stem + "_manifest.json")
     manifest = {
@@ -229,11 +299,15 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         "elapsed_s": perf_counter() - t_sweep,
         "timings": timings,
     }
-    manifest_path.write_text(json.dumps(_jsonable(manifest), indent=2, allow_nan=True), encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(_jsonable(manifest), indent=2, allow_nan=True), encoding="utf-8"
+    )
     return {"summary_csv": str(output_csv), "manifest_json": str(manifest_path)}
 
 
-def _config_for(path: Path, raw: dict[str, Any], *, target: int, fluid: str, qin: float) -> RunConfig:
+def _config_for(
+    path: Path, raw: dict[str, Any], *, target: int, fluid: str, qin: float
+) -> RunConfig:
     data = deepcopy(raw)
     data.setdefault("network", {})["target_terminal_count"] = max(int(target), 1)
     data["network"].pop("target_terminal_counts", None)
@@ -249,7 +323,10 @@ def _target_values(raw: dict[str, Any], sweep: dict[str, Any]) -> list[int]:
     network = _network_section(raw)
     value = sweep.get(
         "target_terminal_counts",
-        sweep.get("target_counts", network.get("target_terminal_counts", network.get("target_counts"))),
+        sweep.get(
+            "target_counts",
+            network.get("target_terminal_counts", network.get("target_counts")),
+        ),
     )
     if value is None:
         value = network.get("target_terminal_count", network.get("target_count", 1))
@@ -278,11 +355,15 @@ def _fluid_values(raw: dict[str, Any], sweep: dict[str, Any]) -> list[str]:
     raise ValueError("sweep.fluids must name at least one fluid.")
 
 
-def _output_csv_path(raw: dict[str, Any], sweep: dict[str, Any], settings_path: Path) -> Path:
+def _output_csv_path(
+    raw: dict[str, Any], sweep: dict[str, Any], settings_path: Path
+) -> Path:
     output = sweep.get("output_csv", sweep.get("summary_csv"))
     if output is None:
         outputs = _outputs_section(raw)
-        out_dir = resolve_path(outputs.get("out_dir", "cascade_sweep"), base_dir=settings_path.parent)
+        out_dir = resolve_path(
+            outputs.get("out_dir", "cascade_sweep"), base_dir=settings_path.parent
+        )
         if out_dir is None:
             raise ValueError("outputs.out_dir must identify an output directory.")
         prefix = outputs.get("prefix") or "cascade_sweep"

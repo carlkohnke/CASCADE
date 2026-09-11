@@ -11,13 +11,14 @@ from typing import Any
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 from cascade.utils.hashing import file_sha256
 
 try:
     from scipy.spatial import cKDTree as _cKDTree
 except ImportError:  # pragma: no cover - the exact path remains available
     _cKDTree = None
+
 
 def sample_domain_points(domain: _state.Domain, n_points: int) -> np.ndarray:
     if n_points <= 0:
@@ -90,7 +91,11 @@ def has_dlp_feasible_parent(tree: _state.Tree, point: np.ndarray, k: int = 10) -
     if tree is None or tree.segment_count <= 0:
         return False
     parms = getattr(tree, "parameters", None)
-    if not (parms and getattr(parms, "dlp_enable", False) and getattr(parms, "dlp_build_dir", None) is not None):
+    if not (
+        parms
+        and getattr(parms, "dlp_enable", False)
+        and getattr(parms, "dlp_build_dir", None) is not None
+    ):
         return True
     bdir = np.asarray(getattr(parms, "dlp_build_dir", None), dtype=float)
     n = float(np.linalg.norm(bdir))
@@ -98,11 +103,15 @@ def has_dlp_feasible_parent(tree: _state.Tree, point: np.ndarray, k: int = 10) -
         return False
     b_hat = bdir / n
     s_min = float(getattr(parms, "dlp_min_adv", 0.0))
-    sin_theta_min = math.sin(math.radians(float(getattr(parms, "dlp_min_angle_deg", 0.0))))
-    data = tree.data[:tree.segment_count, :]
+    sin_theta_min = math.sin(
+        math.radians(float(getattr(parms, "dlp_min_angle_deg", 0.0)))
+    )
+    data = tree.data[: tree.segment_count, :]
     query_k = max(1, min(int(k), data.shape[0]))
     try:
-        _, idx = tree.hnsw_tree.query(np.asarray(point, dtype=float).reshape(1, 3), k=query_k)
+        _, idx = tree.hnsw_tree.query(
+            np.asarray(point, dtype=float).reshape(1, 3), k=query_k
+        )
     except Exception:
         return False
     idx = np.atleast_1d(idx).reshape(-1)
@@ -121,22 +130,30 @@ def has_dlp_feasible_parent(tree: _state.Tree, point: np.ndarray, k: int = 10) -
     return False
 
 
-def _characteristic_length(tree: _state.Tree, fallback_side_length: float | None = None) -> float:
+def _characteristic_length(
+    tree: _state.Tree, fallback_side_length: float | None = None
+) -> float:
     domain = getattr(tree, "domain", None)
     if domain is not None:
         char_len = getattr(domain, "characteristic_length", None)
         if char_len is not None and np.isfinite(char_len):
             return float(char_len)
-        bounds = getattr(domain, "bounds", None) or getattr(domain, "bounding_box", None)
+        bounds = getattr(domain, "bounds", None) or getattr(
+            domain, "bounding_box", None
+        )
         if bounds is not None and len(bounds) >= 6:
-            span = max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
+            span = max(
+                bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4]
+            )
             return float(span)
     if fallback_side_length is not None and np.isfinite(fallback_side_length):
         return float(fallback_side_length)
     return 1.0
 
 
-def compute_average_distance(points: np.ndarray, starts: np.ndarray, ends: np.ndarray) -> float:
+def compute_average_distance(
+    points: np.ndarray, starts: np.ndarray, ends: np.ndarray
+) -> float:
     if points.size == 0 or starts.size == 0:
         return float("nan")
 
@@ -164,12 +181,15 @@ def compute_average_distance(points: np.ndarray, starts: np.ndarray, ends: np.nd
                 int(_state.DISTANCE_KDTREE_MIN_CANDIDATES),
                 min(
                     int(_state.DISTANCE_KDTREE_MAX_CANDIDATES),
-                    int(_state.DISTANCE_KDTREE_MIN_CANDIDATES * _state.DISTANCE_KDTREE_CANDIDATE_MULT),
+                    int(
+                        _state.DISTANCE_KDTREE_MIN_CANDIDATES
+                        * _state.DISTANCE_KDTREE_CANDIDATE_MULT
+                    ),
                 ),
             ),
         )
         for idx in range(0, len(points), _state.DISTANCE_CHUNK_SIZE):
-            chunk = points[idx: idx + _state.DISTANCE_CHUNK_SIZE]
+            chunk = points[idx : idx + _state.DISTANCE_CHUNK_SIZE]
             if chunk.size == 0:
                 continue
             _, cand = kdtree.query(chunk, k=candidate_k)
@@ -186,13 +206,17 @@ def compute_average_distance(points: np.ndarray, starts: np.ndarray, ends: np.nd
             min_dists.append(np.min(distances, axis=1))
     else:
         for idx in range(0, len(points), _state.DISTANCE_CHUNK_SIZE):
-            chunk = points[idx: idx + _state.DISTANCE_CHUNK_SIZE]
+            chunk = points[idx : idx + _state.DISTANCE_CHUNK_SIZE]
             if chunk.size == 0:
                 continue
             diff = chunk[:, None, :] - starts[None, :, :]
-            proj = np.sum(diff * segment_vectors[None, :, :], axis=2) / seg_len_sq[None, :]
+            proj = (
+                np.sum(diff * segment_vectors[None, :, :], axis=2) / seg_len_sq[None, :]
+            )
             proj = np.clip(proj, 0.0, 1.0)
-            closest = starts[None, :, :] + proj[:, :, None] * segment_vectors[None, :, :]
+            closest = (
+                starts[None, :, :] + proj[:, :, None] * segment_vectors[None, :, :]
+            )
             distances = np.linalg.norm(chunk[:, None, :] - closest, axis=2)
             min_dists.append(np.min(distances, axis=1))
 
@@ -241,12 +265,15 @@ def compute_distance_to_nearest_channel(
                 int(_state.DISTANCE_KDTREE_MIN_CANDIDATES),
                 min(
                     int(_state.DISTANCE_KDTREE_MAX_CANDIDATES),
-                    int(_state.DISTANCE_KDTREE_MIN_CANDIDATES * _state.DISTANCE_KDTREE_CANDIDATE_MULT),
+                    int(
+                        _state.DISTANCE_KDTREE_MIN_CANDIDATES
+                        * _state.DISTANCE_KDTREE_CANDIDATE_MULT
+                    ),
                 ),
             ),
         )
         for idx in range(0, len(points), _state.DISTANCE_CHUNK_SIZE):
-            chunk = points[idx: idx + _state.DISTANCE_CHUNK_SIZE]
+            chunk = points[idx : idx + _state.DISTANCE_CHUNK_SIZE]
             if chunk.size == 0:
                 continue
             _, cand = kdtree.query(chunk, k=candidate_k)
@@ -265,13 +292,17 @@ def compute_distance_to_nearest_channel(
             min_dists.append(np.min(d_wall, axis=1))
     else:
         for idx in range(0, len(points), _state.DISTANCE_CHUNK_SIZE):
-            chunk = points[idx: idx + _state.DISTANCE_CHUNK_SIZE]
+            chunk = points[idx : idx + _state.DISTANCE_CHUNK_SIZE]
             if chunk.size == 0:
                 continue
             diff = chunk[:, None, :] - starts[None, :, :]
-            proj = np.sum(diff * segment_vectors[None, :, :], axis=2) / seg_len_sq[None, :]
+            proj = (
+                np.sum(diff * segment_vectors[None, :, :], axis=2) / seg_len_sq[None, :]
+            )
             proj = np.clip(proj, 0.0, 1.0)
-            closest = starts[None, :, :] + proj[:, :, None] * segment_vectors[None, :, :]
+            closest = (
+                starts[None, :, :] + proj[:, :, None] * segment_vectors[None, :, :]
+            )
             distances = np.linalg.norm(chunk[:, None, :] - closest, axis=2)
             nearest_idx = np.argmin(distances, axis=1)
             row_idx = np.arange(distances.shape[0], dtype=int)

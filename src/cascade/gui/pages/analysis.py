@@ -2,30 +2,37 @@
 
 from __future__ import annotations
 
-from cascade.gui._common import (
-    Banner,
-    COLORMAPS,
-    Card,
-    JobRunner,
-    Path,
+from PySide6.QtCore import (
+    Qt,
+    Signal,
+)
+from PySide6.QtWidgets import (
     QCheckBox,
     QLabel,
     QLineEdit,
     QPushButton,
-    Qt,
-    Signal,
+)
+from cascade.gui.model import open_folder
+from cascade.gui.preview import COLORMAPS
+from cascade.gui.runner import JobRunner
+from cascade.gui.widgets import (
+    Banner,
+    Card,
+    labeled,
+    row_of,
+)
+from pathlib import Path
+from cascade.gui.ui_helpers import (
     _combo,
     _double,
     _optional_float,
     _set_combo,
-    labeled,
-    open_folder,
-    row_of,
 )
 
 from cascade.gui.pages.base import (
     Page,
 )
+
 
 class AnalysisPage(Page):
     render_requested = Signal(str, object)
@@ -56,11 +63,18 @@ class AnalysisPage(Page):
         self.vessel_max = QLineEdit()
         self.tissue_min = QLineEdit()
         self.tissue_max = QLineEdit()
-        for field in (self.vessel_min, self.vessel_max, self.tissue_min, self.tissue_max):
+        for field in (
+            self.vessel_min,
+            self.vessel_max,
+            self.tissue_min,
+            self.tissue_max,
+        ):
             field.setPlaceholderText("Auto")
         self.vessel_scale = _combo([("Linear", "linear"), ("Logarithmic", "log")])
         self.tissue_scale = _combo([("Linear", "linear"), ("Logarithmic", "log")])
-        self.normalize_fields = QCheckBox("Normalize displayed quantities by inlet values")
+        self.normalize_fields = QCheckBox(
+            "Normalize displayed quantities by inlet values"
+        )
         self.concentration_unit = _combo(
             [("mol/m³", "concentration"), ("mmHg equivalent", "mmhg")]
         )
@@ -92,16 +106,20 @@ class AnalysisPage(Page):
                 labeled("Tissue opacity", self.tissue_opacity),
             )
         )
-        render.add(row_of(self.normalize_fields, labeled("Flow display", self.flow_unit), labeled("Concentration display", self.concentration_unit)))
+        render.add(
+            row_of(
+                self.normalize_fields,
+                labeled("Flow display", self.flow_unit),
+                labeled("Concentration display", self.concentration_unit),
+            )
+        )
         self.render_note = Banner()
         self.render_note.setVisible(False)
         render.add(self.render_note)
         self.column.addWidget(render)
 
         selection = Card("Selection")
-        self.selection_details = QLabel(
-            "no selection"
-        )
+        self.selection_details = QLabel("no selection")
         self.selection_details.setObjectName("muted")
         self.selection_details.setWordWrap(True)
         self.selection_details.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -122,7 +140,12 @@ class AnalysisPage(Page):
             self.flow_unit,
         ):
             combo.currentIndexChanged.connect(self._request_render)
-        for field in (self.vessel_min, self.vessel_max, self.tissue_min, self.tissue_max):
+        for field in (
+            self.vessel_min,
+            self.vessel_max,
+            self.tissue_min,
+            self.tissue_max,
+        ):
             field.editingFinished.connect(self._request_render)
         self.vessel_opacity.valueChanged.connect(self._request_render)
         self.tissue_opacity.valueChanged.connect(self._request_render)
@@ -146,7 +169,9 @@ class AnalysisPage(Page):
         _set_combo(self.vessel_scale, settings.get("vessel_scale", "linear"))
         _set_combo(self.tissue_scale, settings.get("tissue_scale", "linear"))
         self.normalize_fields.setChecked(bool(settings.get("normalize_fields", False)))
-        _set_combo(self.concentration_unit, settings.get("concentration_unit", "concentration"))
+        _set_combo(
+            self.concentration_unit, settings.get("concentration_unit", "concentration")
+        )
         _set_combo(self.flow_unit, settings.get("flow_unit", "ul_min"))
 
     def write(self, config):
@@ -193,26 +218,39 @@ class AnalysisPage(Page):
         tissue_fields = list(tissue_fields or [])
         vessel_options = [
             ("Flow Rate (μL/min)", "flow") if "flow_ul_min" in vessel_fields else None,
-            ("Fluid pressure (mmHg)", "pressure") if "pressure_pa" in vessel_fields else None,
-            ("Bulk concentration (mol/m³)", "bulk_concentration") if "concentration" in vessel_fields else None,
-            ("Wall concentration (mol/m³)", "wall_concentration") if "wall_oxygen" in vessel_fields else None,
+            ("Fluid pressure (mmHg)", "pressure")
+            if "pressure_pa" in vessel_fields
+            else None,
+            ("Bulk concentration (mol/m³)", "bulk_concentration")
+            if "concentration" in vessel_fields
+            else None,
+            ("Wall concentration (mol/m³)", "wall_concentration")
+            if "wall_oxygen" in vessel_fields
+            else None,
             ("Radius (μm)", "radius") if "radius_cm" in vessel_fields else None,
             ("Length (μm)", "length") if "length_cm" in vessel_fields else None,
-            ("Discharge hematocrit", "hematocrit") if "discharge_hematocrit" in vessel_fields else None,
+            ("Discharge hematocrit", "hematocrit")
+            if "discharge_hematocrit" in vessel_fields
+            else None,
         ]
         tissue_options = [
-            ("Tissue concentration (mol/m³)", "tissue_concentration") if "local_concentration" in tissue_fields else None,
+            ("Tissue concentration (mol/m³)", "tissue_concentration")
+            if "local_concentration" in tissue_fields
+            else None,
             ("Viable tissue", "viability") if "viability" in tissue_fields else None,
-            ("Distance to nearest vessel (μm)", "distance") if "dnc_cm" in tissue_fields else None,
+            ("Distance to nearest vessel (μm)", "distance")
+            if "dnc_cm" in tissue_fields
+            else None,
         ]
         vessel_options = [option for option in vessel_options if option]
         tissue_options = [option for option in tissue_options if option]
-        if (
-            [(self.vessel_field.itemText(i), self.vessel_field.itemData(i)) for i in range(self.vessel_field.count())]
-            == vessel_options
-            and [(self.tissue_field.itemText(i), self.tissue_field.itemData(i)) for i in range(self.tissue_field.count())]
-            == tissue_options
-        ):
+        if [
+            (self.vessel_field.itemText(i), self.vessel_field.itemData(i))
+            for i in range(self.vessel_field.count())
+        ] == vessel_options and [
+            (self.tissue_field.itemText(i), self.tissue_field.itemData(i))
+            for i in range(self.tissue_field.count())
+        ] == tissue_options:
             return
         old_vessel = self.vessel_field.currentData()
         old_tissue = self.tissue_field.currentData()
@@ -224,7 +262,10 @@ class AnalysisPage(Page):
             combo.clear()
             for label, value in fields:
                 combo.addItem(label, value)
-            _set_combo(combo, old if any(value == old for _label, value in fields) else preferred)
+            _set_combo(
+                combo,
+                old if any(value == old for _label, value in fields) else preferred,
+            )
             combo.blockSignals(False)
         self._request_render()
 
@@ -250,7 +291,10 @@ class AnalysisPage(Page):
         ordered = sorted(
             values,
             key=lambda name: (
-                next((i for i, token in enumerate(preferred) if token in name.lower()), 99),
+                next(
+                    (i for i, token in enumerate(preferred) if token in name.lower()),
+                    99,
+                ),
                 name.lower(),
             ),
         )
@@ -307,6 +351,4 @@ class AnalysisPage(Page):
             open_folder(self.runner.store.root.parent / "results")
 
 
-
-
-__all__ = ('AnalysisPage',)
+__all__ = ("AnalysisPage",)

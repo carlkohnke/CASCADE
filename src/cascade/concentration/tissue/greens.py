@@ -1,4 +1,7 @@
 """Green's Function Method tissue oxygen solvers.
+
+CPU, streaming, and GPU paths share the same vessel source formulation and
+return concentrations only for tissue points inside the interaction window.
 """
 
 from __future__ import annotations
@@ -9,14 +12,15 @@ import traceback
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
+from cascade.concentration.properties import get_concentration_inlet
 from cascade.concentration.external_field.state import (
     _prepare_cext_source_state_for_tissue,
     validate_cext_tissue_flux_consistency,
 )
 from cascade.concentration.vessel.greens import _k_ratio, _tissue_kernel_numba
 from cascade.diagnostics.runtime import _fmt_seconds, _resolve_tissue_accel_mode
-from cascade.exporting.quadrature import _get_gl_nodes_weights
+from cascade.concentration.quadrature import _get_gl_nodes_weights
 
 from .cache import _compute_tissue_samples_greens_streaming
 from .geometry import (
@@ -26,7 +30,6 @@ from .geometry import (
     _prepare_tissue_geometry,
     _process_tissue_chunk,
     _streaming_tissue_chunk_size,
-    get_concentration_inlet,
 )
 from .gpu import (
     _compute_tissue_samples_greens_from_cext_state_gpu,
@@ -39,6 +42,7 @@ def profile(func):
     """No-op hook retained for compatibility with line-profiler instrumentation."""
     return func
 
+
 def compute_tissue_samples_greens_from_cext_state(
     points: np.ndarray,
     starts: np.ndarray,
@@ -49,7 +53,7 @@ def compute_tissue_samples_greens_from_cext_state(
     tissue_cache: dict | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Evaluate tissue oxygen from converged Cext source fluxes."""
-    # Mutable runtime state is centralized in configuration._legacy_state.
+    # Mutable runtime state is centralized in configuration.solver_state.
     _state._LAST_TISSUE_TIMINGS = {}
     if points.size == 0 or starts.size == 0:
         return np.zeros((0,), dtype=bool), np.zeros((0,), dtype=float)
@@ -61,10 +65,18 @@ def compute_tissue_samples_greens_from_cext_state(
     gl_points_si = np.asarray(cext_state["gl_points_si"], dtype=np.float32)
     lambda_iv_gl = np.asarray(cext_state["lambda_iv_gl"], dtype=np.float32)
     q_weighted_gl = np.asarray(cext_state["q_weighted_gl"], dtype=np.float32)
-    mono2_weight_gl = np.asarray(cext_state.get("mono2_weight_gl", np.zeros_like(q_weighted_gl)), dtype=np.float32)
-    dipole2_weight_gl = np.asarray(cext_state.get("dipole2_weight_gl", np.zeros_like(q_weighted_gl)), dtype=np.float32)
+    mono2_weight_gl = np.asarray(
+        cext_state.get("mono2_weight_gl", np.zeros_like(q_weighted_gl)),
+        dtype=np.float32,
+    )
+    dipole2_weight_gl = np.asarray(
+        cext_state.get("dipole2_weight_gl", np.zeros_like(q_weighted_gl)),
+        dtype=np.float32,
+    )
     segment_vectors_state = np.asarray(
-        cext_state.get("segment_vectors", np.zeros((gl_points_si.shape[0], 3), dtype=np.float32)),
+        cext_state.get(
+            "segment_vectors", np.zeros((gl_points_si.shape[0], 3), dtype=np.float32)
+        ),
         dtype=np.float32,
     )
     seg_cap_gl = np.asarray(cext_state["seg_cap_gl"], dtype=np.float32)
@@ -101,8 +113,11 @@ def compute_tissue_samples_greens_from_cext_state(
         return keep_mask, gpu_result
 
     use_streaming = (
-        (tissue_cache is not None and (tissue_cache.get("streaming") or tissue_cache.get("gpu")))
-        or (tissue_cache is None and int(points.shape[0]) >= int(_state.TISSUE_STREAMING_MIN_POINTS))
+        tissue_cache is not None
+        and (tissue_cache.get("streaming") or tissue_cache.get("gpu"))
+    ) or (
+        tissue_cache is None
+        and int(points.shape[0]) >= int(_state.TISSUE_STREAMING_MIN_POINTS)
     )
     if use_streaming:
         if tissue_cache is not None and isinstance(tissue_cache.get("context"), dict):
@@ -111,13 +126,28 @@ def compute_tissue_samples_greens_from_cext_state(
         else:
             context = _build_tissue_geometry_context(starts, ends, radii)
         _ensure_tissue_context_kdtree(context)
-        valid_source_ids = np.flatnonzero(np.asarray(context["valid_mask"], dtype=bool)).astype(np.int64, copy=False)
-        lambda_valid = np.asarray(lambda_iv_gl[valid_source_ids], dtype=np.float32) if valid_source_ids.size else np.empty((0, 0), dtype=np.float32)
-        influence_radius = np.asarray(window_factor * np.max(lambda_valid, axis=1), dtype=context.get("cache_float", np.float32)) if lambda_valid.size else np.empty((0,), dtype=context.get("cache_float", np.float32))
+        valid_source_ids = np.flatnonzero(
+            np.asarray(context["valid_mask"], dtype=bool)
+        ).astype(np.int64, copy=False)
+        lambda_valid = (
+            np.asarray(lambda_iv_gl[valid_source_ids], dtype=np.float32)
+            if valid_source_ids.size
+            else np.empty((0, 0), dtype=np.float32)
+        )
+        influence_radius = (
+            np.asarray(
+                window_factor * np.max(lambda_valid, axis=1),
+                dtype=context.get("cache_float", np.float32),
+            )
+            if lambda_valid.size
+            else np.empty((0,), dtype=context.get("cache_float", np.float32))
+        )
         chunk_size = _streaming_tissue_chunk_size(max_nearby)
         tasks = [
             (chunk_i, start_idx, min(start_idx + chunk_size, len(points)), None)
-            for chunk_i, start_idx in enumerate(range(0, len(points), chunk_size), start=1)
+            for chunk_i, start_idx in enumerate(
+                range(0, len(points), chunk_size), start=1
+            )
         ]
         state = {
             "points": points,
@@ -136,7 +166,10 @@ def compute_tissue_samples_greens_from_cext_state(
             "influence_radius": influence_radius,
             "prune_by_window": bool(_state.TISSUE_STREAMING_PRUNE_BY_WINDOW),
         }
-        tasks = [(chunk_i, start_idx, end_idx, state) for chunk_i, start_idx, end_idx, _ in tasks]
+        tasks = [
+            (chunk_i, start_idx, end_idx, state)
+            for chunk_i, start_idx, end_idx, _ in tasks
+        ]
         keep_mask = np.zeros((points.shape[0],), dtype=bool)
         total_before_candidates = 0
         total_after_candidates = 0
@@ -145,16 +178,23 @@ def compute_tissue_samples_greens_from_cext_state(
         workers = max(int(_state.TISSUE_STREAMING_CHUNK_WORKERS), 1)
         if workers > 1 and len(tasks) > 1:
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                future_map = {executor.submit(_compute_cext_streaming_tissue_chunk, task): task[0] for task in tasks}
+                future_map = {
+                    executor.submit(_compute_cext_streaming_tissue_chunk, task): task[0]
+                    for task in tasks
+                }
                 for fut in as_completed(future_map):
-                    _, start_idx, end_idx, chunk_keep, out, before_c, after_c = fut.result()
+                    _, start_idx, end_idx, chunk_keep, out, before_c, after_c = (
+                        fut.result()
+                    )
                     keep_mask[start_idx:end_idx] = chunk_keep
                     result[start_idx:end_idx] = out
                     total_before_candidates += int(before_c)
                     total_after_candidates += int(after_c)
         else:
             for task in tasks:
-                _, start_idx, end_idx, chunk_keep, out, before_c, after_c = _compute_cext_streaming_tissue_chunk(task)
+                _, start_idx, end_idx, chunk_keep, out, before_c, after_c = (
+                    _compute_cext_streaming_tissue_chunk(task)
+                )
                 keep_mask[start_idx:end_idx] = chunk_keep
                 result[start_idx:end_idx] = out
                 total_before_candidates += int(before_c)
@@ -175,7 +215,9 @@ def compute_tissue_samples_greens_from_cext_state(
         points_si = np.asarray(tissue_cache["points_si"], dtype=float)
         nearest_idx = np.asarray(tissue_cache["nearest_idx"], dtype=np.int64)
         keep_mask = np.asarray(tissue_cache["keep_mask"], dtype=bool).copy()
-        valid_source_ids = np.flatnonzero(np.asarray(tissue_cache["valid_mask"], dtype=bool)).astype(np.int64, copy=False)
+        valid_source_ids = np.flatnonzero(
+            np.asarray(tissue_cache["valid_mask"], dtype=bool)
+        ).astype(np.int64, copy=False)
         t_setup = perf_counter() - t0
         worker_data = {
             "points_si": points_si,
@@ -192,23 +234,32 @@ def compute_tissue_samples_greens_from_cext_state(
             "diffusivity_si": diffusivity_si,
             "window_factor": window_factor,
         }
-        ranges = [(i, min(i + _state.DISTANCE_CHUNK_SIZE, len(points))) for i in range(0, len(points), _state.DISTANCE_CHUNK_SIZE)]
+        ranges = [
+            (i, min(i + _state.DISTANCE_CHUNK_SIZE, len(points)))
+            for i in range(0, len(points), _state.DISTANCE_CHUNK_SIZE)
+        ]
         t0 = perf_counter()
         if _state.TISSUE_PARALLEL_WORKERS > 1 and len(ranges) > 1:
-            with ThreadPoolExecutor(max_workers=_state.TISSUE_PARALLEL_WORKERS) as executor:
+            with ThreadPoolExecutor(
+                max_workers=_state.TISSUE_PARALLEL_WORKERS
+            ) as executor:
                 for start_idx, out in executor.map(
                     lambda r: _process_cext_tissue_chunk(*r, worker_data),
                     ranges,
                 ):
-                    result[start_idx: start_idx + len(out)] = out
+                    result[start_idx : start_idx + len(out)] = out
         else:
             for r in ranges:
                 start_idx, out = _process_cext_tissue_chunk(*r, worker_data)
-                result[start_idx: start_idx + len(out)] = out
+                result[start_idx : start_idx + len(out)] = out
         t_kernel = perf_counter() - t0
         cache_mode = "dense"
         keep_k = int(nearest_idx.shape[1]) if nearest_idx.ndim == 2 else 0
-        candidate_slots = int(nearest_idx.shape[0] * nearest_idx.shape[1]) if nearest_idx.ndim == 2 else 0
+        candidate_slots = (
+            int(nearest_idx.shape[0] * nearest_idx.shape[1])
+            if nearest_idx.ndim == 2
+            else 0
+        )
 
     if _state.SOLVER_TIMING_DETAILS:
         print(
@@ -260,7 +311,14 @@ def compute_tissue_samples_greens(
     inlet_concentration: float | None = None,
     tissue_cache: dict | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    # Mutable runtime state is centralized in configuration._legacy_state.
+    """Evaluate tissue oxygen from vessel line sources at requested points.
+
+    Backend policy selects GPU, cached CPU, or streaming CPU evaluation. Every
+    path applies the same physical window, consumption law, and inlet reference
+    before returning the retained-point mask and concentrations.
+    """
+
+    # Mutable runtime state is centralized in configuration.solver_state.
     _state._LAST_TISSUE_TIMINGS = {}
     if points.size == 0 or starts.size == 0:
         return np.zeros((0,), dtype=bool), np.zeros((0,), dtype=float)
@@ -281,11 +339,11 @@ def compute_tissue_samples_greens(
             tissue_cache=tissue_cache,
         )
 
-    if (
-        _state.TISSUE_STREAMING_ENABLED
-        and (
-            (tissue_cache is not None and tissue_cache.get("streaming"))
-            or (tissue_cache is None and int(points.shape[0]) >= int(_state.TISSUE_STREAMING_MIN_POINTS))
+    if _state.TISSUE_STREAMING_ENABLED and (
+        (tissue_cache is not None and tissue_cache.get("streaming"))
+        or (
+            tissue_cache is None
+            and int(points.shape[0]) >= int(_state.TISSUE_STREAMING_MIN_POINTS)
         )
     ):
         return _compute_tissue_samples_greens_streaming(
@@ -344,10 +402,19 @@ def compute_tissue_samples_greens(
     phi_edge = radii_si / np.maximum(lam_edge, 1e-30)
     ratio_edge = _k_ratio(phi_edge)
     flow_mag = np.maximum(np.abs(flows_si), 1e-30)
-    alpha_edge = (2.0 * np.pi * radii_si / flow_mag) * (diffusivity_si / np.maximum(lam_edge, 1e-30)) * ratio_edge
+    alpha_edge = (
+        (2.0 * np.pi * radii_si / flow_mag)
+        * (diffusivity_si / np.maximum(lam_edge, 1e-30))
+        * ratio_edge
+    )
     if inlet_concentration is None:
         inlet_concentration = get_concentration_inlet()
-    lam_ref = float(np.sqrt(diffusivity_si / max(vmax / max(km + float(inlet_concentration), 1e-30), 1e-30)))
+    lam_ref = float(
+        np.sqrt(
+            diffusivity_si
+            / max(vmax / max(km + float(inlet_concentration), 1e-30), 1e-30)
+        )
+    )
 
     flow_sign = np.sign(flows_si)
     result = np.zeros(points.shape[0], dtype=float)
@@ -375,7 +442,10 @@ def compute_tissue_samples_greens(
         "gl_weights": gl_weights,
     }
 
-    ranges = [(i, min(i + _state.DISTANCE_CHUNK_SIZE, len(points))) for i in range(0, len(points), _state.DISTANCE_CHUNK_SIZE)]
+    ranges = [
+        (i, min(i + _state.DISTANCE_CHUNK_SIZE, len(points)))
+        for i in range(0, len(points), _state.DISTANCE_CHUNK_SIZE)
+    ]
     used_numba = False
     t_kernel = 0.0
     if _state._HAVE_NUMBA and _state.TISSUE_USE_NUMBA and _state._K0_LUT.size:
@@ -407,7 +477,9 @@ def compute_tissue_samples_greens(
             t_kernel = perf_counter() - t0
             used_numba = True
         except Exception:
-            print("WARNING: Numba tissue kernel failed; falling back to non-numba path.")
+            print(
+                "WARNING: Numba tissue kernel failed; falling back to non-numba path."
+            )
             traceback.print_exc()
             used_numba = False
     if not used_numba and _state.TISSUE_PARALLEL_WORKERS > 1 and len(ranges) > 1:
@@ -417,18 +489,22 @@ def compute_tissue_samples_greens(
                 lambda r: _process_tissue_chunk(*r, worker_data),
                 ranges,
             ):
-                result[start_idx: start_idx + len(out)] = out
+                result[start_idx : start_idx + len(out)] = out
         t_kernel = perf_counter() - t0
     elif not used_numba:
         t0 = perf_counter()
         for r in ranges:
             start_idx, out = _process_tissue_chunk(*r, worker_data)
-            result[start_idx: start_idx + len(out)] = out
+            result[start_idx : start_idx + len(out)] = out
         t_kernel = perf_counter() - t0
 
     if _state.SOLVER_TIMING_DETAILS:
         active_points = int(np.count_nonzero(keep_mask))
-        candidate_slots = int(nearest_idx.shape[0] * nearest_idx.shape[1]) if nearest_idx.ndim == 2 else 0
+        candidate_slots = (
+            int(nearest_idx.shape[0] * nearest_idx.shape[1])
+            if nearest_idx.ndim == 2
+            else 0
+        )
         print(
             "  Tissue Greens solve: "
             f"points={points.shape[0]} active_points={active_points} keep_k={nearest_idx.shape[1] if nearest_idx.ndim == 2 else 0} "
@@ -474,7 +550,7 @@ def estimate_bulk_tissue_concentration(
 
     collected = []
     for idx in range(0, len(points), _state.DISTANCE_CHUNK_SIZE):
-        chunk = points[idx: idx + _state.DISTANCE_CHUNK_SIZE]
+        chunk = points[idx : idx + _state.DISTANCE_CHUNK_SIZE]
         if chunk.size == 0:
             continue
         diff = chunk[:, None, :] - starts[None, :, :]
@@ -491,7 +567,10 @@ def estimate_bulk_tissue_concentration(
         d_wall = np.maximum(d_center - radius_local, 0.0)
         supplied = vessel_sources[idx_min]
         weight = np.clip(1.0 - d_wall / decay_length, 0.0, 1.0)
-        concentration = extravascular_concentration + (supplied - extravascular_concentration) * weight
+        concentration = (
+            extravascular_concentration
+            + (supplied - extravascular_concentration) * weight
+        )
         collected.append(concentration[outside])
 
     if not collected:
@@ -529,30 +608,44 @@ def _compute_tissue_samples_linear(
     keep_mask = np.ones(points.shape[0], dtype=bool)
     max_nearby = min(_state.NEAREST_TISSUE_VESSELS, len(starts))
     for idx in range(0, len(points), _state.DISTANCE_CHUNK_SIZE):
-        chunk = points[idx: idx + _state.DISTANCE_CHUNK_SIZE]
+        chunk = points[idx : idx + _state.DISTANCE_CHUNK_SIZE]
         if chunk.size == 0:
             continue
         diff = chunk[:, None, :] - starts[None, :, :]
-        proj_raw = np.sum(diff * segment_vectors[None, :, :], axis=2) / seg_len_sq[None, :]
+        proj_raw = (
+            np.sum(diff * segment_vectors[None, :, :], axis=2) / seg_len_sq[None, :]
+        )
         proj = np.clip(proj_raw, 0.0, 1.0)
         closest = starts[None, :, :] + proj[:, :, None] * segment_vectors[None, :, :]
         distances = np.linalg.norm(chunk[:, None, :] - closest, axis=2)
-        nearest_idx = np.argpartition(distances, kth=max_nearby - 1, axis=1)[:, :max_nearby]
+        nearest_idx = np.argpartition(distances, kth=max_nearby - 1, axis=1)[
+            :, :max_nearby
+        ]
         d_center = np.take_along_axis(distances, nearest_idx, axis=1)
         proj_sel = np.take_along_axis(proj_raw, nearest_idx, axis=1)
         radius_local = np.minimum(
             np.take_along_axis(radii[None, :], nearest_idx, axis=1),
             np.sqrt(np.take_along_axis(seg_len_sq[None, :], nearest_idx, axis=1)),
         )
-        inside_any = np.any((proj_sel >= 0.0) & (proj_sel <= 1.0) & (d_center <= radius_local), axis=1)
-        keep_mask[idx: idx + len(chunk)] = ~inside_any
+        inside_any = np.any(
+            (proj_sel >= 0.0) & (proj_sel <= 1.0) & (d_center <= radius_local), axis=1
+        )
+        keep_mask[idx : idx + len(chunk)] = ~inside_any
         d_wall = np.maximum(d_center - radius_local, 0.0)
         supplied = np.take_along_axis(vessel_sources[None, :], nearest_idx, axis=1)
         weight = np.clip(1.0 - d_wall / decay_length, 0.0, 1.0)
-        conc_candidates = extravascular_concentration + (supplied - extravascular_concentration) * weight
-        result[idx: idx + len(chunk)] = np.max(conc_candidates, axis=1)
+        conc_candidates = (
+            extravascular_concentration
+            + (supplied - extravascular_concentration) * weight
+        )
+        result[idx : idx + len(chunk)] = np.max(conc_candidates, axis=1)
 
     return keep_mask, result
 
 
-__all__ = ['compute_tissue_samples_greens_from_cext_state', 'compute_tissue_samples_greens', 'estimate_bulk_tissue_concentration', '_compute_tissue_samples_linear']
+__all__ = [
+    "compute_tissue_samples_greens_from_cext_state",
+    "compute_tissue_samples_greens",
+    "estimate_bulk_tissue_concentration",
+    "_compute_tissue_samples_linear",
+]

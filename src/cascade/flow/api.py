@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cascade.core import FlowProblem, FlowResult
+from cascade.flow.contracts import FlowProblem, FlowResult
 
 from .kirchhoff import solve_kirchhoff
 

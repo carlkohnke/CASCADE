@@ -1,3 +1,5 @@
+"""Construct regular tissue grids and retain points that lie inside a domain."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -31,11 +33,18 @@ def grid_spec_from_dict(raw: dict[str, Any] | None) -> GridSpec:
         disable_enclosed_check=_as_bool(data.get("disable_enclosed_check"), True),
         enclosed_tolerance=float(data.get("enclosed_tolerance", 1.0e-6)),
         inside_combine_mode=str(data.get("inside_combine_mode", "and")).strip().lower(),
-        chunk_points=max(int(data.get("chunk_points", data.get("tissue_grid_chunk_points", 250_000))), 1),
+        chunk_points=max(
+            int(
+                data.get("chunk_points", data.get("tissue_grid_chunk_points", 250_000))
+            ),
+            1,
+        ),
     )
 
 
-def sample_grid_points(domain: Any, raw_spec: dict[str, Any] | None = None) -> tuple[np.ndarray, dict[str, Any]]:
+def sample_grid_points(
+    domain: Any, raw_spec: dict[str, Any] | None = None
+) -> tuple[np.ndarray, dict[str, Any]]:
     spec = grid_spec_from_dict(raw_spec)
     boundary = get_boundary(domain, spec.boundary_resolution)
     total_grid_points = int(spec.nx) * int(spec.ny) * int(spec.nz)
@@ -73,7 +82,9 @@ def get_boundary(domain: Any, boundary_resolution: int) -> pv.PolyData:
     return boundary.clean()
 
 
-def grid_axes(boundary: pv.PolyData, nx: int, ny: int, nz: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def grid_axes(
+    boundary: pv.PolyData, nx: int, ny: int, nz: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     bmin = np.min(boundary.points, axis=0).astype(np.float64)
     bmax = np.max(boundary.points, axis=0).astype(np.float64)
     x = np.linspace(bmin[0], bmax[0], int(nx), dtype=np.float64)
@@ -91,7 +102,9 @@ def grid_points(boundary: pv.PolyData, nx: int, ny: int, nz: int) -> np.ndarray:
     return grid_points_from_axes(*grid_axes(boundary, nx, ny, nz))
 
 
-def inside_mask(domain: Any, boundary: pv.PolyData, points: np.ndarray, spec: GridSpec) -> np.ndarray:
+def inside_mask(
+    domain: Any, boundary: pv.PolyData, points: np.ndarray, spec: GridSpec
+) -> np.ndarray:
     implicit = np.asarray(domain(points)).reshape(-1) <= -float(spec.implicit_margin)
     if spec.disable_enclosed_check:
         return implicit
@@ -102,16 +115,23 @@ def inside_mask(domain: Any, boundary: pv.PolyData, points: np.ndarray, spec: Gr
             tolerance=float(spec.enclosed_tolerance),
             check_surface=False,
         )
-        enclosed = np.asarray(selected.point_data["SelectedPoints"]).astype(bool).reshape(-1)
+        enclosed = (
+            np.asarray(selected.point_data["SelectedPoints"]).astype(bool).reshape(-1)
+        )
         if spec.inside_combine_mode == "or":
             return np.logical_or(implicit, enclosed)
         return np.logical_and(implicit, enclosed)
     except Exception as exc:
-        print(f"Warning: enclosed-point check failed ({exc}); using implicit-only mask.", flush=True)
+        print(
+            f"Warning: enclosed-point check failed ({exc}); using implicit-only mask.",
+            flush=True,
+        )
         return implicit
 
 
-def inside_grid_points_chunked(domain: Any, boundary: pv.PolyData, spec: GridSpec) -> np.ndarray:
+def inside_grid_points_chunked(
+    domain: Any, boundary: pv.PolyData, spec: GridSpec
+) -> np.ndarray:
     x, y, z = grid_axes(boundary, spec.nx, spec.ny, spec.nz)
     chunk_points = max(int(spec.chunk_points), 1)
     yz_count = max(int(y.size * z.size), 1)

@@ -51,9 +51,7 @@ class VascularNetworkSet:
     @classmethod
     def from_forest(cls, forest: Any) -> "VascularNetworkSet":
         networks = (
-            network
-            for network_group in forest.networks
-            for network in network_group
+            network for network_group in forest.networks for network in network_group
         )
         return cls.from_networks(networks, forest=forest)
 

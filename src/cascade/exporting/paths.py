@@ -15,7 +15,9 @@ from pathlib import Path
 def output_directory() -> Path:
     """Return the root directory used for relative generated-output paths."""
     configured = os.environ.get("CASCADE_OUTPUT_DIR")
-    return Path(configured).expanduser().resolve() if configured else Path.cwd().resolve()
+    return (
+        Path(configured).expanduser().resolve() if configured else Path.cwd().resolve()
+    )
 
 
 def resolve_output_path(value: str | Path) -> Path:

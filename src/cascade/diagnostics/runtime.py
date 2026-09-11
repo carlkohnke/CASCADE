@@ -10,8 +10,9 @@ import traceback
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 from cascade.exporting.paths import diagnostic_log_path
+
 
 def _dbg(msg: str) -> None:
     return
@@ -54,7 +55,9 @@ def _resolve_tissue_accel_mode(*, require_gpu: bool = False) -> str:
             "Verify `import cupy` and `cupy.cuda.runtime.getDeviceCount()` in the CASCADE environment."
         )
     if _state.SOLVER_TIMING_DETAILS:
-        print("WARNING: tissue-accel=auto requested, but CuPy/CUDA is unavailable; using CPU tissue path.")
+        print(
+            "WARNING: tissue-accel=auto requested, but CuPy/CUDA is unavailable; using CPU tissue path."
+        )
     return "cpu"
 
 
@@ -82,7 +85,16 @@ def _set_progress(stage: str, **kwargs: object) -> None:
 
 def _progress_snapshot() -> str:
     items = []
-    for key in ("stage", "run_name", "output_csv", "side_len", "theta", "target", "trial", "fluid"):
+    for key in (
+        "stage",
+        "run_name",
+        "output_csv",
+        "side_len",
+        "theta",
+        "target",
+        "trial",
+        "fluid",
+    ):
         val = _state._LAST_PROGRESS.get(key)
         if val is not None:
             items.append(f"{key}={val}")
@@ -96,7 +108,9 @@ def _write_trial_error_log(exc: BaseException, context: str) -> None:
             handle.write("\n---\n")
             handle.write(_progress_snapshot() + "\n")
             handle.write(context + "\n")
-            handle.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+            handle.write(
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            )
     except Exception:
         pass
 
@@ -107,7 +121,9 @@ def _write_crash_log(exc: BaseException) -> None:
         with path.open("a", encoding="utf-8") as handle:
             handle.write("\n---\n")
             handle.write(_progress_snapshot() + "\n")
-            handle.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+            handle.write(
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            )
     except Exception:
         pass
 
@@ -128,4 +144,16 @@ def _require_tree_class() -> None:
         ) from _state._IMPORT_ERROR
 
 
-__all__ = ['_dbg', '_fmt_seconds', '_ckdtree_query', '_cupy_device_available', '_resolve_tissue_accel_mode', '_set_progress', '_progress_snapshot', '_write_trial_error_log', '_write_crash_log', '_require_domain_class', '_require_tree_class']
+__all__ = [
+    "_dbg",
+    "_fmt_seconds",
+    "_ckdtree_query",
+    "_cupy_device_available",
+    "_resolve_tissue_accel_mode",
+    "_set_progress",
+    "_progress_snapshot",
+    "_write_trial_error_log",
+    "_write_crash_log",
+    "_require_domain_class",
+    "_require_tree_class",
+]

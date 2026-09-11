@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
+from time import perf_counter
+
+from cascade.configuration.schema import RunConfig
+from cascade.utils.resources import resolve_path
 from cascade.vessels.results import (
     NetworkBuildResult,
 )
-
-from cascade.vessels._build_common import (
-    RunConfig,
-    build_simple_network,
-    perf_counter,
-    resolve_path,
-)
+from cascade.vessels.simple import build_simple_network
 
 from cascade.vessels.conditions import (
     _make_forest,
@@ -28,7 +26,6 @@ from cascade.vessels.cache import (
 from cascade.vessels.growth import (
     _build_configured_trees,
     _extend_trees_to_targets,
-    _pre_sample_points,
 )
 
 from cascade.configuration.bridge import (
@@ -38,21 +35,32 @@ from cascade.configuration.bridge import (
 
 from cascade.domain.workflow import (
     build_domain,
+    prepare_sample_points,
 )
+
 
 def build_or_load_network(
     config: RunConfig, *, domain_override=None
 ) -> NetworkBuildResult:
+    """Resolve domain, vascular geometry, growth targets, and reusable samples.
+
+    A valid shared cache is preferred; otherwise the configured simple graph,
+    loaded forest, or generated SVV forest is prepared. Returned trees are ready
+    for the simulation engine but have not been numerically solved here.
+    """
+
     ts = load_runtime_module()
     apply_runtime_settings(ts, config)
     timings: dict[str, float] = {}
 
-    cached = None if domain_override is not None else _load_shared_geometry_cache(config)
+    cached = (
+        None if domain_override is not None else _load_shared_geometry_cache(config)
+    )
     if cached is not None:
         domain, trees, forest, load_source = cached
         timings["geometry_cache_load_s"] = float(load_source[1])
         t0 = perf_counter()
-        sample_points, sample_meta = _pre_sample_points(ts, domain, config)
+        sample_points, sample_meta = prepare_sample_points(domain, config, ts=ts)
         timings["sample_points_s"] = perf_counter() - t0
         if trees is not None:
             target_counts = _target_counts_for_config(config, len(trees), trees=trees)
@@ -70,11 +78,15 @@ def build_or_load_network(
         print(f"Reusing sweep domain cache: {load_source[0]}", flush=True)
     else:
         t0 = perf_counter()
-        domain = domain_override if domain_override is not None else build_domain(config, ts=ts)
+        domain = (
+            domain_override
+            if domain_override is not None
+            else build_domain(config, ts=ts)
+        )
         timings["domain_s"] = perf_counter() - t0
 
         t0 = perf_counter()
-        sample_points, sample_meta = _pre_sample_points(ts, domain, config)
+        sample_points, sample_meta = prepare_sample_points(domain, config, ts=ts)
         timings["sample_points_s"] = perf_counter() - t0
 
     input_path = resolve_path(
@@ -86,7 +98,11 @@ def build_or_load_network(
             config.growth.checkpoint_path,
             base_dir=config.settings_path.parent if config.settings_path else None,
         )
-        if bool(config.growth.resume_from_checkpoint) and checkpoint_path is not None and checkpoint_path.exists():
+        if (
+            bool(config.growth.resume_from_checkpoint)
+            and checkpoint_path is not None
+            and checkpoint_path.exists()
+        ):
             input_path = checkpoint_path
         t0 = perf_counter()
         trees, forest = _load_existing_network(input_path, domain, config, ts=ts)
@@ -94,10 +110,54 @@ def build_or_load_network(
         target_counts = _target_counts_for_config(config, len(trees), trees=trees)
         if config.growth.enabled:
             t0 = perf_counter()
-            _extend_trees_to_targets(ts, trees, domain, config, target_counts, forest=forest)
+            _extend_trees_to_targets(
+                ts, trees, domain, config, target_counts, forest=forest
+            )
             timings["growth_s"] = perf_counter() - t0
         repairs, reports = _repair_and_validate_if_requested(trees, config)
-        return _save_shared_geometry_cache(NetworkBuildResult(
+        return _save_shared_geometry_cache(
+            NetworkBuildResult(
+                domain=domain,
+                trees=trees,
+                forest=forest,
+                target_counts=target_counts,
+                build_timings=timings,
+                sample_points=sample_points,
+                sample_meta=sample_meta,
+                connectivity_repairs=repairs,
+                connectivity_reports=reports,
+                load_source=input_path,
+            ),
+            config,
+        )
+
+    if config.network_mode == "simple":
+        t0 = perf_counter()
+        simple_network = build_simple_network(ts, domain, config)
+        timings["growth_s"] = perf_counter() - t0
+        return _save_shared_geometry_cache(
+            NetworkBuildResult(
+                domain=domain,
+                trees=[simple_network],
+                forest=None,
+                target_counts=[int(getattr(simple_network, "n_terminals", 1) or 1)],
+                build_timings=timings,
+                sample_points=sample_points,
+                sample_meta=sample_meta,
+            ),
+            config,
+        )
+
+    t0 = perf_counter()
+    trees = _build_configured_trees(ts, domain, config)
+    timings["growth_s"] = perf_counter() - t0
+    forest = (
+        _make_forest(config, domain, trees) if config.network_mode == "forest" else None
+    )
+    target_counts = _target_counts_for_config(config, len(trees), trees=trees)
+    repairs, reports = _repair_and_validate_if_requested(trees, config)
+    return _save_shared_geometry_cache(
+        NetworkBuildResult(
             domain=domain,
             trees=trees,
             forest=forest,
@@ -107,42 +167,9 @@ def build_or_load_network(
             sample_meta=sample_meta,
             connectivity_repairs=repairs,
             connectivity_reports=reports,
-            load_source=input_path,
-        ), config)
-
-    if config.network_mode == "simple":
-        t0 = perf_counter()
-        simple_network = build_simple_network(ts, domain, config)
-        timings["growth_s"] = perf_counter() - t0
-        return _save_shared_geometry_cache(NetworkBuildResult(
-            domain=domain,
-            trees=[simple_network],
-            forest=None,
-            target_counts=[int(getattr(simple_network, "n_terminals", 1) or 1)],
-            build_timings=timings,
-            sample_points=sample_points,
-            sample_meta=sample_meta,
-        ), config)
-
-    t0 = perf_counter()
-    trees = _build_configured_trees(ts, domain, config)
-    timings["growth_s"] = perf_counter() - t0
-    forest = _make_forest(config, domain, trees) if config.network_mode == "forest" else None
-    target_counts = _target_counts_for_config(config, len(trees), trees=trees)
-    repairs, reports = _repair_and_validate_if_requested(trees, config)
-    return _save_shared_geometry_cache(NetworkBuildResult(
-        domain=domain,
-        trees=trees,
-        forest=forest,
-        target_counts=target_counts,
-        build_timings=timings,
-        sample_points=sample_points,
-        sample_meta=sample_meta,
-        connectivity_repairs=repairs,
-        connectivity_reports=reports,
-    ), config)
-
-
+        ),
+        config,
+    )
 
 
 __all__ = ["NetworkBuildResult", "build_or_load_network"]

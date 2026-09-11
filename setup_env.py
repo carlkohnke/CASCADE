@@ -171,7 +171,10 @@ def main(argv: list[str] | None = None) -> int:
                 args.dry_run,
                 env=verify_env,
             )
-        _run([str(venv_python), "-m", "cascade.cli", "--help"], args.dry_run)
+        _run(
+            [str(venv_python), "-m", "cascade.commands.main", "--help"],
+            args.dry_run,
+        )
         if args.gui:
             _run(
                 [
@@ -196,8 +199,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"  source {venv_dir}/bin/activate")
     print("Run CASCADE with:")
-    print(f"  {venv_python} -m cascade.cli init-settings case.json")
-    print(f"  {venv_python} -m cascade.cli run --settings case.json")
+    print(f"  {venv_python} -m cascade.commands.main init-settings case.json")
+    print(f"  {venv_python} -m cascade.commands.main run --settings case.json")
     if args.gui:
         print("Launch CASCADE Studio with:")
         print(f"  {venv_python} -m cascade.gui")

@@ -10,7 +10,8 @@ from typing import Dict, Tuple
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
+
 
 def _linear_fit_slope_r2(x: np.ndarray, y: np.ndarray) -> Tuple[float, float, float]:
     x = np.asarray(x, dtype=float)
@@ -106,4 +107,10 @@ def aggregate_trials(rows: list[Dict[str, float]]) -> Dict[str, float]:
     return result
 
 
-__all__ = ['_linear_fit_slope_r2', '_constant_value', '_mean_std', '_pooled_mean_std_from_summaries', 'aggregate_trials']
+__all__ = [
+    "_linear_fit_slope_r2",
+    "_constant_value",
+    "_mean_std",
+    "_pooled_mean_std_from_summaries",
+    "aggregate_trials",
+]

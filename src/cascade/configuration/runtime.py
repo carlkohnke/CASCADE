@@ -7,12 +7,12 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from cascade.settings import apply_settings, collect_config_settings
+from cascade.configuration.settings import apply_settings, collect_config_settings
 
 
 @dataclass(frozen=True)
 class RuntimeConfiguration:
-    """Immutable view of settings that historically mutated TissueSim globals."""
+    """Immutable view of the settings resolved for one simulation run."""
 
     fluid: str
     build_fluid: str
@@ -43,7 +43,7 @@ class RuntimeConfiguration:
         )
 
     def apply_compatibility_state(self, runtime: Any) -> dict[str, Any]:
-        """Bridge typed settings to the temporary TissueSim compatibility state."""
+        """Apply typed settings to the shared TissueSim runtime state."""
         runtime.FLUID = self.fluid
         runtime.ACTIVE_FLUID = self.fluid
         runtime.BUILD_FLUID = self.build_fluid

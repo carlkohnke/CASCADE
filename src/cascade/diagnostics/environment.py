@@ -1,3 +1,5 @@
+"""Inspect the installed CASCADE environment and report optional solver capabilities."""
+
 from __future__ import annotations
 
 import importlib
@@ -47,7 +49,11 @@ def collect_diagnostics(*, probe_gpu: bool = True) -> dict[str, Any]:
     gpu = None
     if probe_gpu:
         result = probe_gpu_runtime()
-        gpu = {"ready": result.ready, "summary": result.summary, "detail": result.detail}
+        gpu = {
+            "ready": result.ready,
+            "summary": result.summary,
+            "detail": result.detail,
+        }
 
     return {
         "cascade_version": __version__,
@@ -65,10 +71,20 @@ def collect_diagnostics(*, probe_gpu: bool = True) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Inspect the installed CASCADE runtime.")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
-    parser.add_argument("--no-gpu-probe", action="store_true", help="Skip the compiled CUDA check.")
-    parser.add_argument("--require-gpu", action="store_true", help="Return failure unless CUDA is ready.")
+    parser = argparse.ArgumentParser(
+        description="Inspect the installed CASCADE runtime."
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON."
+    )
+    parser.add_argument(
+        "--no-gpu-probe", action="store_true", help="Skip the compiled CUDA check."
+    )
+    parser.add_argument(
+        "--require-gpu",
+        action="store_true",
+        help="Return failure unless CUDA is ready.",
+    )
     args = parser.parse_args(argv)
     report = collect_diagnostics(probe_gpu=not args.no_gpu_probe)
 

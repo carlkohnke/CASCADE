@@ -12,9 +12,10 @@ from typing import Dict, Optional, Sequence
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 from cascade.concentration.vessel.greens import severinghaus_saturation
 from cascade.flow.rheology import tube_hematocrit
+
 
 def _normalize_angles(values: Sequence[float] | float) -> tuple[float, ...]:
     if isinstance(values, Number):
@@ -46,16 +47,24 @@ def _parse_qin_target_values(value: object) -> tuple[float, ...]:
     else:
         text = str(value).strip()
         if not text:
-            raise ValueError("--qin-target must contain at least one positive flowrate.")
+            raise ValueError(
+                "--qin-target must contain at least one positive flowrate."
+            )
         if (text[0], text[-1]) in (("(", ")"), ("[", "]")):
             text = text[1:-1].strip()
-        parts = [part.strip() for part in text.replace(";", ",").split(",") if part.strip()]
+        parts = [
+            part.strip() for part in text.replace(";", ",").split(",") if part.strip()
+        ]
         if not parts:
-            raise ValueError("--qin-target must contain at least one positive flowrate.")
+            raise ValueError(
+                "--qin-target must contain at least one positive flowrate."
+            )
         values = tuple(float(part) for part in parts)
     for qin in values:
         if not np.isfinite(qin) or qin <= 0.0:
-            raise ValueError(f"--qin-target values must be positive and finite; got {qin!r}.")
+            raise ValueError(
+                f"--qin-target values must be positive and finite; got {qin!r}."
+            )
     return values
 
 
@@ -71,21 +80,31 @@ def _parse_distance_sample_count_values(value: object) -> tuple[int, ...]:
     else:
         text = str(value).strip()
         if not text:
-            raise ValueError("--distance-sample-counts must contain at least one positive integer.")
+            raise ValueError(
+                "--distance-sample-counts must contain at least one positive integer."
+            )
         if (text[0], text[-1]) in (("(", ")"), ("[", "]")):
             text = text[1:-1].strip()
-        parts = [part.strip() for part in text.replace(";", ",").split(",") if part.strip()]
+        parts = [
+            part.strip() for part in text.replace(";", ",").split(",") if part.strip()
+        ]
         if not parts:
-            raise ValueError("--distance-sample-counts must contain at least one positive integer.")
+            raise ValueError(
+                "--distance-sample-counts must contain at least one positive integer."
+            )
         values = tuple(int(float(part)) for part in parts)
     deduped = tuple(dict.fromkeys(values))
     for count in deduped:
         if count <= 0:
-            raise ValueError(f"--distance-sample-counts values must be positive; got {count!r}.")
+            raise ValueError(
+                f"--distance-sample-counts values must be positive; got {count!r}."
+            )
     return deduped
 
 
-def append_row(path: Path, row: Optional[Dict[str, float]], write_header: bool = False) -> None:
+def append_row(
+    path: Path, row: Optional[Dict[str, float]], write_header: bool = False
+) -> None:
     with path.open("a", newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=_state.CSV_FIELDNAMES)
         if write_header:
@@ -121,17 +140,27 @@ def _pi_phi_gamma_columns(aggregated: Dict[str, float | str]) -> Dict[str, float
     total_segments = float(aggregated.get("total_segments_mean", float("nan")))
     if not np.isfinite(total_segments) or total_segments <= 0.0:
         target_terminals_raw = float(aggregated.get("target_terminals", float("nan")))
-        target_terminals = int(round(target_terminals_raw)) if np.isfinite(target_terminals_raw) else -1
-        total_segments = float((2 * target_terminals) + 1) if target_terminals >= 0 else float("nan")
+        target_terminals = (
+            int(round(target_terminals_raw))
+            if np.isfinite(target_terminals_raw)
+            else -1
+        )
+        total_segments = (
+            float((2 * target_terminals) + 1) if target_terminals >= 0 else float("nan")
+        )
     side_len_cm = float(aggregated.get("cube_side_length", float("nan")))
     q0_ul_min = float(aggregated.get("inlet_flow_ul_per_min_mean", float("nan")))
     if not np.isfinite(q0_ul_min):
         q0_ul_min = float(aggregated.get("qin_target_uL_per_min", float("nan")))
 
     q0_m3_s = q0_ul_min * 1e-9 / 60.0 if np.isfinite(q0_ul_min) else float("nan")
-    side_len_m = side_len_cm * _state.CM_TO_M if np.isfinite(side_len_cm) else float("nan")
+    side_len_m = (
+        side_len_cm * _state.CM_TO_M if np.isfinite(side_len_cm) else float("nan")
+    )
     v_t = side_len_m**3 if np.isfinite(side_len_m) else float("nan")
-    avg_radius_m = avg_radius_cm * _state.CM_TO_M if np.isfinite(avg_radius_cm) else float("nan")
+    avg_radius_m = (
+        avg_radius_cm * _state.CM_TO_M if np.isfinite(avg_radius_cm) else float("nan")
+    )
 
     c_hb_bound = 0.0
     if fluid == "blood":
@@ -142,23 +171,43 @@ def _pi_phi_gamma_columns(aggregated: Dict[str, float | str]) -> Dict[str, float
         else:
             c_hb_bound = float("nan")
 
-    c0_eff = c0_plasma + c_hb_bound if np.isfinite(c0_plasma) and np.isfinite(c_hb_bound) else float("nan")
+    c0_eff = (
+        c0_plasma + c_hb_bound
+        if np.isfinite(c0_plasma) and np.isfinite(c_hb_bound)
+        else float("nan")
+    )
     cstar = (
         float(_state.CONC_MAX_FOR_NORMALIZATION) * 0.01
         if np.isfinite(_state.CONC_MAX_FOR_NORMALIZATION)
         else float("nan")
     )
-    solute_diffusivity_cm2_s = float(aggregated.get("solute_diffusivity", _state.SOLUTE_DIFFUSIVITY))
-    diffusivity = solute_diffusivity_cm2_s * _state.CM2_TO_M2 if np.isfinite(solute_diffusivity_cm2_s) else float("nan")
+    solute_diffusivity_cm2_s = float(
+        aggregated.get("solute_diffusivity", _state.SOLUTE_DIFFUSIVITY)
+    )
+    diffusivity = (
+        solute_diffusivity_cm2_s * _state.CM2_TO_M2
+        if np.isfinite(solute_diffusivity_cm2_s)
+        else float("nan")
+    )
     vmax = float(_state.VMAX_MM)
     km = float(_state.K_M_MM)
 
     l_d = float("nan")
-    if np.isfinite(v_t) and np.isfinite(total_segments) and np.isfinite(avg_radius_m) and total_segments > 0.0:
+    if (
+        np.isfinite(v_t)
+        and np.isfinite(total_segments)
+        and np.isfinite(avg_radius_m)
+        and total_segments > 0.0
+    ):
         l_d = float(np.cbrt(v_t / total_segments) - avg_radius_m)
 
     lambda_rd = float("nan")
-    if np.isfinite(diffusivity) and np.isfinite(c0_plasma) and np.isfinite(km) and np.isfinite(vmax):
+    if (
+        np.isfinite(diffusivity)
+        and np.isfinite(c0_plasma)
+        and np.isfinite(km)
+        and np.isfinite(vmax)
+    ):
         if diffusivity >= 0.0 and (c0_plasma + km) > 0.0 and vmax > 0.0:
             lambda_rd = float(np.sqrt(diffusivity * (c0_plasma + km) / vmax))
 
@@ -194,16 +243,24 @@ def _nondimensional_numbers_row(
     avg_radius_cm = float(aggregated.get("avg_radius_mean", float("nan")))
     avg_length_cm = float(aggregated.get("avg_length_mean", float("nan")))
     target_terminals_raw = float(aggregated.get("target_terminals", float("nan")))
-    target_terminals = int(round(target_terminals_raw)) if np.isfinite(target_terminals_raw) else -1
-    n_segments = float((2 * target_terminals) + 1) if target_terminals >= 0 else float("nan")
+    target_terminals = (
+        int(round(target_terminals_raw)) if np.isfinite(target_terminals_raw) else -1
+    )
+    n_segments = (
+        float((2 * target_terminals) + 1) if target_terminals >= 0 else float("nan")
+    )
     side_len = float(aggregated.get("cube_side_length", float("nan")))
     q0_ul_min = float(aggregated.get("inlet_flow_ul_per_min_mean", float("nan")))
 
     q0_m3_s = q0_ul_min * 1e-9 / 60.0 if np.isfinite(q0_ul_min) else float("nan")
     side_len_m = side_len * _state.CM_TO_M if np.isfinite(side_len) else float("nan")
     v_t = side_len_m**3 if np.isfinite(side_len_m) else float("nan")
-    avg_radius_m = avg_radius_cm * _state.CM_TO_M if np.isfinite(avg_radius_cm) else float("nan")
-    avg_length_m = avg_length_cm * _state.CM_TO_M if np.isfinite(avg_length_cm) else float("nan")
+    avg_radius_m = (
+        avg_radius_cm * _state.CM_TO_M if np.isfinite(avg_radius_cm) else float("nan")
+    )
+    avg_length_m = (
+        avg_length_cm * _state.CM_TO_M if np.isfinite(avg_length_cm) else float("nan")
+    )
 
     hct_est = float("nan")
     sat_est = float("nan")
@@ -225,7 +282,11 @@ def _nondimensional_numbers_row(
         else:
             c_hb_bound = float("nan")
 
-    c0_eff = c0_plasma + c_hb_bound if np.isfinite(c0_plasma) and np.isfinite(c_hb_bound) else float("nan")
+    c0_eff = (
+        c0_plasma + c_hb_bound
+        if np.isfinite(c0_plasma) and np.isfinite(c_hb_bound)
+        else float("nan")
+    )
     cstar = (
         float(_state.CONC_MAX_FOR_NORMALIZATION) * 0.01
         if np.isfinite(_state.CONC_MAX_FOR_NORMALIZATION)
@@ -236,12 +297,22 @@ def _nondimensional_numbers_row(
     km = float(_state.K_M_MM)
 
     lambda_char = float("nan")
-    if np.isfinite(diffusivity) and np.isfinite(vmax) and np.isfinite(km) and np.isfinite(cstar):
+    if (
+        np.isfinite(diffusivity)
+        and np.isfinite(vmax)
+        and np.isfinite(km)
+        and np.isfinite(cstar)
+    ):
         if vmax > 0.0 and (km + cstar) > 0.0 and diffusivity >= 0.0:
             lambda_char = float(np.sqrt(diffusivity * (km + cstar) / vmax))
 
     l_d = float("nan")
-    if np.isfinite(v_t) and np.isfinite(n_segments) and np.isfinite(avg_radius_m) and n_segments > 0.0:
+    if (
+        np.isfinite(v_t)
+        and np.isfinite(n_segments)
+        and np.isfinite(avg_radius_m)
+        and n_segments > 0.0
+    ):
         l_d = float(np.cbrt(v_t / n_segments) - avg_radius_m)
 
     pi_val = _safe_div(l_d, lambda_char)
@@ -283,4 +354,15 @@ def _nondimensional_numbers_row(
 _state._DEFAULT_TREE_PARAMS = None
 
 
-__all__ = ['_normalize_angles', '_iter_theta_values', '_normalize_lengths', '_parse_qin_target_values', '_parse_distance_sample_count_values', 'append_row', 'append_nondimensional_row', '_safe_div', '_pi_phi_gamma_columns', '_nondimensional_numbers_row']
+__all__ = [
+    "_normalize_angles",
+    "_iter_theta_values",
+    "_normalize_lengths",
+    "_parse_qin_target_values",
+    "_parse_distance_sample_count_values",
+    "append_row",
+    "append_nondimensional_row",
+    "_safe_div",
+    "_pi_phi_gamma_columns",
+    "_nondimensional_numbers_row",
+]

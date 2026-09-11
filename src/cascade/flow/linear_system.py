@@ -13,7 +13,7 @@ from typing import Sequence, Tuple
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 
 try:
     import scipy.sparse as _sp
@@ -25,11 +25,13 @@ except ImportError:  # pragma: no cover - dependency validation reports this ear
 try:
     from numba import njit
 except ImportError:  # pragma: no cover - dependency validation reports this earlier
+
     def njit(*args, **kwargs):
         def decorate(func):
             return func
 
         return decorate
+
 
 from .topology import _build_node_indices, _normalize_kirchhoff_bc_mode
 
@@ -57,6 +59,13 @@ def _solve_kirchhoff_sparse(
     sparse_solver: str | None = None,
     boundary_condition: str | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Solve a general vascular Kirchhoff system with sparse linear algebra.
+
+    The system supports prescribed outlet pressure or equal terminal-flow
+    constraints. Direct and iterative solver choices share the same assembled
+    conductance matrix and residual checks.
+    """
+
     prox_ids = np.asarray(prox_ids, dtype=np.int64).reshape(-1)
     dist_ids = np.asarray(dist_ids, dtype=np.int64).reshape(-1)
     num_edges = int(prox_ids.size)
@@ -68,7 +77,9 @@ def _solve_kirchhoff_sparse(
     if num_nodes <= 0:
         raise ValueError("No nodes provided for Kirchhoff solve.")
 
-    edge_conductance = 1.0 / np.maximum(np.asarray(resistances, dtype=float).reshape(-1), 1e-30)
+    edge_conductance = 1.0 / np.maximum(
+        np.asarray(resistances, dtype=float).reshape(-1), 1e-30
+    )
 
     rhs = np.zeros(num_nodes, dtype=float)
     if inlet_nodes:
@@ -92,7 +103,9 @@ def _solve_kirchhoff_sparse(
         dirichlet_mask[int(anchor)] = True
     else:
         if outlet_arr.size == 0:
-            raise ValueError("At least one terminal pressure node is required for the mixed Kirchhoff solve.")
+            raise ValueError(
+                "At least one terminal pressure node is required for the mixed Kirchhoff solve."
+            )
         dirichlet_mask[outlet_arr] = True
 
     if _state._HAVE_SCIPY_SPARSE:
@@ -103,7 +116,9 @@ def _solve_kirchhoff_sparse(
         rows = np.concatenate([u, v, u, v])
         cols = np.concatenate([u, v, v, u])
         data = np.concatenate([g, g, -g, -g])
-        laplacian = _sp.coo_matrix((data, (rows, cols)), shape=(num_nodes, num_nodes)).tocsr()
+        laplacian = _sp.coo_matrix(
+            (data, (rows, cols)), shape=(num_nodes, num_nodes)
+        ).tocsr()
 
         mask = np.ones(num_nodes, dtype=bool)
         mask[dirichlet_mask] = False
@@ -111,7 +126,9 @@ def _solve_kirchhoff_sparse(
         b = rhs[mask]
 
         solver = str(sparse_solver or _state.KIRCHHOFF_SPARSE_SOLVER).strip().lower()
-        use_cg = solver == "cg" or (solver == "auto" and A.shape[0] >= int(_state.KIRCHHOFF_CG_MIN_NODES))
+        use_cg = solver == "cg" or (
+            solver == "auto" and A.shape[0] >= int(_state.KIRCHHOFF_CG_MIN_NODES)
+        )
         use_gmres_ilu = solver == "gmres_ilu"
         gmres_failed_reason: str | None = None
         cg_failed_reason: str | None = None
@@ -133,13 +150,16 @@ def _solve_kirchhoff_sparse(
         x = None
         if use_gmres_ilu:
             try:
-                gmres_systems: list[tuple[str, _sp.csr_matrix, np.ndarray, np.ndarray | None]] = []
+                gmres_systems: list[
+                    tuple[str, _sp.csr_matrix, np.ndarray, np.ndarray | None]
+                ] = []
                 if _state.KIRCHHOFF_GMRES_EQUILIBRATE:
                     diag_a = np.abs(A.diagonal()).astype(float, copy=False)
                     diag_pos = diag_a[diag_a > 0.0]
                     if diag_pos.size:
                         diag_floor = max(
-                            float(np.median(diag_pos)) * float(_state.KIRCHHOFF_GMRES_EQ_DIAG_FLOOR_REL),
+                            float(np.median(diag_pos))
+                            * float(_state.KIRCHHOFF_GMRES_EQ_DIAG_FLOOR_REL),
                             1e-30,
                         )
                     else:
@@ -151,8 +171,12 @@ def _solve_kirchhoff_sparse(
                         out=np.zeros_like(diag_safe),
                         where=diag_safe > 0.0,
                     )
-                    if not np.all(np.isfinite(equil_scale)) or np.any(equil_scale <= 0.0):
-                        raise RuntimeError("computed non-finite diagonal equilibration scale")
+                    if not np.all(np.isfinite(equil_scale)) or np.any(
+                        equil_scale <= 0.0
+                    ):
+                        raise RuntimeError(
+                            "computed non-finite diagonal equilibration scale"
+                        )
                     S = _sp.diags(equil_scale)
                     A_eq = (S @ A @ S).tocsr()
                     b_eq = equil_scale * b
@@ -164,14 +188,19 @@ def _solve_kirchhoff_sparse(
                             f"{_diagnostic_stats('eq_scale', equil_scale)} "
                             f"{_diagnostic_stats('diag(A_eq)', A_eq.diagonal())}"
                         )
-                if not gmres_systems or _state.KIRCHHOFF_GMRES_RETRY_UNSCALED_IF_EQ_FAIL:
+                if (
+                    not gmres_systems
+                    or _state.KIRCHHOFF_GMRES_RETRY_UNSCALED_IF_EQ_FAIL
+                ):
                     gmres_systems.append(("unscaled", A, b, None))
 
                 gmres_failed_reason = "gmres_ilu did not run"
                 for system_name, A_gmres, b_gmres, equil_scale in gmres_systems:
                     diag_ref_arr = np.abs(A_gmres.diagonal()).astype(float, copy=False)
                     diag_ref_pos = diag_ref_arr[diag_ref_arr > 0.0]
-                    diag_ref = float(np.median(diag_ref_pos)) if diag_ref_pos.size else 1.0
+                    diag_ref = (
+                        float(np.median(diag_ref_pos)) if diag_ref_pos.size else 1.0
+                    )
                     if not np.isfinite(diag_ref) or diag_ref <= 0.0:
                         diag_ref = 1.0
 
@@ -183,7 +212,10 @@ def _solve_kirchhoff_sparse(
                         for shift_rel in _state.KIRCHHOFF_ILU_SHIFT_RELS:
                             shift_abs = float(max(shift_rel, 0.0)) * diag_ref
                             if shift_abs > 0.0:
-                                A_ilu = A_gmres + (_sp.identity(A_gmres.shape[0], format="csr") * shift_abs)
+                                A_ilu = A_gmres + (
+                                    _sp.identity(A_gmres.shape[0], format="csr")
+                                    * shift_abs
+                                )
                             else:
                                 A_ilu = A_gmres
                             t_ilu = perf_counter()
@@ -205,7 +237,9 @@ def _solve_kirchhoff_sparse(
                                 )
                                 if _state.KIRCHHOFF_DIAGNOSTICS:
                                     ilu_nnz = int(ilu.L.nnz + ilu.U.nnz)
-                                    fill_ratio = float(ilu_nnz / max(int(A_gmres.nnz), 1))
+                                    fill_ratio = float(
+                                        ilu_nnz / max(int(A_gmres.nnz), 1)
+                                    )
                                     print(
                                         f"Kirchhoff diagnostics: ilu_nnz={ilu_nnz} "
                                         f"fill_ratio={fill_ratio:.3f}"
@@ -230,12 +264,14 @@ def _solve_kirchhoff_sparse(
                         )
                         continue
 
-                    M = _splinalg.LinearOperator(A_gmres.shape, matvec=ilu.solve, dtype=float)
+                    M = _splinalg.LinearOperator(
+                        A_gmres.shape, matvec=ilu.solve, dtype=float
+                    )
                     gmres_resids: list[float] = []
 
-                    def _gmres_callback(value: object) -> None:
+                    def _gmres_callback(value: object, residuals=gmres_resids) -> None:
                         try:
-                            gmres_resids.append(float(value))
+                            residuals.append(float(value))
                         except Exception:
                             pass
 
@@ -253,7 +289,16 @@ def _solve_kirchhoff_sparse(
                     )
                     gmres_solve_s = perf_counter() - t_gmres
                     gmres_iters = len(gmres_resids)
-                    gmres_cycles = int(math.ceil(gmres_iters / max(int(_state.KIRCHHOFF_GMRES_RESTART), 1))) if gmres_iters else 0
+                    gmres_cycles = (
+                        int(
+                            math.ceil(
+                                gmres_iters
+                                / max(int(_state.KIRCHHOFF_GMRES_RESTART), 1)
+                            )
+                        )
+                        if gmres_iters
+                        else 0
+                    )
                     if gmres_resids:
                         gmres_final_resid = float(gmres_resids[-1])
                     if info != 0 or y is None:
@@ -295,8 +340,12 @@ def _solve_kirchhoff_sparse(
         if x is None and use_cg:
             try:
                 diag = A.diagonal()
-                inv_diag = np.divide(1.0, diag, out=np.zeros_like(diag), where=diag != 0.0)
-                M = _splinalg.LinearOperator(A.shape, matvec=lambda z: inv_diag * z, dtype=float)
+                inv_diag = np.divide(
+                    1.0, diag, out=np.zeros_like(diag), where=diag != 0.0
+                )
+                M = _splinalg.LinearOperator(
+                    A.shape, matvec=lambda z: inv_diag * z, dtype=float
+                )
                 x, info = _splinalg.cg(
                     A,
                     b,
@@ -330,7 +379,9 @@ def _solve_kirchhoff_sparse(
                 x = _splinalg.spsolve(A, b)
                 solver_used = "spsolve"
             except Exception as exc:  # pragma: no cover
-                raise RuntimeError("Failed to solve sparse Kirchhoff system. Check BCs and connectivity.") from exc
+                raise RuntimeError(
+                    "Failed to solve sparse Kirchhoff system. Check BCs and connectivity."
+                ) from exc
 
         if _state.KIRCHHOFF_DIAGNOSTICS and x is not None:
             x_arr = np.asarray(x, dtype=float).reshape(-1)
@@ -366,7 +417,9 @@ def _solve_kirchhoff_sparse(
         try:
             x = np.linalg.solve(A, b)
         except np.linalg.LinAlgError as exc:
-            raise RuntimeError("Failed to solve Kirchhoff system. Check BCs and connectivity.") from exc
+            raise RuntimeError(
+                "Failed to solve Kirchhoff system. Check BCs and connectivity."
+            ) from exc
         pressures = np.zeros(num_nodes, dtype=float)
         pressures[mask] = x
 
@@ -375,6 +428,7 @@ def _solve_kirchhoff_sparse(
 
 
 if _state._HAVE_NUMBA:
+
     @njit(cache=True)
     def _fixed_terminal_flows_numba(
         order: np.ndarray,
@@ -415,7 +469,6 @@ if _state._HAVE_NUMBA:
             flows[seg] = float(downstream_terms[seg]) * terminal_flow
         return flows, downstream_terms, total_terms
 
-
     @njit(cache=True)
     def _pressures_from_tree_flows_numba(
         order: np.ndarray,
@@ -453,7 +506,6 @@ if _state._HAVE_NUMBA:
                 elif pu_known and pv_known:
                     assigned_edges += 1
         return pressures, assigned_edges
-
 
     @njit(cache=True)
     def _kirchhoff_tree_neumann_numba(
@@ -560,7 +612,6 @@ if _state._HAVE_NUMBA:
                 top += 1
 
         return pressures, flows, n_order, n_pressure
-
 
     @njit(cache=True)
     def _kirchhoff_tree_mixed_numba(
@@ -748,7 +799,9 @@ def solve_kirchhoff_dirichlet(
         try:
             pressures = _splinalg.spsolve(laplacian.tocsr(), rhs)
         except Exception as exc:  # pragma: no cover
-            raise RuntimeError("Failed to solve sparse Kirchhoff system. Check BCs and connectivity.") from exc
+            raise RuntimeError(
+                "Failed to solve sparse Kirchhoff system. Check BCs and connectivity."
+            ) from exc
     else:
         B = np.zeros((num_nodes, num_edges), dtype=float)
         for idx in range(num_edges):
@@ -769,7 +822,9 @@ def solve_kirchhoff_dirichlet(
         try:
             pressures = np.linalg.solve(laplacian, rhs)
         except np.linalg.LinAlgError as exc:
-            raise RuntimeError("Failed to solve Kirchhoff system. Check BCs and connectivity.") from exc
+            raise RuntimeError(
+                "Failed to solve Kirchhoff system. Check BCs and connectivity."
+            ) from exc
 
     flows = edge_conductance * (pressures[prox_ids] - pressures[dist_ids])
     return pressures, flows, prox_ids, dist_ids, nodes

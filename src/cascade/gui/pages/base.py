@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from cascade.gui._common import (
-    Any,
+from PySide6.QtCore import (
+    Qt,
+    Signal,
+)
+from PySide6.QtWidgets import (
     QFrame,
     QScrollArea,
     QVBoxLayout,
     QWidget,
-    Qt,
-    Signal,
-    title_label,
 )
+from cascade.gui.widgets import title_label
+from typing import Any
+
 
 class Page(QScrollArea):
     changed = Signal()
@@ -33,12 +36,10 @@ class Page(QScrollArea):
         self.column.addStretch(1)
 
     def load(self, config: dict[str, Any]) -> None:
-        pass
+        """Populate page controls from ``config``; subclasses override as needed."""
 
     def write(self, config: dict[str, Any]) -> None:
-        pass
+        """Store page controls in ``config``; subclasses override as needed."""
 
 
-
-
-__all__ = ('Page',)
+__all__ = ("Page",)

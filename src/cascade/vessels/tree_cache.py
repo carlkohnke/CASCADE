@@ -16,9 +16,10 @@ from typing import Iterable, Sequence
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 from cascade.diagnostics.runtime import _require_tree_class
-from cascade.vessels.generation.legacy import _apply_equal_bifurcation, set_tree_fluid
+from cascade.vessels.generation.tree_ops import _apply_equal_bifurcation, set_tree_fluid
+
 
 def _tree_cache_dir() -> Path:
     root = Path(_state.TREE_CACHE_DIRNAME)
@@ -39,7 +40,7 @@ def _as_float_list(values: Sequence[Number] | np.ndarray | None) -> list[float] 
 
 
 def _default_tree_params() -> dict:
-    # Mutable runtime state is centralized in configuration._legacy_state.
+    # Mutable runtime state is centralized in configuration.solver_state.
     if _state._DEFAULT_TREE_PARAMS is None:
         _require_tree_class()
         tree = _state.Tree()
@@ -99,7 +100,8 @@ def _build_tree_cache_config(
     params = _default_tree_params()
     fluid_props = _fluid_properties(_state.BUILD_FLUID)
     terminal_pressure = (
-        float(_state.ROOT_PRESSURE) - (abs(_state.ROOT_PRESSURE - _state.TERMINAL_PRESSURE)) * (side_length**3)
+        float(_state.ROOT_PRESSURE)
+        - (abs(_state.ROOT_PRESSURE - _state.TERMINAL_PRESSURE)) * (side_length**3)
         if _state.SCALE_dP_BY_VOLUME
         else float(_state.TERMINAL_PRESSURE)
     )
@@ -154,7 +156,12 @@ def _build_tree_cache_config(
     hash_config.pop("qin_target_ul_min", None)
     hash_config.pop("inlet_flow_cm3_s", None)
     hash_config.pop("terminal_flow_cm3_s", None)
-    for key in ("n_closest_vessels", "n_points", "weighted_sampling", "allow_inside_vessels"):
+    for key in (
+        "n_closest_vessels",
+        "n_points",
+        "weighted_sampling",
+        "allow_inside_vessels",
+    ):
         hash_config.pop(key, None)
     # Preserve compatibility with pre-dtype cache config IDs.
     hash_config.pop("tree_data_dtype", None)
@@ -164,7 +171,12 @@ def _build_tree_cache_config(
     legacy_config.pop("qin_target_ul_min", None)
     legacy_config.pop("inlet_flow_cm3_s", None)
     legacy_config.pop("terminal_flow_cm3_s", None)
-    for key in ("n_closest_vessels", "n_points", "weighted_sampling", "allow_inside_vessels"):
+    for key in (
+        "n_closest_vessels",
+        "n_points",
+        "weighted_sampling",
+        "allow_inside_vessels",
+    ):
         legacy_config.pop(key, None)
     legacy_config.pop("tree_data_dtype", None)
     legacy_config.pop("tree_index_dtype", None)
@@ -277,7 +289,12 @@ def _normalize_tree_cache_lookup_config(config: dict, *, legacy: bool) -> dict:
     normalized.pop("qin_target_ul_min", None)
     normalized.pop("inlet_flow_cm3_s", None)
     normalized.pop("terminal_flow_cm3_s", None)
-    for key in ("n_closest_vessels", "n_points", "weighted_sampling", "allow_inside_vessels"):
+    for key in (
+        "n_closest_vessels",
+        "n_points",
+        "weighted_sampling",
+        "allow_inside_vessels",
+    ):
         normalized.pop(key, None)
     normalized.pop("tree_data_dtype", None)
     normalized.pop("tree_index_dtype", None)
@@ -404,9 +421,13 @@ def _sync_loaded_tree_params(
 
     params.root_pressure = _state.ROOT_PRESSURE
     if _state.SCALE_dP_BY_VOLUME and side_length is not None:
-        params.terminal_pressure = _state.ROOT_PRESSURE - (abs(_state.ROOT_PRESSURE - _state.TERMINAL_PRESSURE)) * (side_length**3)
+        params.terminal_pressure = _state.ROOT_PRESSURE - (
+            abs(_state.ROOT_PRESSURE - _state.TERMINAL_PRESSURE)
+        ) * (side_length**3)
         if params.terminal_pressure < 0:
-            raise ValueError("Terminal pressure is negative after scaling; aborting run.")
+            raise ValueError(
+                "Terminal pressure is negative after scaling; aborting run."
+            )
     else:
         params.terminal_pressure = _state.TERMINAL_PRESSURE
 
@@ -431,7 +452,7 @@ def _ensure_tree_domain(tree: _state.Tree | None, domain: _state.Domain | None) 
         if hasattr(tree, "set_domain"):
             tree.set_domain(domain)
         else:
-            setattr(tree, "domain", domain)
+            tree.domain = domain
     except Exception:
         return
     _prepare_loaded_tree(tree)
@@ -442,7 +463,7 @@ def _fast_tree_path(path: Path) -> Path:
     if name.endswith(".fast.tree.npz"):
         return path
     if name.endswith(".tree.npz"):
-        return path.with_name(name[:-len(".tree.npz")] + ".fast.tree.npz")
+        return path.with_name(name[: -len(".tree.npz")] + ".fast.tree.npz")
     return path.with_suffix(path.suffix + ".fast")
 
 
@@ -459,13 +480,11 @@ def _infer_loaded_terminal_count(data: np.ndarray) -> int:
 
 
 def _load_tree_analysis_only(path: Path, *, data_dtype, index_dtype) -> _state.Tree:
-    """
-    Load an exact cache hit for analysis without build-only spatial indices.
+    """Load an exact cache hit without construction-only spatial indices.
 
-    Previous exact-hit loads used Tree.load(), which rebuilds the full build-time
-    KDTree/HNSW/vessel_map/preallocation state even when no more vessels will be
-    added. At multi-million terminal counts those duplicate structures can exceed
-    memory before concentration/tissue analysis starts.
+    Analysis needs compact geometry and connectivity, not KDTree, HNSW,
+    vessel-map, or preallocation structures. Avoiding those duplicates keeps
+    multi-million-segment networks within practical memory bounds.
     """
     _require_tree_class()
     from svv.tree.data.data import TreeData
@@ -503,7 +522,9 @@ def _load_tree_analysis_only(path: Path, *, data_dtype, index_dtype) -> _state.T
     return tree
 
 
-def _load_tree_cached_fast(path: Path, *, data_dtype, index_dtype, analysis_only: bool = False) -> _state.Tree:
+def _load_tree_cached_fast(
+    path: Path, *, data_dtype, index_dtype, analysis_only: bool = False
+) -> _state.Tree:
     load_path = path
     fast_path = _fast_tree_path(path)
     if _state.TREE_FAST_CACHE_ENABLE and fast_path.exists():
@@ -528,4 +549,30 @@ def _load_tree_cached_fast(path: Path, *, data_dtype, index_dtype, analysis_only
     )
 
 
-__all__ = ['_tree_cache_dir', '_tree_cache_index_path', '_as_float_list', '_default_tree_params', '_fluid_properties', '_json_dumps', '_hash_config', '_build_tree_cache_config', '_tree_cache_row', '_tree_cache_relpath', '_resolve_tree_cache_path', '_load_tree_cache_index', '_append_tree_cache_row', '_parse_int', '_normalize_tree_cache_lookup_config', '_tree_cache_row_matches_config_id', '_find_cached_tree', '_find_cached_tree_lower', '_prepare_loaded_tree', '_sync_loaded_tree_params', '_ensure_tree_domain', '_fast_tree_path', '_infer_loaded_terminal_count', '_load_tree_analysis_only', '_load_tree_cached_fast']
+__all__ = [
+    "_tree_cache_dir",
+    "_tree_cache_index_path",
+    "_as_float_list",
+    "_default_tree_params",
+    "_fluid_properties",
+    "_json_dumps",
+    "_hash_config",
+    "_build_tree_cache_config",
+    "_tree_cache_row",
+    "_tree_cache_relpath",
+    "_resolve_tree_cache_path",
+    "_load_tree_cache_index",
+    "_append_tree_cache_row",
+    "_parse_int",
+    "_normalize_tree_cache_lookup_config",
+    "_tree_cache_row_matches_config_id",
+    "_find_cached_tree",
+    "_find_cached_tree_lower",
+    "_prepare_loaded_tree",
+    "_sync_loaded_tree_params",
+    "_ensure_tree_domain",
+    "_fast_tree_path",
+    "_infer_loaded_terminal_count",
+    "_load_tree_analysis_only",
+    "_load_tree_cached_fast",
+]

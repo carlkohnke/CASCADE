@@ -13,20 +13,20 @@ import traceback
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
+from cascade.concentration.properties import get_concentration_inlet
 from cascade.concentration.vessel.greens import _k_ratio
 from cascade.diagnostics.runtime import (
     _ckdtree_query,
     _fmt_seconds,
     _resolve_tissue_accel_mode,
 )
-from cascade.exporting.quadrature import _get_gl_nodes_weights
-from cascade.runtime.cuda import load_cuda_source
+from cascade.concentration.quadrature import _get_gl_nodes_weights
+from cascade.accelerators.cuda import load_cuda_source
 
 from .geometry import (
     _build_tissue_geometry_context,
     _ensure_tissue_context_kdtree,
-    get_concentration_inlet,
 )
 
 
@@ -34,19 +34,22 @@ def _relative_l2(a: np.ndarray, b: np.ndarray) -> float:
     denominator = max(float(np.linalg.norm(b)), 1e-30)
     return float(np.linalg.norm(a - b) / denominator)
 
+
 _state._TISSUE_GPU_KERNEL = None
 _state._CEXT_TISSUE_GPU_KERNEL = None
 _state._TISSUE_CONTEXT_KDTREE_LOCK = threading.Lock()
 
 
 def _get_tissue_gpu_kernel():
-    # Mutable runtime state is centralized in configuration._legacy_state.
+    # Mutable runtime state is centralized in configuration.solver_state.
     if _state._TISSUE_GPU_KERNEL is not None:
         return _state._TISSUE_GPU_KERNEL
     if _state._cp is None:
         raise RuntimeError("CuPy is not available.")
     _state.code = load_cuda_source("tissue_greens_kernel.cu")
-    _state._TISSUE_GPU_KERNEL = _state._cp.RawKernel(_state.code, "tissue_greens_kernel")
+    _state._TISSUE_GPU_KERNEL = _state._cp.RawKernel(
+        _state.code, "tissue_greens_kernel"
+    )
     return _state._TISSUE_GPU_KERNEL
 
 
@@ -65,7 +68,7 @@ def _compute_tissue_samples_greens_gpu(
     inlet_concentration: float | None,
     tissue_cache: dict | None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    # Mutable runtime state is centralized in configuration._legacy_state.
+    # Mutable runtime state is centralized in configuration.solver_state.
     _state._LAST_TISSUE_TIMINGS = {}
     if _resolve_tissue_accel_mode(require_gpu=True) != "gpu" or _state._cp is None:
         raise RuntimeError("Tissue GPU mode could not be initialized.")
@@ -90,37 +93,58 @@ def _compute_tissue_samples_greens_gpu(
     if nseg == 0:
         return np.zeros((0,), dtype=bool), np.zeros((0,), dtype=float)
 
-    candidate_k = min(nseg, max(max_nearby, max_nearby * _state.TISSUE_KDTREE_CANDIDATE_MULT))
+    candidate_k = min(
+        nseg, max(max_nearby, max_nearby * _state.TISSUE_KDTREE_CANDIDATE_MULT)
+    )
     keep_k = min(max_nearby, candidate_k, nseg)
     tree = _ensure_tissue_context_kdtree(context)
     if tree is None:
-        raise RuntimeError("Tissue GPU mode requires scipy cKDTree for CPU candidate query.")
+        raise RuntimeError(
+            "Tissue GPU mode requires scipy cKDTree for CPU candidate query."
+        )
 
     t0 = perf_counter()
     cin_valid = np.asarray(cin[valid], dtype=np.float32)
     flows_si = np.asarray(flows[valid] * _state.CM3_TO_M3, dtype=np.float32)
     diffusivity_si = float(diffusivity * _state.CM2_TO_M2)
-    cin_pos = np.maximum(np.nan_to_num(cin_valid, nan=0.0), 0.0).astype(np.float32, copy=False)
+    cin_pos = np.maximum(np.nan_to_num(cin_valid, nan=0.0), 0.0).astype(
+        np.float32, copy=False
+    )
     flows_si = np.nan_to_num(flows_si, nan=0.0).astype(np.float32, copy=False)
-    radii_si_np = np.maximum(np.nan_to_num(np.asarray(radii_si, dtype=np.float32), nan=0.0), 0.0)
+    radii_si_np = np.maximum(
+        np.nan_to_num(np.asarray(radii_si, dtype=np.float32), nan=0.0), 0.0
+    )
 
     denom = np.maximum(float(km) + cin_pos, 1e-30).astype(np.float32, copy=False)
     k1 = np.asarray(float(vmax) / denom, dtype=np.float32)
-    lam_edge = np.sqrt(np.asarray(diffusivity_si / np.maximum(k1, 1e-30), dtype=np.float32))
+    lam_edge = np.sqrt(
+        np.asarray(diffusivity_si / np.maximum(k1, 1e-30), dtype=np.float32)
+    )
     phi_edge = radii_si_np / np.maximum(lam_edge, 1e-30)
     ratio_edge = _k_ratio(phi_edge).astype(np.float32, copy=False)
     flow_mag = np.maximum(np.abs(flows_si), 1e-30)
-    alpha_edge = ((2.0 * np.pi * radii_si_np / flow_mag) * (diffusivity_si / np.maximum(lam_edge, 1e-30)) * ratio_edge).astype(np.float32, copy=False)
+    alpha_edge = (
+        (2.0 * np.pi * radii_si_np / flow_mag)
+        * (diffusivity_si / np.maximum(lam_edge, 1e-30))
+        * ratio_edge
+    ).astype(np.float32, copy=False)
     if inlet_concentration is None:
         inlet_concentration = get_concentration_inlet()
-    lam_ref = float(np.sqrt(diffusivity_si / max(vmax / max(km + float(inlet_concentration), 1e-30), 1e-30)))
+    lam_ref = float(
+        np.sqrt(
+            diffusivity_si
+            / max(vmax / max(km + float(inlet_concentration), 1e-30), 1e-30)
+        )
+    )
     flow_sign = np.sign(flows_si).astype(np.float32, copy=False)
     gl_nodes, gl_weights = _get_gl_nodes_weights(_state.GL_ORDER)
     t_setup_cpu = perf_counter() - t0
 
     t0 = perf_counter()
     starts_g = _state._cp.asarray(np.asarray(starts_si, dtype=np.float32))
-    segment_vectors_g = _state._cp.asarray(np.asarray(segment_vectors, dtype=np.float32))
+    segment_vectors_g = _state._cp.asarray(
+        np.asarray(segment_vectors, dtype=np.float32)
+    )
     seg_len_sq_g = _state._cp.asarray(np.asarray(seg_len_sq, dtype=np.float32))
     seg_len_g = _state._cp.asarray(np.asarray(seg_len, dtype=np.float32))
     radii_g = _state._cp.asarray(radii_si_np)
@@ -140,7 +164,9 @@ def _compute_tissue_samples_greens_gpu(
     result = np.zeros(points.shape[0], dtype=np.float32)
     points_si_all = np.asarray(points * _state.CM_TO_M, dtype=np.float32)
 
-    chunk_points = max(int(_state.TISSUE_GPU_CHUNK_POINTS), int(_state.TISSUE_GPU_MIN_CHUNK_POINTS))
+    chunk_points = max(
+        int(_state.TISSUE_GPU_CHUNK_POINTS), int(_state.TISSUE_GPU_MIN_CHUNK_POINTS)
+    )
     min_chunk = max(int(_state.TISSUE_GPU_MIN_CHUNK_POINTS), 1)
     start_idx = 0
     chunks_done = 0
@@ -177,11 +203,19 @@ def _compute_tissue_samples_greens_gpu(
             delta = points_g[:, None, :] - closest
             dist_sq = _state._cp.sum(delta * delta, axis=2)
             sel = _state._cp.argpartition(dist_sq, keep_k - 1, axis=1)[:, :keep_k]
-            nearest_g = _state._cp.take_along_axis(cand_g, sel, axis=1).astype(_state._cp.int32, copy=False)
-            proj_g = _state._cp.take_along_axis(proj, sel, axis=1).astype(_state._cp.float32, copy=False)
-            d_center_g = _state._cp.sqrt(_state._cp.take_along_axis(dist_sq, sel, axis=1)).astype(_state._cp.float32, copy=False)
+            nearest_g = _state._cp.take_along_axis(cand_g, sel, axis=1).astype(
+                _state._cp.int32, copy=False
+            )
+            proj_g = _state._cp.take_along_axis(proj, sel, axis=1).astype(
+                _state._cp.float32, copy=False
+            )
+            d_center_g = _state._cp.sqrt(
+                _state._cp.take_along_axis(dist_sq, sel, axis=1)
+            ).astype(_state._cp.float32, copy=False)
             radius_local = _state._cp.minimum(radii_g[nearest_g], seg_len_g[nearest_g])
-            inside_any = _state._cp.any((proj_g >= 0.0) & (proj_g <= 1.0) & (d_center_g <= radius_local), axis=1)
+            inside_any = _state._cp.any(
+                (proj_g >= 0.0) & (proj_g <= 1.0) & (d_center_g <= radius_local), axis=1
+            )
             keep_g = (~inside_any).astype(_state._cp.uint8, copy=False)
             _state._cp.cuda.Stream.null.synchronize()
             t_refine += perf_counter() - t0
@@ -237,7 +271,9 @@ def _compute_tissue_samples_greens_gpu(
             if chunk_points <= min_chunk:
                 raise
             chunk_points = max(min_chunk, chunk_points // 2)
-            print(f"WARNING: GPU OOM in tissue chunk; retrying with --tissue-gpu-chunk-points={chunk_points}")
+            print(
+                f"WARNING: GPU OOM in tissue chunk; retrying with --tissue-gpu-chunk-points={chunk_points}"
+            )
 
     if _state.SOLVER_TIMING_DETAILS:
         print(
@@ -251,7 +287,9 @@ def _compute_tissue_samples_greens_gpu(
         )
 
     total_elapsed = perf_counter() - t_total
-    geometry_elapsed = float(t_setup_cpu + t_upload_static + t_query + t_transfer + t_refine + t_download)
+    geometry_elapsed = float(
+        t_setup_cpu + t_upload_static + t_query + t_transfer + t_refine + t_download
+    )
     _state._LAST_TISSUE_TIMINGS = {
         "backend": "gpu",
         "t_tissue_geometry_s": geometry_elapsed,
@@ -292,12 +330,42 @@ def _compute_tissue_samples_greens_gpu(
         gpu_vals = result[:validate_n].astype(float)
         mask_disagree = int(np.count_nonzero(gpu_mask != cpu_mask))
         finite = np.isfinite(cpu_vals) & np.isfinite(gpu_vals)
-        max_abs = float(np.max(np.abs(gpu_vals[finite] - cpu_vals[finite]))) if np.any(finite) else float("nan")
-        rel_l2 = _relative_l2(gpu_vals[finite], cpu_vals[finite]) if np.any(finite) else float("nan")
-        if _state.CONC_MAX_FOR_NORMALIZATION and np.isfinite(_state.CONC_MAX_FOR_NORMALIZATION):
-            cpu_frac = float(np.mean((cpu_vals[cpu_mask] / _state.CONC_MAX_FOR_NORMALIZATION) >= 0.01)) if np.any(cpu_mask) else float("nan")
-            gpu_frac = float(np.mean((gpu_vals[gpu_mask] / _state.CONC_MAX_FOR_NORMALIZATION) >= 0.01)) if np.any(gpu_mask) else float("nan")
-            frac_delta = gpu_frac - cpu_frac if np.isfinite(cpu_frac) and np.isfinite(gpu_frac) else float("nan")
+        max_abs = (
+            float(np.max(np.abs(gpu_vals[finite] - cpu_vals[finite])))
+            if np.any(finite)
+            else float("nan")
+        )
+        rel_l2 = (
+            _relative_l2(gpu_vals[finite], cpu_vals[finite])
+            if np.any(finite)
+            else float("nan")
+        )
+        if _state.CONC_MAX_FOR_NORMALIZATION and np.isfinite(
+            _state.CONC_MAX_FOR_NORMALIZATION
+        ):
+            cpu_frac = (
+                float(
+                    np.mean(
+                        (cpu_vals[cpu_mask] / _state.CONC_MAX_FOR_NORMALIZATION) >= 0.01
+                    )
+                )
+                if np.any(cpu_mask)
+                else float("nan")
+            )
+            gpu_frac = (
+                float(
+                    np.mean(
+                        (gpu_vals[gpu_mask] / _state.CONC_MAX_FOR_NORMALIZATION) >= 0.01
+                    )
+                )
+                if np.any(gpu_mask)
+                else float("nan")
+            )
+            frac_delta = (
+                gpu_frac - cpu_frac
+                if np.isfinite(cpu_frac) and np.isfinite(gpu_frac)
+                else float("nan")
+            )
         else:
             cpu_frac = gpu_frac = frac_delta = float("nan")
         print(
@@ -312,24 +380,28 @@ def _compute_tissue_samples_greens_gpu(
 
 
 def _get_cext_tissue_gpu_kernel():
-    # Mutable runtime state is centralized in configuration._legacy_state.
+    # Mutable runtime state is centralized in configuration.solver_state.
     if _state._CEXT_TISSUE_GPU_KERNEL is not None:
         return _state._CEXT_TISSUE_GPU_KERNEL
     if _state._cp is None:
         raise RuntimeError("CuPy is not available.")
     _state.code = load_cuda_source("cext_tissue_greens_kernel.cu")
-    _state._CEXT_TISSUE_GPU_KERNEL = _state._cp.RawKernel(_state.code, "cext_tissue_greens_kernel")
+    _state._CEXT_TISSUE_GPU_KERNEL = _state._cp.RawKernel(
+        _state.code, "cext_tissue_greens_kernel"
+    )
     return _state._CEXT_TISSUE_GPU_KERNEL
 
 
 def _get_cext_tissue_cell_gpu_kernel():
-    # Mutable runtime state is centralized in configuration._legacy_state.
+    # Mutable runtime state is centralized in configuration.solver_state.
     if _state._CEXT_TISSUE_CELL_GPU_KERNEL is not None:
         return _state._CEXT_TISSUE_CELL_GPU_KERNEL
     if _state._cp is None:
         raise RuntimeError("CuPy is not available.")
     _state.code = load_cuda_source("cext_tissue_cell_greens_kernel.cu")
-    _state._CEXT_TISSUE_CELL_GPU_KERNEL = _state._cp.RawKernel(_state.code, "cext_tissue_cell_greens_kernel")
+    _state._CEXT_TISSUE_CELL_GPU_KERNEL = _state._cp.RawKernel(
+        _state.code, "cext_tissue_cell_greens_kernel"
+    )
     return _state._CEXT_TISSUE_CELL_GPU_KERNEL
 
 
@@ -351,8 +423,14 @@ def _build_cext_tissue_cell_list_gpu(
     if n_nodes <= 0:
         raise ValueError("Cannot build an empty Cext tissue cell list.")
     finite_lam = lambda_flat[np.isfinite(lambda_flat) & (lambda_flat > 0.0)]
-    max_window = float(window_factor) * float(np.max(finite_lam)) if finite_lam.size else 0.0
-    max_radius = float(np.nanmax(np.asarray(radii_si, dtype=np.float32))) if np.asarray(radii_si).size else 0.0
+    max_window = (
+        float(window_factor) * float(np.max(finite_lam)) if finite_lam.size else 0.0
+    )
+    max_radius = (
+        float(np.nanmax(np.asarray(radii_si, dtype=np.float32)))
+        if np.asarray(radii_si).size
+        else 0.0
+    )
     search_radius = max(max_window, max_radius, 1.0e-12)
     mins = np.min(gl_flat, axis=0)
     maxs = np.max(gl_flat, axis=0)
@@ -370,11 +448,17 @@ def _build_cext_tissue_cell_list_gpu(
     max_rad_cells = max(int(_state.TISSUE_CEXT_CELL_MAX_RAD_CELLS), 1)
     empty_cell_weight = 0.05
     best_grid = max(min_grid, min(max_grid, occ_grid))
-    best_rad = max(1, int(math.ceil(search_radius / max(float(side) / float(best_grid), 1.0e-30))) + 1)
+    best_rad = max(
+        1,
+        int(math.ceil(search_radius / max(float(side) / float(best_grid), 1.0e-30)))
+        + 1,
+    )
     best_score = float("inf")
     for grid_candidate in range(start_grid, stop_grid + 1):
         spacing_candidate = float(side) / float(grid_candidate)
-        rad_candidate = max(1, int(math.ceil(search_radius / max(spacing_candidate, 1.0e-30))) + 1)
+        rad_candidate = max(
+            1, int(math.ceil(search_radius / max(spacing_candidate, 1.0e-30))) + 1
+        )
         if rad_candidate > max_rad_cells:
             continue
         avg_occ_candidate = float(n_nodes) / max(float(grid_candidate) ** 3, 1.0)
@@ -385,26 +469,34 @@ def _build_cext_tissue_cell_list_gpu(
             best_grid = int(grid_candidate)
             best_rad = int(rad_candidate)
     if not np.isfinite(best_score):
-        rad_cap_grid = int(math.floor(float(max_rad_cells) * side / max(search_radius, 1.0e-30)))
+        rad_cap_grid = int(
+            math.floor(float(max_rad_cells) * side / max(search_radius, 1.0e-30))
+        )
         best_grid = max(min_grid, min(max_grid, max(rad_cap_grid, min_grid)))
-        best_rad = max(1, int(math.ceil(search_radius / max(float(side) / float(best_grid), 1.0e-30))) + 1)
+        best_rad = max(
+            1,
+            int(math.ceil(search_radius / max(float(side) / float(best_grid), 1.0e-30)))
+            + 1,
+        )
     grid_n = int(best_grid)
     spacing = float(side) / float(grid_n)
     rad_cells = int(best_rad)
 
-    coords = np.floor((gl_flat - origin[None, :]) / np.float32(spacing)).astype(np.int32)
+    coords = np.floor((gl_flat - origin[None, :]) / np.float32(spacing)).astype(
+        np.int32
+    )
     coords = np.clip(coords, 0, grid_n - 1)
     flat = (
-        (coords[:, 0].astype(np.int64) * np.int64(grid_n) + coords[:, 1].astype(np.int64))
-        * np.int64(grid_n)
-        + coords[:, 2].astype(np.int64)
-    )
+        coords[:, 0].astype(np.int64) * np.int64(grid_n) + coords[:, 1].astype(np.int64)
+    ) * np.int64(grid_n) + coords[:, 2].astype(np.int64)
     order = np.argsort(flat, kind="stable").astype(np.int32, copy=False)
     sorted_flat = np.asarray(flat[order], dtype=np.int64)
     grid_cells = int(grid_n * grid_n * grid_n)
     counts = np.bincount(sorted_flat, minlength=grid_cells)
     cell_ptr = np.zeros((grid_cells + 1,), dtype=np.int32)
-    cell_ptr[1:] = np.cumsum(np.asarray(counts, dtype=np.int64), dtype=np.int64).astype(np.int32)
+    cell_ptr[1:] = np.cumsum(np.asarray(counts, dtype=np.int64), dtype=np.int64).astype(
+        np.int32
+    )
     gl_order = int(lambda_valid.shape[1]) if np.asarray(lambda_valid).ndim >= 2 else 1
     node_seg_ids = np.arange(n_nodes, dtype=np.int64) // max(int(gl_order), 1)
     radii_arr = np.asarray(radii_si, dtype=np.float32).reshape(-1)
@@ -417,8 +509,12 @@ def _build_cext_tissue_cell_list_gpu(
         node_seg_len = seg_len_arr[np.clip(node_seg_ids, 0, seg_len_arr.size - 1)]
     else:
         node_seg_len = np.zeros((n_nodes,), dtype=np.float32)
-    node_source_reach = np.asarray(float(window_factor) * np.maximum(lambda_flat, 0.0), dtype=np.float32)
-    node_segment_reach = np.asarray(np.maximum(node_radius, 0.0) + np.maximum(node_seg_len, 0.0), dtype=np.float32)
+    node_source_reach = np.asarray(
+        float(window_factor) * np.maximum(lambda_flat, 0.0), dtype=np.float32
+    )
+    node_segment_reach = np.asarray(
+        np.maximum(node_radius, 0.0) + np.maximum(node_seg_len, 0.0), dtype=np.float32
+    )
     cell_source_reach = np.zeros((grid_cells,), dtype=np.float32)
     cell_segment_reach = np.zeros((grid_cells,), dtype=np.float32)
     if n_nodes > 0:
@@ -449,11 +545,20 @@ def _build_cext_tissue_cell_list_gpu(
         "rad_cells": int(rad_cells),
         "avg_occupancy": float(n_nodes) / max(float(grid_cells), 1.0),
         "estimated_cells_per_point": float((2 * int(rad_cells) + 1) ** 3),
-        "estimated_nodes_per_point": float((2 * int(rad_cells) + 1) ** 3) * (float(n_nodes) / max(float(grid_cells), 1.0)),
-        "mean_cell_source_reach": float(np.mean(cell_source_reach[counts > 0])) if np.any(counts > 0) else 0.0,
-        "max_cell_source_reach": float(np.max(cell_source_reach)) if cell_source_reach.size else 0.0,
-        "mean_cell_segment_reach": float(np.mean(cell_segment_reach[counts > 0])) if np.any(counts > 0) else 0.0,
-        "max_cell_segment_reach": float(np.max(cell_segment_reach)) if cell_segment_reach.size else 0.0,
+        "estimated_nodes_per_point": float((2 * int(rad_cells) + 1) ** 3)
+        * (float(n_nodes) / max(float(grid_cells), 1.0)),
+        "mean_cell_source_reach": float(np.mean(cell_source_reach[counts > 0]))
+        if np.any(counts > 0)
+        else 0.0,
+        "max_cell_source_reach": float(np.max(cell_source_reach))
+        if cell_source_reach.size
+        else 0.0,
+        "mean_cell_segment_reach": float(np.mean(cell_segment_reach[counts > 0]))
+        if np.any(counts > 0)
+        else 0.0,
+        "max_cell_segment_reach": float(np.max(cell_segment_reach))
+        if cell_segment_reach.size
+        else 0.0,
         "max_window": float(max_window),
         "search_radius": float(search_radius),
     }
@@ -468,7 +573,7 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
     *,
     tissue_cache: dict | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    # Mutable runtime state is centralized in configuration._legacy_state.
+    # Mutable runtime state is centralized in configuration.solver_state.
     _state._LAST_TISSUE_TIMINGS = {}
     if _state._cp is None or _resolve_tissue_accel_mode(require_gpu=True) != "gpu":
         raise RuntimeError("Cext tissue GPU mode could not be initialized.")
@@ -481,7 +586,11 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
     if tissue_cache is not None and tissue_cache.get("gpu"):
         context = tissue_cache["context"]
         max_nearby = int(tissue_cache.get("max_nearby", max_nearby))
-    elif tissue_cache is not None and tissue_cache.get("streaming") and isinstance(tissue_cache.get("context"), dict):
+    elif (
+        tissue_cache is not None
+        and tissue_cache.get("streaming")
+        and isinstance(tissue_cache.get("context"), dict)
+    ):
         context = tissue_cache["context"]
         max_nearby = int(tissue_cache.get("max_nearby", max_nearby))
     else:
@@ -497,29 +606,45 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
     if nseg == 0:
         return np.zeros((0,), dtype=bool), np.zeros((0,), dtype=float)
 
-    candidate_k = min(nseg, max(max_nearby, max_nearby * _state.TISSUE_KDTREE_CANDIDATE_MULT))
+    candidate_k = min(
+        nseg, max(max_nearby, max_nearby * _state.TISSUE_KDTREE_CANDIDATE_MULT)
+    )
     keep_k = min(max_nearby, candidate_k, nseg)
     # If the KDTree candidate request is already dense, querying/sorting most
     # segments on CPU is slower than doing the exact all-segment refinement on
     # GPU and avoids transferring the large candidate-index matrix.
-    use_all_segment_refine = candidate_k >= nseg or (candidate_k / max(float(nseg), 1.0)) >= 0.5
+    use_all_segment_refine = (
+        candidate_k >= nseg or (candidate_k / max(float(nseg), 1.0)) >= 0.5
+    )
     tree = None
     valid_source_ids = np.flatnonzero(valid).astype(np.int64, copy=False)
     gl_points_all = np.asarray(cext_state["gl_points_si"], dtype=np.float32)
     lambda_all = np.asarray(cext_state["lambda_iv_gl"], dtype=np.float32)
     q_weighted_all = np.asarray(cext_state["q_weighted_gl"], dtype=np.float32)
-    mono2_weight_all = np.asarray(cext_state.get("mono2_weight_gl", np.zeros_like(q_weighted_all)), dtype=np.float32)
-    dipole2_weight_all = np.asarray(cext_state.get("dipole2_weight_gl", np.zeros_like(q_weighted_all)), dtype=np.float32)
+    mono2_weight_all = np.asarray(
+        cext_state.get("mono2_weight_gl", np.zeros_like(q_weighted_all)),
+        dtype=np.float32,
+    )
+    dipole2_weight_all = np.asarray(
+        cext_state.get("dipole2_weight_gl", np.zeros_like(q_weighted_all)),
+        dtype=np.float32,
+    )
     seg_cap_all = np.asarray(cext_state["seg_cap_gl"], dtype=np.float32)
     gl_points_valid = np.asarray(gl_points_all[valid_source_ids], dtype=np.float32)
     lambda_valid = np.asarray(lambda_all[valid_source_ids], dtype=np.float32)
     q_weighted_valid = np.asarray(q_weighted_all[valid_source_ids], dtype=np.float32)
-    mono2_weight_valid = np.asarray(mono2_weight_all[valid_source_ids], dtype=np.float32)
-    dipole2_weight_valid = np.asarray(dipole2_weight_all[valid_source_ids], dtype=np.float32)
+    mono2_weight_valid = np.asarray(
+        mono2_weight_all[valid_source_ids], dtype=np.float32
+    )
+    dipole2_weight_valid = np.asarray(
+        dipole2_weight_all[valid_source_ids], dtype=np.float32
+    )
     seg_cap_valid = np.asarray(seg_cap_all[valid_source_ids], dtype=np.float32)
     gl_order = int(gl_points_valid.shape[1]) if gl_points_valid.ndim >= 3 else 0
     if gl_order <= 0:
-        return np.ones((points.shape[0],), dtype=bool), np.zeros((points.shape[0],), dtype=float)
+        return np.ones((points.shape[0],), dtype=bool), np.zeros(
+            (points.shape[0],), dtype=float
+        )
 
     diffusivity_si = float(cext_state["diffusivity_si"])
     window_factor = float(cext_state.get("window_factor", _state.CEXT_WINDOW_FACTOR))
@@ -527,7 +652,9 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
 
     t0 = perf_counter()
     starts_g = _state._cp.asarray(np.asarray(starts_si, dtype=np.float32))
-    segment_vectors_g = _state._cp.asarray(np.asarray(segment_vectors, dtype=np.float32))
+    segment_vectors_g = _state._cp.asarray(
+        np.asarray(segment_vectors, dtype=np.float32)
+    )
     seg_len_sq_g = _state._cp.asarray(np.asarray(seg_len_sq, dtype=np.float32))
     seg_len_g = _state._cp.asarray(np.asarray(seg_len, dtype=np.float32))
     radii_g = _state._cp.asarray(np.asarray(radii_si, dtype=np.float32))
@@ -544,7 +671,9 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
     result = np.zeros(points.shape[0], dtype=np.float32)
     points_si_all = np.asarray(points * _state.CM_TO_M, dtype=np.float32)
 
-    chunk_points = max(int(_state.TISSUE_GPU_CHUNK_POINTS), int(_state.TISSUE_GPU_MIN_CHUNK_POINTS))
+    chunk_points = max(
+        int(_state.TISSUE_GPU_CHUNK_POINTS), int(_state.TISSUE_GPU_MIN_CHUNK_POINTS)
+    )
     min_chunk = max(int(_state.TISSUE_GPU_MIN_CHUNK_POINTS), 1)
     start_idx = 0
     chunks_done = 0
@@ -575,7 +704,9 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
                     t0 = perf_counter()
                     points_g = _state._cp.asarray(chunk, dtype=_state._cp.float32)
                     keep_g = _state._cp.empty((chunk.shape[0],), dtype=_state._cp.uint8)
-                    out_g = _state._cp.zeros((chunk.shape[0],), dtype=_state._cp.float32)
+                    out_g = _state._cp.zeros(
+                        (chunk.shape[0],), dtype=_state._cp.float32
+                    )
                     _state._cp.cuda.Stream.null.synchronize()
                     t_transfer += perf_counter() - t0
 
@@ -621,7 +752,9 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
                     t_greens += perf_counter() - t0
 
                     t0 = perf_counter()
-                    keep_mask_all[start_idx:end_idx] = _state._cp.asnumpy(keep_g).astype(bool)
+                    keep_mask_all[start_idx:end_idx] = _state._cp.asnumpy(
+                        keep_g
+                    ).astype(bool)
                     result[start_idx:end_idx] = _state._cp.asnumpy(out_g)
                     t_download += perf_counter() - t0
                     chunks_done += 1
@@ -631,7 +764,9 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
                     if chunk_points <= min_chunk:
                         raise
                     chunk_points = max(min_chunk, chunk_points // 2)
-                    print(f"WARNING: GPU OOM in Cext tissue cell-list chunk; retrying with --tissue-gpu-chunk-points={chunk_points}")
+                    print(
+                        f"WARNING: GPU OOM in Cext tissue cell-list chunk; retrying with --tissue-gpu-chunk-points={chunk_points}"
+                    )
 
             if _state.SOLVER_TIMING_DETAILS:
                 print(
@@ -666,11 +801,18 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
                 "t_tissue_total_s": float(total_elapsed),
                 "t_tissue_kdtree_query_s": 0.0,
                 "t_tissue_gpu_refine_s": 0.0,
-                "t_tissue_gpu_transfer_s": float(t_transfer + t_download + t_upload_static + float(cell_metrics["upload_s"])),
+                "t_tissue_gpu_transfer_s": float(
+                    t_transfer
+                    + t_download
+                    + t_upload_static
+                    + float(cell_metrics["upload_s"])
+                ),
             }
             return keep_mask_all, result.astype(float, copy=False)
         except Exception:
-            print("WARNING: Cext tissue cell-list GPU path failed; falling back to KDTree/refine path.")
+            print(
+                "WARNING: Cext tissue cell-list GPU path failed; falling back to KDTree/refine path."
+            )
             traceback.print_exc()
             _state._cp.get_default_memory_pool().free_all_blocks()
             keep_mask_all[:] = False
@@ -686,7 +828,9 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
     if not use_all_segment_refine:
         tree = _ensure_tissue_context_kdtree(context)
         if tree is None:
-            raise RuntimeError("Cext tissue GPU mode requires scipy cKDTree for CPU candidate query.")
+            raise RuntimeError(
+                "Cext tissue GPU mode requires scipy cKDTree for CPU candidate query."
+            )
 
     while start_idx < points.shape[0]:
         end_idx = min(start_idx + chunk_points, points.shape[0])
@@ -728,11 +872,19 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
             if use_all_segment_refine:
                 nearest_g = sel.astype(_state._cp.int32, copy=False)
             else:
-                nearest_g = _state._cp.take_along_axis(cand_g, sel, axis=1).astype(_state._cp.int32, copy=False)
-            proj_g = _state._cp.take_along_axis(proj, sel, axis=1).astype(_state._cp.float32, copy=False)
-            d_center_g = _state._cp.sqrt(_state._cp.take_along_axis(dist_sq, sel, axis=1)).astype(_state._cp.float32, copy=False)
+                nearest_g = _state._cp.take_along_axis(cand_g, sel, axis=1).astype(
+                    _state._cp.int32, copy=False
+                )
+            proj_g = _state._cp.take_along_axis(proj, sel, axis=1).astype(
+                _state._cp.float32, copy=False
+            )
+            d_center_g = _state._cp.sqrt(
+                _state._cp.take_along_axis(dist_sq, sel, axis=1)
+            ).astype(_state._cp.float32, copy=False)
             radius_local = _state._cp.minimum(radii_g[nearest_g], seg_len_g[nearest_g])
-            inside_any = _state._cp.any((proj_g >= 0.0) & (proj_g <= 1.0) & (d_center_g <= radius_local), axis=1)
+            inside_any = _state._cp.any(
+                (proj_g >= 0.0) & (proj_g <= 1.0) & (d_center_g <= radius_local), axis=1
+            )
             keep_g = (~inside_any).astype(_state._cp.uint8, copy=False)
             _state._cp.cuda.Stream.null.synchronize()
             t_refine += perf_counter() - t0
@@ -777,7 +929,9 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
             if chunk_points <= min_chunk:
                 raise
             chunk_points = max(min_chunk, chunk_points // 2)
-            print(f"WARNING: GPU OOM in Cext tissue chunk; retrying with --tissue-gpu-chunk-points={chunk_points}")
+            print(
+                f"WARNING: GPU OOM in Cext tissue chunk; retrying with --tissue-gpu-chunk-points={chunk_points}"
+            )
 
     if _state.SOLVER_TIMING_DETAILS:
         print(
@@ -792,7 +946,9 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
         )
 
     total_elapsed = perf_counter() - t_total
-    geometry_elapsed = float(t_setup_cpu + t_upload_static + t_query + t_transfer + t_refine + t_download)
+    geometry_elapsed = float(
+        t_setup_cpu + t_upload_static + t_query + t_transfer + t_refine + t_download
+    )
     _state._LAST_TISSUE_TIMINGS = {
         "backend": "cext_gpu",
         "source_mode": "cext_converged_q_flux",
@@ -829,8 +985,16 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
         gpu_vals = result[:validate_n].astype(float)
         mask_disagree = int(np.count_nonzero(gpu_mask != cpu_mask))
         finite = np.isfinite(cpu_vals) & np.isfinite(gpu_vals)
-        max_abs = float(np.max(np.abs(gpu_vals[finite] - cpu_vals[finite]))) if np.any(finite) else float("nan")
-        rel_l2 = _relative_l2(gpu_vals[finite], cpu_vals[finite]) if np.any(finite) else float("nan")
+        max_abs = (
+            float(np.max(np.abs(gpu_vals[finite] - cpu_vals[finite])))
+            if np.any(finite)
+            else float("nan")
+        )
+        rel_l2 = (
+            _relative_l2(gpu_vals[finite], cpu_vals[finite])
+            if np.any(finite)
+            else float("nan")
+        )
         print(
             "  Cext tissue GPU validation: "
             f"points={validate_n} mask_disagree={mask_disagree} "
@@ -840,4 +1004,11 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
     return keep_mask_all, result.astype(float, copy=False)
 
 
-__all__ = ['_get_tissue_gpu_kernel', '_compute_tissue_samples_greens_gpu', '_get_cext_tissue_gpu_kernel', '_get_cext_tissue_cell_gpu_kernel', '_build_cext_tissue_cell_list_gpu', '_compute_tissue_samples_greens_from_cext_state_gpu']
+__all__ = [
+    "_get_tissue_gpu_kernel",
+    "_compute_tissue_samples_greens_gpu",
+    "_get_cext_tissue_gpu_kernel",
+    "_get_cext_tissue_cell_gpu_kernel",
+    "_build_cext_tissue_cell_list_gpu",
+    "_compute_tissue_samples_greens_from_cext_state_gpu",
+]

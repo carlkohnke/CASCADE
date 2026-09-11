@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from cascade.gui._common import (
+import sys
+from PySide6.QtWidgets import QApplication
+from cascade.gui.ui_helpers import (
     APP_STYLE,
-    QApplication,
     QMessageBox,
     _combo,
     _concentration_unit,
@@ -16,7 +17,6 @@ from cascade.gui._common import (
     _spin,
     _value,
     _workflow_icon,
-    sys,
 )
 
 from cascade.gui.helpers import (
@@ -66,6 +66,7 @@ from cascade.gui.pages.analysis import (
     AnalysisPage,
 )
 
+
 def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName("CASCADE O2 Simulation Studio")
@@ -81,4 +82,31 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ('_default_project_directory', 'QMessageBox', '_combo', '_spin', '_double', '_optional_float', '_concentration_unit', '_queue_action_icon', '_workflow_icon', '_set_combo', '_value', 'Page', 'OverviewPage', 'DomainPage', 'VesselsPage', 'PhysicsPage', 'SolverPage', 'OutputsPage', 'QueuePage', 'AnalysisPage', 'WindowResizeHandle', 'WindowTitleBar', 'MainWindow', '_parse_jsonish', '_json_safe', 'main')
+__all__ = (
+    "_default_project_directory",
+    "QMessageBox",
+    "_combo",
+    "_spin",
+    "_double",
+    "_optional_float",
+    "_concentration_unit",
+    "_queue_action_icon",
+    "_workflow_icon",
+    "_set_combo",
+    "_value",
+    "Page",
+    "OverviewPage",
+    "DomainPage",
+    "VesselsPage",
+    "PhysicsPage",
+    "SolverPage",
+    "OutputsPage",
+    "QueuePage",
+    "AnalysisPage",
+    "WindowResizeHandle",
+    "WindowTitleBar",
+    "MainWindow",
+    "_parse_jsonish",
+    "_json_safe",
+    "main",
+)

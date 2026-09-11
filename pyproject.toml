@@ -59,6 +59,6 @@ cascade = [
     "gui/native/*.cs",
     "gui/shaders/*.frag",
     "gui/shaders/*.vert",
-    "runtime/cuda/*.cu",
-    "runtime/cuda/*.cuh",
+    "accelerators/cuda/*.cu",
+    "accelerators/cuda/*.cuh",
 ]

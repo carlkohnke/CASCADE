@@ -43,7 +43,7 @@ def json_safe(value):
     return value
 
 
-# Transitional aliases for callers of the former monolithic GUI module.
+# Concise aliases shared by the GUI page modules.
 _parse_jsonish = parse_jsonish
 _json_safe = json_safe
 

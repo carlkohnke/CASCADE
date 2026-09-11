@@ -1,3 +1,5 @@
+"""Coordinate process-safe simulation locks and release completed-case memory."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -42,7 +44,11 @@ def single_simulation(
     The operating system owns the lock, so an abnormal process exit releases it;
     the small metadata file may remain and is safe to reuse.
     """
-    path = Path(lock_path).expanduser().resolve() if lock_path is not None else simulation_lock_path()
+    path = (
+        Path(lock_path).expanduser().resolve()
+        if lock_path is not None
+        else simulation_lock_path()
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("a+b")
     acquired = False
@@ -81,6 +87,7 @@ def single_simulation(
 
 def guard_simulation(operation: str) -> Callable[[_F], _F]:
     """Decorate a CLI entry point with the single-simulation host guard."""
+
     def decorator(func: _F) -> _F:
         @wraps(func)
         def wrapped(*args: Any, **kwargs: Any):
@@ -103,7 +110,11 @@ def release_completed_case_memory(
         "cupy_pool_trimmed": False,
     }
     if runtime_module is not None:
-        for name in ("_LAST_CEXT_SOURCE_STATE", "_LAST_CEXT_CONTEXT", "_LAST_TISSUE_TIMINGS"):
+        for name in (
+            "_LAST_CEXT_SOURCE_STATE",
+            "_LAST_CEXT_CONTEXT",
+            "_LAST_TISSUE_TIMINGS",
+        ):
             if hasattr(runtime_module, name):
                 try:
                     setattr(runtime_module, name, None)

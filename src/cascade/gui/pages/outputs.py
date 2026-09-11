@@ -1,10 +1,16 @@
-"""Output and export configuration page."""
+"""Output and export configuration page.
+
+The page controls result directories, table/mesh products, tissue annotations,
+network persistence, and sweep-specific output options.
+"""
 
 from __future__ import annotations
 
-from cascade.gui._common import (
-    Card,
-    PathPicker,
+from PySide6.QtCore import (
+    Qt,
+    Signal,
+)
+from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QGridLayout,
@@ -15,23 +21,30 @@ from cascade.gui._common import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    Qt,
-    Signal,
-    _combo,
-    _set_combo,
-    _spin,
+)
+from cascade.gui.model import (
     flow_from_ul_min,
     flow_to_ul_min,
-    labeled,
     oxygen_from_concentration,
     oxygen_to_concentration,
     parse_sweep_values,
+)
+from cascade.gui.widgets import (
+    Card,
+    PathPicker,
+    labeled,
     row_of,
+)
+from cascade.gui.ui_helpers import (
+    _combo,
+    _set_combo,
+    _spin,
 )
 
 from cascade.gui.pages.base import (
     Page,
 )
+
 
 class OutputsPage(Page):
     preview_changed = Signal()
@@ -48,7 +61,10 @@ class OutputsPage(Page):
         ("Cₑₓₜ iterations", "settings.cext.vess_coupling_max_iter"),
     ]
     SWEEP_UNITS = {
-        "simulation.qin_target_ul_min": ("µL/min", ["µL/min", "cm³/s", "mL/min", "m³/s"]),
+        "simulation.qin_target_ul_min": (
+            "µL/min",
+            ["µL/min", "cm³/s", "mL/min", "m³/s"],
+        ),
         "network.target_terminal_count": ("count", ["count"]),
         "settings.oxygen.solute_diffusivity": ("cm²/s", ["cm²/s", "m²/s"]),
         "settings.oxygen.vmax_mm": ("mol/m³/s", ["mol/m³/s", "mmHg/s"]),
@@ -194,7 +210,9 @@ class OutputsPage(Page):
         sweep.add(footer)
         self.column.addWidget(sweep)
         self.sample_mode.currentIndexChanged.connect(self._sampling_changed)
-        self.sample_mode.currentIndexChanged.connect(lambda *_: self.preview_changed.emit())
+        self.sample_mode.currentIndexChanged.connect(
+            lambda *_: self.preview_changed.emit()
+        )
         self.sample_points.valueChanged.connect(lambda *_: self.preview_changed.emit())
         self.sample_file.changed.connect(lambda *_: self.preview_changed.emit())
         self.combined_sweep_csv.toggled.connect(self._combined_sweep_output_changed)
@@ -226,7 +244,9 @@ class OutputsPage(Page):
     def _sampling_changed(self):
         mode = self.sample_mode.currentData()
         grid = mode == "grid"
-        self.sample_controls.setCurrentIndex({"random": 0, "grid": 1, "file": 2}.get(mode, 0))
+        self.sample_controls.setCurrentIndex(
+            {"random": 0, "grid": 1, "file": 2}.get(mode, 0)
+        )
         self.grid_total.setVisible(grid)
 
     def _update_grid_total(self, *_):
@@ -242,7 +262,9 @@ class OutputsPage(Page):
             raw = None
         used_paths = self._sweep_paths()
         if raw is None:
-            available = [path for _label, path in self.SWEEP_PATHS if path not in used_paths]
+            available = [
+                path for _label, path in self.SWEEP_PATHS if path not in used_paths
+            ]
             if not available:
                 self.add_sweep_btn.setEnabled(False)
                 return
@@ -298,8 +320,12 @@ class OutputsPage(Page):
             "remove": remove,
         }
         self.sweep_rows.append(record)
-        self.sweep_rows_layout.insertWidget(self.sweep_rows_layout.count() - 1, row_widget)
-        combo.currentIndexChanged.connect(lambda *_: self._sweep_parameter_changed(record))
+        self.sweep_rows_layout.insertWidget(
+            self.sweep_rows_layout.count() - 1, row_widget
+        )
+        combo.currentIndexChanged.connect(
+            lambda *_: self._sweep_parameter_changed(record)
+        )
         unit.currentTextChanged.connect(lambda *_: self._sweep_unit_changed(record))
         values.textChanged.connect(self._count_jobs)
         enabled.toggled.connect(self._count_jobs)
@@ -334,7 +360,9 @@ class OutputsPage(Page):
         self.add_sweep_btn.setEnabled(len(self._sweep_paths()) < len(self.SWEEP_PATHS))
         self._count_jobs()
 
-    def _set_sweep_unit_options(self, record, path: str, selected: str | None = None) -> None:
+    def _set_sweep_unit_options(
+        self, record, path: str, selected: str | None = None
+    ) -> None:
         default_unit, options = self.SWEEP_UNITS[path]
         unit = record["unit"]
         unit.blockSignals(True)
@@ -372,7 +400,9 @@ class OutputsPage(Page):
     @staticmethod
     def _format_sweep_values(values) -> str:
         return ", ".join(
-            format(float(value), ".12g") if isinstance(value, (int, float)) and not isinstance(value, bool) else str(value)
+            format(float(value), ".12g")
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+            else str(value)
             for value in values
         )
 
@@ -481,7 +511,9 @@ class OutputsPage(Page):
     def write(self, config):
         sim = config.setdefault("simulation", {})
         sim["sample_mode"] = self.sample_mode.currentData()
-        sim["distance_sample_count"] = 0 if sim["sample_mode"] == "file" else self.sample_points.value()
+        sim["distance_sample_count"] = (
+            0 if sim["sample_mode"] == "file" else self.sample_points.value()
+        )
         if sim["sample_mode"] == "grid":
             grid = dict(sim.get("tissue_grid", {}))
             grid.pop("shape", None)
@@ -537,6 +569,4 @@ class OutputsPage(Page):
         config.setdefault("gui", {})["sweeps"] = sweeps
 
 
-
-
-__all__ = ('OutputsPage',)
+__all__ = ("OutputsPage",)

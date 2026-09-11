@@ -1,6 +1,6 @@
 """Thin command-line entry points for the unified simulation platform."""
 
-from cascade.core.lazy import resolve_export
+from cascade.utils.lazy import resolve_export
 
 _EXPORTS = {"main": ("cascade.commands.main", "main")}
 __all__ = ["main"]

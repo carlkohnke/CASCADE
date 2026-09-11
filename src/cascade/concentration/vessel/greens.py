@@ -1,7 +1,7 @@
 """Green's-function oxygen kinetics and finite-radius corrections.
 
 Numerical kernels and packaged Bessel lookup data live together here, without
-depending on namespace injection from the legacy TissueSim facade.
+depending on import order or implicit namespace injection.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import Tuple
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 from cascade.flow.rheology import tube_hematocrit
 
 try:
@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - approximation paths remain available
 try:
     from numba import njit, prange
 except ImportError:  # pragma: no cover - scalar Python paths remain available
+
     def njit(*args, **kwargs):
         def decorate(func):
             return func
@@ -35,6 +36,7 @@ except ImportError:  # pragma: no cover - scalar Python paths remain available
 def profile(func):
     """No-op hook retained for line-profiler compatibility."""
     return func
+
 
 def _build_k_ratio_lut(
     xmin: float = 1e-12,
@@ -58,15 +60,19 @@ def _build_k_ratio_lut(
         large = xs > 8.0
         invphi = 1.0 / np.maximum(xs, 1e-30)
         r_small = invphi / np.maximum(-(np.log(xs / 2.0) + gamma), 1e-8)
-        r_large = 1.0 + 0.5 * invphi + 0.375 * (invphi ** 2)
-        r_mid = (1.0 + 0.5658 * xs + 0.1373 * xs * xs) / (1.0 + 1.0361 * xs + 0.5454 * xs * xs)
+        r_large = 1.0 + 0.5 * invphi + 0.375 * (invphi**2)
+        r_mid = (1.0 + 0.5658 * xs + 0.1373 * xs * xs) / (
+            1.0 + 1.0361 * xs + 0.5454 * xs * xs
+        )
         ratio = np.where(small, r_small, np.where(large, r_large, r_mid))
         k0_vals = np.empty_like(xs)
         k1_vals = ratio * 0.0
     return xs, k0_vals, k1_vals, ratio
 
 
-def _load_k_ratio_lut(path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _load_k_ratio_lut(
+    path: Path,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     try:
         with np.load(path, allow_pickle=False) as data:
             version = int(np.asarray(data["format_version"]).item())
@@ -75,27 +81,42 @@ def _load_k_ratio_lut(path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, n
             k1_vals = np.asarray(data["k1"], dtype=np.float64).copy()
             ratio = np.asarray(data["ratio"], dtype=np.float64).copy()
     except Exception as exc:
-        raise RuntimeError(f"Unable to load the packaged Bessel table at {path}: {exc}") from exc
+        raise RuntimeError(
+            f"Unable to load the packaged Bessel table at {path}: {exc}"
+        ) from exc
     if version != 1:
         raise RuntimeError(f"Unsupported Bessel table format {version} at {path}.")
     expected_shape = xs.shape
-    if xs.ndim != 1 or xs.size < 2 or any(values.shape != expected_shape for values in (k0_vals, k1_vals, ratio)):
+    if (
+        xs.ndim != 1
+        or xs.size < 2
+        or any(values.shape != expected_shape for values in (k0_vals, k1_vals, ratio))
+    ):
         raise RuntimeError(f"Invalid Bessel table array shapes at {path}.")
     if not np.all(np.isfinite(xs)) or not np.all(np.diff(xs) > 0.0):
-        raise RuntimeError(f"Bessel table arguments must be finite and strictly increasing at {path}.")
-    if not all(np.all(np.isfinite(values)) and np.all(values > 0.0) for values in (k0_vals, k1_vals, ratio)):
-        raise RuntimeError(f"Bessel table values must be finite and positive at {path}.")
+        raise RuntimeError(
+            f"Bessel table arguments must be finite and strictly increasing at {path}."
+        )
+    if not all(
+        np.all(np.isfinite(values)) and np.all(values > 0.0)
+        for values in (k0_vals, k1_vals, ratio)
+    ):
+        raise RuntimeError(
+            f"Bessel table values must be finite and positive at {path}."
+        )
     return xs, k0_vals, k1_vals, ratio
 
 
 _state._KRATIO_LUT = _load_k_ratio_lut(_state.KRATIO_LUT_PATH)
-_state._KRATIO_XS, _state._K0_LUT, _state._K1_LUT, _state._KRATIO_YS = _state._KRATIO_LUT
+_state._KRATIO_XS, _state._K0_LUT, _state._K1_LUT, _state._KRATIO_YS = (
+    _state._KRATIO_LUT
+)
 
 
 def _k0est(x: np.ndarray) -> np.ndarray:
     vec_erf = np.vectorize(math.erf)
     long_est = np.sqrt(np.pi / (2.0 * x) * np.exp(-x))
-    short_est = -np.log(x / 2.0) - 0.5772 + ((x ** 2) / 4.0) * (np.log(x / 2.0) + 0.0772)
+    short_est = -np.log(x / 2.0) - 0.5772 + ((x**2) / 4.0) * (np.log(x / 2.0) + 0.0772)
     asymp = 0.5 * (1.0 - vec_erf(3.0 * (x - 0.5)))
     return asymp * short_est + (1.0 - asymp) * long_est
 
@@ -105,14 +126,26 @@ def _k_ratio(phi: np.ndarray | float) -> np.ndarray:
     phi_arr = np.asarray(phi, dtype=float)
     phi_arr = np.maximum(phi_arr, 1e-12)
     flat = phi_arr.ravel()
-    out = np.interp(flat, _state._KRATIO_XS, _state._KRATIO_YS, left=_state._KRATIO_YS[0], right=_state._KRATIO_YS[-1])
+    out = np.interp(
+        flat,
+        _state._KRATIO_XS,
+        _state._KRATIO_YS,
+        left=_state._KRATIO_YS[0],
+        right=_state._KRATIO_YS[-1],
+    )
     return out.reshape(phi_arr.shape)
 
 
 def _k0_lookup(x: np.ndarray) -> np.ndarray:
     if _state._K0_LUT.size:
         flat = np.asarray(x, dtype=float).ravel()
-        out = np.interp(flat, _state._KRATIO_XS, _state._K0_LUT, left=_state._K0_LUT[0], right=_state._K0_LUT[-1])
+        out = np.interp(
+            flat,
+            _state._KRATIO_XS,
+            _state._K0_LUT,
+            left=_state._K0_LUT[0],
+            right=_state._K0_LUT[-1],
+        )
         return out.reshape(np.asarray(x).shape)
     if _state._HAVE_SCIPY:
         return _bessel_k0(x)
@@ -122,7 +155,13 @@ def _k0_lookup(x: np.ndarray) -> np.ndarray:
 def _k1_lookup(x: np.ndarray) -> np.ndarray:
     if _state._K1_LUT.size:
         flat = np.asarray(x, dtype=float).ravel()
-        out = np.interp(flat, _state._KRATIO_XS, _state._K1_LUT, left=_state._K1_LUT[0], right=_state._K1_LUT[-1])
+        out = np.interp(
+            flat,
+            _state._KRATIO_XS,
+            _state._K1_LUT,
+            left=_state._K1_LUT[0],
+            right=_state._K1_LUT[-1],
+        )
         return out.reshape(np.asarray(x).shape)
     if _state._HAVE_SCIPY:
         return _bessel_k1(x)
@@ -130,6 +169,7 @@ def _k1_lookup(x: np.ndarray) -> np.ndarray:
 
 
 if _state._HAVE_NUMBA:
+
     @njit(cache=True)
     def _interp_scalar(x: float, xs: np.ndarray, ys: np.ndarray) -> float:
         if x <= xs[0]:
@@ -150,14 +190,14 @@ if _state._HAVE_NUMBA:
         t = (x - x0) / (x1 - x0)
         return y0 + t * (y1 - y0)
 
-
     @njit(cache=True)
-    def _k0_lookup_numba(x_arr: np.ndarray, xs: np.ndarray, k0_lut: np.ndarray) -> np.ndarray:
+    def _k0_lookup_numba(
+        x_arr: np.ndarray, xs: np.ndarray, k0_lut: np.ndarray
+    ) -> np.ndarray:
         out = np.empty_like(x_arr)
         for i in range(x_arr.size):
             out[i] = _interp_scalar(x_arr[i], xs, k0_lut)
         return out
-
 
     @njit(cache=True)
     def _k_ratio_scalar_numba(phi: float) -> float:
@@ -166,15 +206,15 @@ if _state._HAVE_NUMBA:
             x = 1e-12
         return _interp_scalar(x, _state._KRATIO_XS, _state._KRATIO_YS)
 
-
     @njit(cache=True)
-    def _lambda_if_scalar_numba(c_iv: float, diffusivity_si: float, vmax: float, km: float) -> float:
+    def _lambda_if_scalar_numba(
+        c_iv: float, diffusivity_si: float, vmax: float, km: float
+    ) -> float:
         c_local = c_iv if c_iv > 0.0 else 0.0
         denom = km + c_local
         if denom < 1e-30:
             denom = 1e-30
         return np.sqrt(diffusivity_si / max(vmax / denom, 1e-30))
-
 
     @njit(cache=True)
     def _interfacial_transfer_coeff_scalar_numba(
@@ -190,7 +230,6 @@ if _state._HAVE_NUMBA:
             phi = 1e-12
         ratio = _interp_scalar(phi, xs_lut, ys_lut)
         return (2.0 * np.pi * radius_si) * (diffusivity_si / lambda_local) * ratio
-
 
     @njit(cache=True)
     def _greens_decay_ratio_numba(
@@ -219,7 +258,11 @@ if _state._HAVE_NUMBA:
             lam = 1e-30
         phi = radius / lam
         ratio = _k_ratio_scalar_numba(phi)
-        beta = (2.0 * np.pi * radius / (flow_mag if flow_mag > 1e-30 else 1e-30)) * (diffusivity / lam) * ratio
+        beta = (
+            (2.0 * np.pi * radius / (flow_mag if flow_mag > 1e-30 else 1e-30))
+            * (diffusivity / lam)
+            * ratio
+        )
         exponent = -beta * length
         if exponent < -150.0:
             exponent = -150.0
@@ -227,12 +270,10 @@ if _state._HAVE_NUMBA:
             exponent = 50.0
         return np.exp(exponent)
 
-
     @njit(cache=True)
     def _severinghaus_dSdP_scalar(P: float) -> float:
-        den = (P * P * P + 150.0 * P + 23400.0)
+        den = P * P * P + 150.0 * P + 23400.0
         return 70200.0 * (P * P + 50.0) / (den * den)
-
 
     @njit(cache=True)
     def _blood_greens_decay_ratio_numba(
@@ -263,7 +304,11 @@ if _state._HAVE_NUMBA:
             lam = 1e-30
         phi = radius / lam
         ratio = _k_ratio_scalar_numba(phi)
-        base = (2.0 * np.pi * radius / (flow_mag if flow_mag > 1e-30 else 1e-30)) * (diffusivity / lam) * ratio
+        base = (
+            (2.0 * np.pi * radius / (flow_mag if flow_mag > 1e-30 else 1e-30))
+            * (diffusivity / lam)
+            * ratio
+        )
         if steps < 1:
             steps = 1
         ds = length / steps
@@ -283,7 +328,6 @@ if _state._HAVE_NUMBA:
             c_local *= np.exp(exponent)
         denom_cin = cin if cin > 1e-30 else 1e-30
         return c_local / denom_cin
-
 
     @njit(cache=True)
     def _solve_channel_concentrations_topdown_numba(
@@ -347,7 +391,6 @@ if _state._HAVE_NUMBA:
                 )
             cout[idx] = cin_local * decay
         return cin, cout
-
 
     @njit(cache=True, parallel=True)
     def _tissue_kernel_numba(
@@ -473,7 +516,9 @@ if _state._HAVE_NUMBA:
         return out
 
 
-def _greens_lambda_char(diffusivity: float, vmax: float, km: float, cin: float) -> float:
+def _greens_lambda_char(
+    diffusivity: float, vmax: float, km: float, cin: float
+) -> float:
     denom = max(km + max(cin, 0.0), 1e-30)
     k1 = vmax / denom
     return float(np.sqrt(diffusivity / max(k1, 1e-30)))
@@ -496,7 +541,11 @@ def _greens_decay_factor(
     lam = _greens_lambda_char(diffusivity, vmax, km, cin)
     phi = radius / max(lam, 1e-30)
     ratio = float(_k_ratio(phi))
-    beta = (2.0 * np.pi * radius / max(flow_mag, 1e-30)) * (diffusivity / max(lam, 1e-30)) * ratio
+    beta = (
+        (2.0 * np.pi * radius / max(flow_mag, 1e-30))
+        * (diffusivity / max(lam, 1e-30))
+        * ratio
+    )
     exponent = np.clip(-beta * length, -150.0, 50.0)
     return float(np.exp(exponent))
 
@@ -510,13 +559,17 @@ def _greens_segment_params(
     km: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     cin_pos = np.maximum(cin, 0.0)
-    denom = np.maximum(km + cin_pos,  1e-30)
+    denom = np.maximum(km + cin_pos, 1e-30)
     k1 = vmax / denom
     lam = np.sqrt(diffusivity / np.maximum(k1, 1e-30))
     phi = radii / np.maximum(lam, 1e-30)
     ratio = _k_ratio(phi)
     flow_mag = np.maximum(np.abs(flows), 1e-30)
-    beta = (2.0 * np.pi * radii / flow_mag) * (diffusivity / np.maximum(lam, 1e-30)) * ratio
+    beta = (
+        (2.0 * np.pi * radii / flow_mag)
+        * (diffusivity / np.maximum(lam, 1e-30))
+        * ratio
+    )
     return lam, ratio, beta
 
 
@@ -531,12 +584,15 @@ def _hill_dS_dC(
     alpha_n = alpha**n_hill
     p50_n = p50**n_hill
     denom = alpha_n * p50_n + cin_pos**n_hill
-    return float((n_hill * alpha_n * p50_n * cin_pos ** (n_hill - 1.0)) / max(denom * denom, 1e-30))
+    return float(
+        (n_hill * alpha_n * p50_n * cin_pos ** (n_hill - 1.0))
+        / max(denom * denom, 1e-30)
+    )
 
 
 def severinghaus_saturation(P_mmHg: np.ndarray | float) -> np.ndarray | float:
     P = np.asarray(P_mmHg, dtype=float)
-    num = P ** 3 + 150.0 * P
+    num = P**3 + 150.0 * P
     den = num + 23400.0
     S = num / den
     if np.isscalar(P_mmHg):
@@ -546,8 +602,8 @@ def severinghaus_saturation(P_mmHg: np.ndarray | float) -> np.ndarray | float:
 
 def severinghaus_dSdP(P_mmHg: np.ndarray | float) -> np.ndarray | float:
     P = np.asarray(P_mmHg, dtype=float)
-    den = (P ** 3 + 150.0 * P + 23400.0)
-    dSdP = 70200.0 * (P ** 2 + 50.0) / (den ** 2)
+    den = P**3 + 150.0 * P + 23400.0
+    dSdP = 70200.0 * (P**2 + 50.0) / (den**2)
     if np.isscalar(P_mmHg):
         return float(dSdP)
     return dSdP
@@ -589,12 +645,21 @@ def _blood_greens_decay_factor(
     lam = _greens_lambda_char(diffusivity, vmax, km, cin)
     phi = radius / max(lam, 1e-30)
     ratio = float(_k_ratio(phi))
-    base = (2.0 * np.pi * radius / max(flow_mag, 1e-30)) * (diffusivity / max(lam, 1e-30)) * ratio
+    base = (
+        (2.0 * np.pi * radius / max(flow_mag, 1e-30))
+        * (diffusivity / max(lam, 1e-30))
+        * ratio
+    )
     steps = max(int(_state.AXIAL_BLOOD_STEPS), 1)
     ds = length / steps
     c_local = float(max(cin, 0.0))
     for _ in range(steps):
-        buffer = 1.0 + max(ccap, 0.0) * severinghaus_dSdP(c_local / _state.ALPHA_MMHG) / _state.ALPHA_MMHG
+        buffer = (
+            1.0
+            + max(ccap, 0.0)
+            * severinghaus_dSdP(c_local / _state.ALPHA_MMHG)
+            / _state.ALPHA_MMHG
+        )
         beta_local = base / max(buffer, 1e-30)
         c_local *= float(np.exp(np.clip(-beta_local * ds, -150.0, 50.0)))
     return c_local / max(cin, 1e-30)
@@ -620,7 +685,9 @@ def _lambda_tissue_from_civ_ctissue(
 ) -> np.ndarray:
     c_iv_arr = np.maximum(np.asarray(c_iv, dtype=float), 0.0)
     c_tissue_arr = np.maximum(np.asarray(c_tissue, dtype=float), 0.0)
-    effective_term = np.sqrt(np.maximum(km + c_iv_arr, 1e-30) * np.maximum(km + c_tissue_arr, 1e-30))
+    effective_term = np.sqrt(
+        np.maximum(km + c_iv_arr, 1e-30) * np.maximum(km + c_tissue_arr, 1e-30)
+    )
     return np.sqrt(diffusivity_si / np.maximum(vmax / effective_term, 1e-30))
 
 
@@ -682,7 +749,42 @@ def _finite_radius_o2_term_flags() -> tuple[bool, bool]:
         return False, True
     if mode in ("both", "all", "monopole+dipole"):
         return True, True
-    raise ValueError("--finite-radius-o2-terms must be one of none, monopole, dipole, both.")
+    raise ValueError(
+        "--finite-radius-o2-terms must be one of none, monopole, dipole, both."
+    )
 
 
-__all__ = ['_build_k_ratio_lut', '_load_k_ratio_lut', '_k0est', '_k_ratio', '_k0_lookup', '_k1_lookup', '_interp_scalar', '_k0_lookup_numba', '_k_ratio_scalar_numba', '_lambda_if_scalar_numba', '_interfacial_transfer_coeff_scalar_numba', '_greens_decay_ratio_numba', '_severinghaus_dSdP_scalar', '_blood_greens_decay_ratio_numba', '_solve_channel_concentrations_topdown_numba', '_tissue_kernel_numba', '_greens_lambda_char', '_greens_decay_factor', '_greens_segment_params', '_hill_dS_dC', 'severinghaus_saturation', 'severinghaus_dSdP', 'segment_O2_capacity', 'segment_O2_capacity_from_HT', 'buffer_factor_B', '_blood_greens_decay_factor', '_lambda_if_from_civ', '_lambda_tissue_from_civ_ctissue', '_normalize_cext_lambda_source', '_cext_green_lambda_from_fields', '_interfacial_transfer_coefficient', '_finite_radius_o2_term_flags']
+__all__ = [
+    "_build_k_ratio_lut",
+    "_load_k_ratio_lut",
+    "_k0est",
+    "_k_ratio",
+    "_k0_lookup",
+    "_k1_lookup",
+    "_interp_scalar",
+    "_k0_lookup_numba",
+    "_k_ratio_scalar_numba",
+    "_lambda_if_scalar_numba",
+    "_interfacial_transfer_coeff_scalar_numba",
+    "_greens_decay_ratio_numba",
+    "_severinghaus_dSdP_scalar",
+    "_blood_greens_decay_ratio_numba",
+    "_solve_channel_concentrations_topdown_numba",
+    "_tissue_kernel_numba",
+    "_greens_lambda_char",
+    "_greens_decay_factor",
+    "_greens_segment_params",
+    "_hill_dS_dC",
+    "severinghaus_saturation",
+    "severinghaus_dSdP",
+    "segment_O2_capacity",
+    "segment_O2_capacity_from_HT",
+    "buffer_factor_B",
+    "_blood_greens_decay_factor",
+    "_lambda_if_from_civ",
+    "_lambda_tissue_from_civ_ctissue",
+    "_normalize_cext_lambda_source",
+    "_cext_green_lambda_from_fields",
+    "_interfacial_transfer_coefficient",
+    "_finite_radius_o2_term_flags",
+]

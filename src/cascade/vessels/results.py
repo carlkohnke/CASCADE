@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from cascade.vessels._build_common import (
-    Any,
-    Path,
-    dataclass,
-    np,
-)
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
 
 @dataclass
 class NetworkBuildResult:
@@ -25,6 +25,4 @@ class NetworkBuildResult:
     load_source: Path | None = None
 
 
-
-
-__all__ = ('NetworkBuildResult',)
+__all__ = ("NetworkBuildResult",)

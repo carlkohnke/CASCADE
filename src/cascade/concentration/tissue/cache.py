@@ -1,5 +1,4 @@
-"""Tissue cache construction and streaming preparation.
-"""
+"""Tissue cache construction and streaming preparation."""
 
 from __future__ import annotations
 
@@ -9,10 +8,11 @@ from typing import Optional
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
+from cascade.concentration.properties import get_concentration_inlet
 from cascade.concentration.vessel.greens import _k_ratio, buffer_factor_B
 from cascade.diagnostics.runtime import _resolve_tissue_accel_mode
-from cascade.exporting.quadrature import _get_gl_nodes_weights
+from cascade.concentration.quadrature import _get_gl_nodes_weights
 from cascade.flow.rheology import _segment_permeation_rate
 
 from .geometry import (
@@ -21,8 +21,8 @@ from .geometry import (
     _ensure_tissue_context_kdtree,
     _prepare_tissue_geometry,
     _streaming_tissue_chunk_size,
-    get_concentration_inlet,
 )
+
 
 def _segment_decay_factor(
     flow: float,
@@ -49,13 +49,17 @@ def _segment_decay_factor(
     if diffusivity <= 0.0:
         lam = -permeation_rate / velocity_eff
     else:
-        discriminant = max(velocity_eff * velocity_eff + 4.0 * diffusivity * permeation_rate, 0.0)
+        discriminant = max(
+            velocity_eff * velocity_eff + 4.0 * diffusivity * permeation_rate, 0.0
+        )
         lam = (velocity_eff - np.sqrt(discriminant)) / (2.0 * diffusivity)
     exponent = np.clip(lam * length, -150.0, 50.0)
     return float(np.exp(exponent))
 
 
-def normalize_tree_inlet_flow(tree: _state.Tree, target_uL_per_min: Optional[float]) -> Optional[np.ndarray]:
+def normalize_tree_inlet_flow(
+    tree: _state.Tree, target_uL_per_min: Optional[float]
+) -> Optional[np.ndarray]:
     if target_uL_per_min is None or not np.isfinite(target_uL_per_min):
         return None
 
@@ -84,7 +88,13 @@ def build_tissue_cache_from_tree(
 ) -> dict:
     nseg = int(getattr(tree, "segment_count", 0))
     if nseg <= 0:
-        return _prepare_tissue_geometry(sample_points, np.empty((0, 3)), np.empty((0, 3)), np.empty((0,)), max_nearby=0)
+        return _prepare_tissue_geometry(
+            sample_points,
+            np.empty((0, 3)),
+            np.empty((0, 3)),
+            np.empty((0,)),
+            max_nearby=0,
+        )
     # Avoid copying the full (nseg x 31) table; TreeData is already floating-point.
     data = np.asarray(tree.data[:nseg])
     starts = data[:, 0:3]
@@ -99,7 +109,9 @@ def build_tissue_cache_from_tree(
             "max_nearby": int(max_nearby),
             "n_points": int(sample_points.shape[0]),
         }
-    if _state.TISSUE_STREAMING_ENABLED and int(sample_points.shape[0]) >= int(_state.TISSUE_STREAMING_MIN_POINTS):
+    if _state.TISSUE_STREAMING_ENABLED and int(sample_points.shape[0]) >= int(
+        _state.TISSUE_STREAMING_MIN_POINTS
+    ):
         context = _build_tissue_geometry_context(starts, ends, radii)
         return {
             "streaming": True,
@@ -107,7 +119,9 @@ def build_tissue_cache_from_tree(
             "max_nearby": int(max_nearby),
             "n_points": int(sample_points.shape[0]),
         }
-    return _prepare_tissue_geometry(sample_points, starts, ends, radii, max_nearby=max_nearby)
+    return _prepare_tissue_geometry(
+        sample_points, starts, ends, radii, max_nearby=max_nearby
+    )
 
 
 def _compute_tissue_samples_greens_streaming(
@@ -157,14 +171,25 @@ def _compute_tissue_samples_greens_streaming(
     phi_edge = radii_si / np.maximum(lam_edge, 1e-30)
     ratio_edge = _k_ratio(phi_edge)
     flow_mag = np.maximum(np.abs(flows_si), 1e-30)
-    alpha_edge = (2.0 * np.pi * radii_si / flow_mag) * (diffusivity_si / np.maximum(lam_edge, 1e-30)) * ratio_edge
+    alpha_edge = (
+        (2.0 * np.pi * radii_si / flow_mag)
+        * (diffusivity_si / np.maximum(lam_edge, 1e-30))
+        * ratio_edge
+    )
     if inlet_concentration is None:
         inlet_concentration = get_concentration_inlet()
-    lam_ref = float(np.sqrt(diffusivity_si / max(vmax / max(km + float(inlet_concentration), 1e-30), 1e-30)))
+    lam_ref = float(
+        np.sqrt(
+            diffusivity_si
+            / max(vmax / max(km + float(inlet_concentration), 1e-30), 1e-30)
+        )
+    )
     flow_sign = np.sign(flows_si)
     gl_nodes, gl_weights = _get_gl_nodes_weights(_state.GL_ORDER)
 
-    influence_radius = np.asarray(window_factor * lam_edge, dtype=context.get("cache_float", np.float32))
+    influence_radius = np.asarray(
+        window_factor * lam_edge, dtype=context.get("cache_float", np.float32)
+    )
     result = np.zeros(points.shape[0], dtype=float)
     keep_mask_all = np.zeros(points.shape[0], dtype=bool)
     chunk_size = _streaming_tissue_chunk_size(max_nearby)
@@ -176,7 +201,9 @@ def _compute_tissue_samples_greens_streaming(
         f"chunk_workers={_state.TISSUE_STREAMING_CHUNK_WORKERS}"
     )
 
-    used_numba = bool(_state._HAVE_NUMBA and _state.TISSUE_USE_NUMBA and _state._K0_LUT.size)
+    used_numba = bool(
+        _state._HAVE_NUMBA and _state.TISSUE_USE_NUMBA and _state._K0_LUT.size
+    )
     _ensure_tissue_context_kdtree(context)
     state = {
         "context": context,
@@ -206,10 +233,16 @@ def _compute_tissue_samples_greens_streaming(
     ]
 
     old_numba_threads = None
-    if used_numba and _state.set_num_threads is not None and _state.get_num_threads is not None:
+    if (
+        used_numba
+        and _state.set_num_threads is not None
+        and _state.get_num_threads is not None
+    ):
         try:
             old_numba_threads = int(_state.get_num_threads())
-            _state.set_num_threads(max(int(_state.TISSUE_STREAMING_NUMBA_THREADS_PER_WORKER), 1))
+            _state.set_num_threads(
+                max(int(_state.TISSUE_STREAMING_NUMBA_THREADS_PER_WORKER), 1)
+            )
             print(
                 f"  Streaming tissue: numba_threads_per_chunk="
                 f"{max(int(_state.TISSUE_STREAMING_NUMBA_THREADS_PER_WORKER), 1)} "
@@ -226,9 +259,21 @@ def _compute_tissue_samples_greens_streaming(
     try:
         if workers > 1 and len(tasks) > 1:
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                future_map = {executor.submit(_compute_streaming_tissue_chunk, task): task[0] for task in tasks}
+                future_map = {
+                    executor.submit(_compute_streaming_tissue_chunk, task): task[0]
+                    for task in tasks
+                }
                 for fut in as_completed(future_map):
-                    chunk_i, start_idx, end_idx, keep_mask, out, kept, before_c, after_c = fut.result()
+                    (
+                        chunk_i,
+                        start_idx,
+                        end_idx,
+                        keep_mask,
+                        out,
+                        kept,
+                        before_c,
+                        after_c,
+                    ) = fut.result()
                     result[start_idx:end_idx] = out
                     keep_mask_all[start_idx:end_idx] = keep_mask
                     completed += 1
@@ -236,9 +281,15 @@ def _compute_tissue_samples_greens_streaming(
                     total_before_candidates += before_c
                     total_after_candidates += after_c
                     if _state.TISSUE_STREAMING_LOG_EVERY_CHUNKS and (
-                        completed == 1 or completed == n_chunks or completed % int(_state.TISSUE_STREAMING_LOG_EVERY_CHUNKS) == 0
+                        completed == 1
+                        or completed == n_chunks
+                        or completed % int(_state.TISSUE_STREAMING_LOG_EVERY_CHUNKS)
+                        == 0
                     ):
-                        reduction = 100.0 * (1.0 - total_after_candidates / max(total_before_candidates, 1))
+                        reduction = 100.0 * (
+                            1.0
+                            - total_after_candidates / max(total_before_candidates, 1)
+                        )
                         print(
                             f"    Streaming tissue chunks done {completed}/{n_chunks}: "
                             f"rows_done~{completed * chunk_size} kept={total_kept} "
@@ -246,7 +297,9 @@ def _compute_tissue_samples_greens_streaming(
                         )
         else:
             for task in tasks:
-                chunk_i, start_idx, end_idx, keep_mask, out, kept, before_c, after_c = _compute_streaming_tissue_chunk(task)
+                chunk_i, start_idx, end_idx, keep_mask, out, kept, before_c, after_c = (
+                    _compute_streaming_tissue_chunk(task)
+                )
                 result[start_idx:end_idx] = out
                 keep_mask_all[start_idx:end_idx] = keep_mask
                 completed += 1
@@ -254,9 +307,13 @@ def _compute_tissue_samples_greens_streaming(
                 total_before_candidates += before_c
                 total_after_candidates += after_c
                 if _state.TISSUE_STREAMING_LOG_EVERY_CHUNKS and (
-                    completed == 1 or completed == n_chunks or completed % int(_state.TISSUE_STREAMING_LOG_EVERY_CHUNKS) == 0
+                    completed == 1
+                    or completed == n_chunks
+                    or completed % int(_state.TISSUE_STREAMING_LOG_EVERY_CHUNKS) == 0
                 ):
-                    reduction = 100.0 * (1.0 - total_after_candidates / max(total_before_candidates, 1))
+                    reduction = 100.0 * (
+                        1.0 - total_after_candidates / max(total_before_candidates, 1)
+                    )
                     print(
                         f"    Streaming tissue chunks done {completed}/{n_chunks}: "
                         f"rows_done={end_idx} kept={total_kept} candidate_reduction={reduction:.1f}%"
@@ -271,4 +328,9 @@ def _compute_tissue_samples_greens_streaming(
     return keep_mask_all, result
 
 
-__all__ = ['_segment_decay_factor', 'normalize_tree_inlet_flow', 'build_tissue_cache_from_tree', '_compute_tissue_samples_greens_streaming']
+__all__ = [
+    "_segment_decay_factor",
+    "normalize_tree_inlet_flow",
+    "build_tissue_cache_from_tree",
+    "_compute_tissue_samples_greens_streaming",
+]

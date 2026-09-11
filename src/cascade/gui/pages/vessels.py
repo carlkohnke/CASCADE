@@ -1,12 +1,17 @@
-"""Vessel architecture configuration page."""
+"""Vessel architecture configuration page.
+
+Users can select generated forests, loaded networks, lattices, or simple custom
+graphs and configure the construction or growth inputs required by each mode.
+"""
 
 from __future__ import annotations
 
-from cascade.gui._common import (
-    Banner,
-    Card,
-    FocusPlainTextEdit,
-    PathPicker,
+import math
+from PySide6.QtCore import (
+    Qt,
+    Signal,
+)
+from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QLabel,
@@ -15,22 +20,30 @@ from cascade.gui._common import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    Qt,
-    Signal,
+)
+from cascade.gui.model import (
+    format_points,
+    parse_points,
+)
+from cascade.gui.widgets import (
+    Banner,
+    Card,
+    FocusPlainTextEdit,
+    PathPicker,
+    labeled,
+    row_of,
+)
+from cascade.gui.ui_helpers import (
     _combo,
     _double,
     _set_combo,
     _spin,
-    format_points,
-    labeled,
-    math,
-    parse_points,
-    row_of,
 )
 
 from cascade.gui.pages.base import (
     Page,
 )
+
 
 class VesselsPage(Page):
     open_physics_requested = Signal()
@@ -89,9 +102,7 @@ class VesselsPage(Page):
                 labeled("Terminal vessels per tree", self.terminals, important=True),
             )
         )
-        layout.addWidget(
-            self.auto_roots
-        )
+        layout.addWidget(self.auto_roots)
         layout.addWidget(
             labeled(
                 "Root locations and directions (cm)",
@@ -106,9 +117,7 @@ class VesselsPage(Page):
         radius_layout.setSpacing(7)
         radius_title = QLabel("Hydraulic radius sizing")
         radius_title.setObjectName("cardTitle")
-        self.radius_summary = QLabel(
-            "radii pending flow and pressure"
-        )
+        self.radius_summary = QLabel("radii pending flow and pressure")
         self.radius_summary.setObjectName("fieldHelp")
         self.radius_summary.setWordWrap(True)
         self.radius_physics_btn = QPushButton("Set flow and pressure")
@@ -141,7 +150,12 @@ class VesselsPage(Page):
             return 1
         if self.auto_roots.isChecked():
             return self.inlet_count.value()
-        return max(1, len([line for line in self.roots.toPlainText().splitlines() if line.strip()]))
+        return max(
+            1,
+            len(
+                [line for line in self.roots.toPlainText().splitlines() if line.strip()]
+            ),
+        )
 
     @staticmethod
     def _automatic_roots(domain, count=1):
@@ -159,7 +173,9 @@ class VesselsPage(Page):
                 y = 1.0 - 2.0 * (index + 0.5) / count
                 radial = math.sqrt(max(0.0, 1.0 - y * y))
                 angle = golden * index
-                directions.append([radial * math.cos(angle), y, radial * math.sin(angle)])
+                directions.append(
+                    [radial * math.cos(angle), y, radial * math.sin(angle)]
+                )
 
         roots = []
         side = float(domain.get("side_length", 1.0))
@@ -352,7 +368,9 @@ class VesselsPage(Page):
         self._source_changed(self.source.currentIndex())
         _set_combo(self.topology, network.get("mode", "tree"))
         self.auto_roots.setChecked(bool(gui.get("auto_svv_roots", True)))
-        roots = network.get("roots") or ([network["root"]] if network.get("root") else [])
+        roots = network.get("roots") or (
+            [network["root"]] if network.get("root") else []
+        )
         self.inlet_count.setValue(max(2, len(roots)))
         self._topology_changed()
         self.terminals.setValue(int(network.get("target_terminal_count") or 100))
@@ -381,7 +399,9 @@ class VesselsPage(Page):
             ", ".join(str(v) for v in simple.get("y_offsets_cm", [-0.2, 0, 0.2]))
         )
         self.snake_arc_segments.setValue(int(simple.get("snake_arc_segments", 5)))
-        self.snake_straight_segments.setValue(int(simple.get("snake_straight_segments", 5)))
+        self.snake_straight_segments.setValue(
+            int(simple.get("snake_straight_segments", 5))
+        )
 
     def write(self, config):
         source = self.source.currentData()
@@ -389,7 +409,11 @@ class VesselsPage(Page):
         growth = config.setdefault("growth", {})
         if source == "svv_generated":
             auto_roots = self.auto_roots.isChecked()
-            count = self.inlet_count.value() if self.topology.currentData() == "forest" else 1
+            count = (
+                self.inlet_count.value()
+                if self.topology.currentData() == "forest"
+                else 1
+            )
             roots = (
                 self._automatic_roots(config.get("domain", {}), count)
                 if auto_roots
@@ -491,6 +515,4 @@ class VesselsPage(Page):
         )
 
 
-
-
-__all__ = ('VesselsPage',)
+__all__ = ("VesselsPage",)

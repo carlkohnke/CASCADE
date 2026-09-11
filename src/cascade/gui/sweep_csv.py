@@ -1,3 +1,5 @@
+"""Import and export GUI parameter sweeps as human-readable CSV files."""
+
 from __future__ import annotations
 
 import csv
@@ -21,7 +23,11 @@ def rebuild_combined_sweep_csv(jobs: Iterable[Any], output_path: str | Path) -> 
     """Atomically rebuild one long-form CSV from a GUI sweep batch."""
     metric_fields = list(_tissuesim_csv_fieldnames())
     path = Path(output_path).expanduser().resolve()
-    batch_jobs = [job for job in jobs if str(getattr(job, "combined_csv_path", "") or "") == str(path)]
+    batch_jobs = [
+        job
+        for job in jobs
+        if str(getattr(job, "combined_csv_path", "") or "") == str(path)
+    ]
     sweep_fields: list[str] = []
     rows: list[dict[str, Any]] = []
     extra_fields: list[str] = []

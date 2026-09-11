@@ -1,5 +1,4 @@
-"""Top-down intravascular concentration transport.
-"""
+"""Top-down intravascular concentration transport."""
 
 from __future__ import annotations
 
@@ -8,7 +7,7 @@ from typing import Tuple
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 from cascade.flow.hematocrit import (
     _get_tree_hematocrit_cache,
     _hematocrit_context_for_tree,
@@ -26,6 +25,7 @@ from .greens import (
 
 def _fmt_seconds(value: float | int | None) -> str:
     return "n/a" if value is None else f"{float(value):.3f}s"
+
 
 def _solve_channel_concentrations_topdown(
     tree: _state.Tree,
@@ -56,7 +56,11 @@ def _solve_channel_concentrations_topdown(
     flows_si = flows * _state.CM3_TO_M3
     t_arrays = perf_counter() - t0
 
-    fluid_mode = (fluid or getattr(getattr(tree, "parameters", None), "fluid", None) or _state.ACTIVE_FLUID).lower()
+    fluid_mode = (
+        fluid
+        or getattr(getattr(tree, "parameters", None), "fluid", None)
+        or _state.ACTIVE_FLUID
+    ).lower()
     t_hema = 0.0
     hct_source = "none"
     HD = np.empty((0,), dtype=float)
@@ -160,8 +164,16 @@ def _solve_channel_concentrations_topdown(
     if _state.SOLVER_TIMING_DETAILS:
         hd_text = ""
         if fluid_mode == "blood" and HD.size:
-            hd_q = np.quantile(HD[np.isfinite(HD)], [0.01, 0.5, 0.99]) if np.any(np.isfinite(HD)) else [float("nan")] * 3
-            ht_q = np.quantile(HT[np.isfinite(HT)], [0.01, 0.5, 0.99]) if np.any(np.isfinite(HT)) else [float("nan")] * 3
+            hd_q = (
+                np.quantile(HD[np.isfinite(HD)], [0.01, 0.5, 0.99])
+                if np.any(np.isfinite(HD))
+                else [float("nan")] * 3
+            )
+            ht_q = (
+                np.quantile(HT[np.isfinite(HT)], [0.01, 0.5, 0.99])
+                if np.any(np.isfinite(HT))
+                else [float("nan")] * 3
+            )
             hd_text = (
                 f" hematocrit_model={_normalize_hematocrit_model()} "
                 f"source={hct_source} "
@@ -179,4 +191,4 @@ def _solve_channel_concentrations_topdown(
     return cin, cout
 
 
-__all__ = ['_solve_channel_concentrations_topdown']
+__all__ = ["_solve_channel_concentrations_topdown"]

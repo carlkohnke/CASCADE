@@ -1,3 +1,5 @@
+"""Coordinate domain samples, vascular solvers, tissue analysis, and unified run results."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -8,10 +10,11 @@ from typing import Any
 
 import numpy as np
 
-from cascade.configuration.models import RunConfig
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration.schema import RunConfig
+from cascade.configuration import solver_state as _state
 from cascade.concentration.tissue.cache import build_tissue_cache_from_tree
-from cascade.concentration.tissue.geometry import _prepare_tissue_geometry, get_concentration_inlet
+from cascade.concentration.properties import get_concentration_inlet
+from cascade.concentration.tissue.geometry import _prepare_tissue_geometry
 from cascade.concentration.tissue.greens import compute_tissue_samples_greens
 from cascade.concentration.tissue.greens import (
     compute_tissue_samples_greens_from_cext_state,
@@ -20,21 +23,18 @@ from cascade.concentration.external_field.multinetwork import (
     compact_external_field_state,
     solve_multinetwork_external_field,
 )
-from cascade.domain.grid import sample_grid_points
 from cascade.domain.sampling import (
     compute_distance_to_nearest_channel,
-    load_sample_points,
-    sample_domain_points,
 )
+from cascade.domain.workflow import prepare_sample_points
 from cascade.configuration.bridge import load_runtime_module
-from cascade.utils.resources import resolve_path
 from cascade.vessels.conditions import (
     flow_for_tree,
     inlet_concentration_for_tree,
     sync_tree_parameters_for_run,
     terminal_flow_for_target,
 )
-from cascade.vessels.simple import simple_details
+from cascade.simulation.simple import simple_details, solve_simple_network
 from cascade.flow.boundary_conditions import allocate_inlet_flows
 from cascade.vessels.collections import VascularNetworkSet
 from cascade.vessels.interventions import (
@@ -81,6 +81,14 @@ def run_simulation(
     *,
     sample_points: np.ndarray | None = None,
 ) -> SimulationResult:
+    """Execute every network in a run through one consistent simulation path.
+
+    Simple graphs are solved first because they do not carry SVV tree methods.
+    Tree and forest cases then use either independent external fields or one
+    shared multi-network field. Results are normalized into common records for
+    every supported geometry type.
+    """
+
     ts = load_runtime_module()
     timings: dict[str, float] = {}
 
@@ -88,19 +96,32 @@ def run_simulation(
     sample_points = _sample_points(ts, domain, config, provided=sample_points)
     timings["sample_points_resolve_s"] = perf_counter() - t0
 
+    for network in trees:
+        if getattr(network, "_cascade_simple_network", False):
+            solve_simple_network(network, ts, config)
+
     tree_results: list[TreeSimulation] = []
     summary_rows: list[dict[str, Any]] = []
     segment_rows: list[dict[str, Any]] = []
     intervention_records: list[dict[str, Any]] = []
     global_segment_id = 0
     want_point_data = (
-        (bool(config.outputs.write_points_csv) or bool(config.outputs.write_paraview))
+        (
+            bool(config.outputs.write_points_csv)
+            or (
+                bool(config.outputs.write_paraview)
+                and bool(config.outputs.write_tissue_vtp)
+            )
+        )
         and not bool(config.simulation.geometry_only)
         and not bool(config.simulation.skip_tissue_oxygen)
     )
     want_segment_rows = (
         bool(config.outputs.write_segments_csv)
-        or bool(config.outputs.write_paraview)
+        or (
+            bool(config.outputs.write_paraview)
+            and bool(config.outputs.write_vessels_vtp)
+        )
         or (want_point_data and bool(config.outputs.include_tissue_nearest_fields))
     )
 
@@ -128,10 +149,19 @@ def run_simulation(
         if getattr(tree, "_cascade_simple_network", False):
             summary, details = simple_details(tree, sample_points, ts, config)
             elapsed = perf_counter() - t_tree
-            row = _summary_row(ts, summary, config, tree_id=tree_id, n_trees=len(trees), elapsed_s=elapsed)
+            row = _summary_row(
+                ts,
+                summary,
+                config,
+                tree_id=tree_id,
+                n_trees=len(trees),
+                elapsed_s=elapsed,
+            )
             summary_rows.append(row)
             if want_segment_rows:
-                rows, global_segment_id = _segment_rows(details, row, tree_id=tree_id, start_global_id=global_segment_id)
+                rows, global_segment_id = _segment_rows(
+                    details, row, tree_id=tree_id, start_global_id=global_segment_id
+                )
                 segment_rows.extend(rows)
             else:
                 global_segment_id += _detail_segment_count(details, tree)
@@ -152,7 +182,9 @@ def run_simulation(
             sync_tree_parameters_for_run(ts, tree, config, tree_id, terminal_flow)
         with _occlusion_override(config, networks, tree_id) as intervention:
             if config.simulation.geometry_only:
-                summary, details = _geometry_only_result(ts, tree, target_count, config, qin_cm3_s)
+                summary, details = _geometry_only_result(
+                    ts, tree, target_count, config, qin_cm3_s
+                )
             else:
                 tissue_cache = None
                 if not config.simulation.skip_tissue_oxygen and sample_points.size:
@@ -179,10 +211,14 @@ def run_simulation(
             intervention_records.append(intervention.metadata(networks))
 
         elapsed = perf_counter() - t_tree
-        row = _summary_row(ts, summary, config, tree_id=tree_id, n_trees=len(trees), elapsed_s=elapsed)
+        row = _summary_row(
+            ts, summary, config, tree_id=tree_id, n_trees=len(trees), elapsed_s=elapsed
+        )
         summary_rows.append(row)
         if want_segment_rows:
-            rows, global_segment_id = _segment_rows(details, row, tree_id=tree_id, start_global_id=global_segment_id)
+            rows, global_segment_id = _segment_rows(
+                details, row, tree_id=tree_id, start_global_id=global_segment_id
+            )
             segment_rows.extend(rows)
         else:
             global_segment_id += _detail_segment_count(details, tree)
@@ -198,8 +234,14 @@ def run_simulation(
         )
 
     t0 = perf_counter()
-    point_data = _point_data(ts, tree_results, segment_rows, sample_points, config) if want_point_data else {}
-    point_rows = _point_rows_from_data(point_data) if config.outputs.write_points_csv else []
+    point_data = (
+        _point_data(ts, tree_results, segment_rows, sample_points, config)
+        if want_point_data
+        else {}
+    )
+    point_rows = (
+        _point_rows_from_data(point_data) if config.outputs.write_points_csv else []
+    )
     timings["points_s"] = perf_counter() - t0
     return SimulationResult(
         tree_results=tree_results,
@@ -341,9 +383,7 @@ def _run_shared_external_field_case(
         )
         timings["points_s"] = perf_counter() - t0
     point_rows = (
-        _point_rows_from_data(point_data)
-        if config.outputs.write_points_csv
-        else []
+        _point_rows_from_data(point_data) if config.outputs.write_points_csv else []
     )
     intervention_records = (
         [intervention.metadata(networks)] if intervention.applied else []
@@ -383,7 +423,8 @@ def _summary_from_solution(
         "total_volume": float(np.nansum(np.pi * radii**2 * lengths)),
         "total_flowrate": float(flows[0]) if flows.size else math.nan,
         "pressure_in_root": float(solution.get("p_in", np.nan)) * DYN_PER_CM2_TO_PA,
-        "pressure_out_terminals": float(solution.get("p_out", np.nan)) * DYN_PER_CM2_TO_PA,
+        "pressure_out_terminals": float(solution.get("p_out", np.nan))
+        * DYN_PER_CM2_TO_PA,
         "avg_radius": float(np.nanmean(radii)) if radii.size else math.nan,
         "avg_length": float(np.nanmean(lengths)) if lengths.size else math.nan,
         "total_length": float(np.nansum(lengths)),
@@ -413,27 +454,13 @@ def _detail_segment_count(details: dict[str, Any], tree) -> int:
     return int(getattr(tree, "segment_count", 0) or 0)
 
 
-def _sample_points(ts, domain, config: RunConfig, *, provided: np.ndarray | None = None) -> np.ndarray:
+def _sample_points(
+    ts, domain, config: RunConfig, *, provided: np.ndarray | None = None
+) -> np.ndarray:
     if provided is not None:
         return np.asarray(provided, dtype=float)
-    if config.simulation.geometry_only or config.simulation.skip_tissue_oxygen:
-        return np.empty((0, 3), dtype=float)
-    if config.simulation.sample_mode == "grid":
-        points, _ = sample_grid_points(domain, config.simulation.tissue_grid)
-        return points
-    if config.simulation.sample_mode == "file":
-        path = resolve_path(
-            config.simulation.sample_points_path,
-            base_dir=config.settings_path.parent if config.settings_path else None,
-        )
-        if path is None:
-            raise ValueError("simulation.sample_points_path is required for file sampling.")
-        points, _ = load_sample_points(path)
-        return points
-    n = int(config.simulation.distance_sample_count)
-    if n <= 0:
-        return np.empty((0, 3), dtype=float)
-    return np.asarray(sample_domain_points(domain, n), dtype=float)
+    points, _ = prepare_sample_points(domain, config, ts=ts)
+    return points
 
 
 def _sample_meta_for_config(config: RunConfig, points: np.ndarray) -> dict[str, Any]:
@@ -457,9 +484,13 @@ def _sample_meta_for_config(config: RunConfig, points: np.ndarray) -> dict[str, 
     }
 
 
-def _inlet_flow_for_tree(config: RunConfig, tree, tree_id: int, trees: list[Any]) -> float:
+def _inlet_flow_for_tree(
+    config: RunConfig, tree, tree_id: int, trees: list[Any]
+) -> float:
     source = str(config.simulation.flow_source).strip().lower().replace("_", "-")
-    prescribed = [flow_for_tree(config, index, len(trees)) for index in range(len(trees))]
+    prescribed = [
+        flow_for_tree(config, index, len(trees)) for index in range(len(trees))
+    ]
     total_cm3_s = None
     if source == "total-qin-split":
         total_ul_min = (
@@ -467,7 +498,9 @@ def _inlet_flow_for_tree(config: RunConfig, tree, tree_id: int, trees: list[Any]
             if config.simulation.total_qin_ul_min is not None
             else float(config.simulation.qin_target_ul_min)
         )
-        total_cm3_s = total_ul_min * 1.0e-3 / 60.0 * (float(config.domain.side_length) ** 3)
+        total_cm3_s = (
+            total_ul_min * 1.0e-3 / 60.0 * (float(config.domain.side_length) ** 3)
+        )
     return allocate_inlet_flows(
         trees,
         source=source,
@@ -506,13 +539,23 @@ def _occlusion_override(
         yield state
 
 
-def _geometry_only_result(ts, tree, target_count: int, config: RunConfig, qin_cm3_s: float) -> tuple[dict, dict]:
+def _geometry_only_result(
+    ts, tree, target_count: int, config: RunConfig, qin_cm3_s: float
+) -> tuple[dict, dict]:
     seg_count = int(getattr(tree, "segment_count", 0) or 0)
-    data = np.asarray(tree.data[:seg_count]) if seg_count > 0 else np.empty((0, 31), dtype=float)
+    data = (
+        np.asarray(tree.data[:seg_count])
+        if seg_count > 0
+        else np.empty((0, 31), dtype=float)
+    )
     starts = data[:, 0:3] if data.size else np.empty((0, 3), dtype=float)
     ends = data[:, 3:6] if data.size else np.empty((0, 3), dtype=float)
-    radii = data[:, 21] if data.size and data.shape[1] > 21 else np.empty((0,), dtype=float)
-    lengths = data[:, 20] if data.size and data.shape[1] > 20 else np.empty((0,), dtype=float)
+    radii = (
+        data[:, 21] if data.size and data.shape[1] > 21 else np.empty((0,), dtype=float)
+    )
+    lengths = (
+        data[:, 20] if data.size and data.shape[1] > 20 else np.empty((0,), dtype=float)
+    )
     n = starts.shape[0]
     nan = np.full(n, np.nan, dtype=float)
     summary = {
@@ -524,10 +567,14 @@ def _geometry_only_result(ts, tree, target_count: int, config: RunConfig, qin_cm
         "lumen_wall_closure": str(getattr(ts, "LUMEN_WALL_CLOSURE", "wellmixed")),
         "graetz_n_radial": int(getattr(ts, "GRAETZ_N_RADIAL", 0)),
         "graetz_n_modes": int(getattr(ts, "GRAETZ_N_MODES", 0)),
-        "total_volume": float(np.nansum(np.pi * radii * radii * lengths)) if n else math.nan,
+        "total_volume": float(np.nansum(np.pi * radii * radii * lengths))
+        if n
+        else math.nan,
         "total_flowrate": float(qin_cm3_s),
         "pressure_in_root": float(getattr(tree.parameters, "root_pressure", math.nan)),
-        "pressure_out_terminals": float(getattr(tree.parameters, "terminal_pressure", math.nan)),
+        "pressure_out_terminals": float(
+            getattr(tree.parameters, "terminal_pressure", math.nan)
+        ),
         "avg_radius": float(np.nanmean(radii)) if n else math.nan,
         "avg_length": float(np.nanmean(lengths)) if n else math.nan,
         "total_length": float(np.nansum(lengths)) if n else math.nan,
@@ -558,7 +605,15 @@ def _geometry_only_result(ts, tree, target_count: int, config: RunConfig, qin_cm
     return summary, details
 
 
-def _summary_row(ts, metrics: dict[str, Any], config: RunConfig, *, tree_id: int, n_trees: int, elapsed_s: float) -> dict[str, Any]:
+def _summary_row(
+    ts,
+    metrics: dict[str, Any],
+    config: RunConfig,
+    *,
+    tree_id: int,
+    n_trees: int,
+    elapsed_s: float,
+) -> dict[str, Any]:
     row: dict[str, Any] = {
         "tree_id": int(tree_id),
         "number_of_trees": int(n_trees),
@@ -585,10 +640,16 @@ def _segment_rows(
     ends = np.asarray(details.get("ends", np.empty((0, 3))), dtype=float)
     radii = np.asarray(details.get("radii", np.empty((0,))), dtype=float)
     lengths = np.asarray(details.get("lengths", np.empty((0,))), dtype=float)
-    flows = np.asarray(details.get("flows", np.full(starts.shape[0], np.nan)), dtype=float)
-    pressures = np.asarray(details.get("pressures", np.full(starts.shape[0], np.nan)), dtype=float)
+    flows = np.asarray(
+        details.get("flows", np.full(starts.shape[0], np.nan)), dtype=float
+    )
+    pressures = np.asarray(
+        details.get("pressures", np.full(starts.shape[0], np.nan)), dtype=float
+    )
     cin = np.asarray(details.get("cin", np.full(starts.shape[0], np.nan)), dtype=float)
-    cout = np.asarray(details.get("cout", np.full(starts.shape[0], np.nan)), dtype=float)
+    cout = np.asarray(
+        details.get("cout", np.full(starts.shape[0], np.nan)), dtype=float
+    )
     hd = np.asarray(details.get("discharge_hematocrit", np.empty((0,))), dtype=float)
     ht = np.asarray(details.get("tube_hematocrit", np.empty((0,))), dtype=float)
     rows: list[dict[str, Any]] = []
@@ -605,9 +666,13 @@ def _segment_rows(
             "end_y": float(ends[local_id, 1]),
             "end_z": float(ends[local_id, 2]),
             "radius_cm": float(radii[local_id]) if local_id < radii.size else math.nan,
-            "length_cm": float(lengths[local_id]) if local_id < lengths.size else math.nan,
+            "length_cm": float(lengths[local_id])
+            if local_id < lengths.size
+            else math.nan,
             "flow_cm3_s": float(flows[local_id]) if local_id < flows.size else math.nan,
-            "flow_ul_min": float(flows[local_id] * 60000.0) if local_id < flows.size else math.nan,
+            "flow_ul_min": float(flows[local_id] * 60000.0)
+            if local_id < flows.size
+            else math.nan,
             # Runtime Kirchhoff arrays use dyn/cm^2; exports promise pascals.
             "pressure_pa": (
                 float(pressures[local_id]) * DYN_PER_CM2_TO_PA
@@ -617,7 +682,9 @@ def _segment_rows(
             "cin": float(cin[local_id]) if local_id < cin.size else math.nan,
             "cout": float(cout[local_id]) if local_id < cout.size else math.nan,
             "pressure_in_root": summary_row.get("pressure_in_root", math.nan),
-            "pressure_out_terminals": summary_row.get("pressure_out_terminals", math.nan),
+            "pressure_out_terminals": summary_row.get(
+                "pressure_out_terminals", math.nan
+            ),
         }
         if local_id < hd.size:
             row["discharge_hematocrit"] = float(hd[local_id])
@@ -637,8 +704,12 @@ def _point_data(
     if config.simulation.geometry_only or config.simulation.skip_tissue_oxygen:
         return {}
     if len(tree_results) == 1:
-        pts = np.asarray(tree_results[0].details.get("tissue_points", np.empty((0, 3))), dtype=float)
-        vals = np.asarray(tree_results[0].details.get("tissue_values", np.empty((0,))), dtype=float)
+        pts = np.asarray(
+            tree_results[0].details.get("tissue_points", np.empty((0, 3))), dtype=float
+        )
+        vals = np.asarray(
+            tree_results[0].details.get("tissue_values", np.empty((0,))), dtype=float
+        )
     else:
         pts, vals = _combined_tissue_points(ts, tree_results, sample_points)
     n_points = min(int(pts.shape[0]), int(vals.shape[0]))
@@ -677,27 +748,38 @@ def _point_data_from_samples(
     if config.outputs.include_tissue_nearest_fields and pts.size and segment_rows:
         starts, ends, radii = _segment_geometry_from_rows(segment_rows)
         nearest = compute_distance_to_nearest_channel(pts, starts, ends, radii)
-        nearest_fields = _nearest_segment_fields(ts, pts, starts, ends, radii, segment_rows)
+        nearest_fields = _nearest_segment_fields(
+            ts, pts, starts, ends, radii, segment_rows
+        )
     finite_concentration = np.isfinite(vals)
     normalized = np.full(n_points, np.nan, dtype=float)
     if np.isfinite(conc_max) and conc_max:
         normalized[finite_concentration] = vals[finite_concentration] / conc_max
     viable = np.zeros(n_points, dtype=np.int32)
     if np.isfinite(viability_threshold):
-        viable[finite_concentration] = (vals[finite_concentration] >= viability_threshold).astype(np.int32)
+        viable[finite_concentration] = (
+            vals[finite_concentration] >= viability_threshold
+        ).astype(np.int32)
     data = {
         "point_id": np.arange(n_points, dtype=np.int32),
         "x": np.asarray(pts[:, 0], dtype=float),
         "y": np.asarray(pts[:, 1], dtype=float),
         "z": np.asarray(pts[:, 2], dtype=float),
+        "inside_tissue": np.ones(n_points, dtype=np.int32),
         "local_concentration": np.asarray(vals, dtype=float),
+        # Preserve the established output names while keeping the concise
+        # local_concentration field used by the current GUI.
+        "local_concentration_raw": np.asarray(vals, dtype=float),
+        "local_concentration_norm": normalized,
         "viability": viable,
     }
     if nearest is not None:
         data["dnc_cm"] = np.asarray(nearest[:n_points], dtype=float)
-    for key, values in nearest_fields.items():
-        values = np.asarray(values)[:n_points]
-        data[key] = values.astype(np.int32 if key.endswith("_id") else float, copy=False)
+    for key, raw_values in nearest_fields.items():
+        values = np.asarray(raw_values)[:n_points]
+        data[key] = values.astype(
+            np.int32 if key.endswith("_id") else float, copy=False
+        )
     return data
 
 
@@ -712,7 +794,9 @@ def _point_rows_from_data(data: dict[str, np.ndarray]) -> list[dict[str, Any]]:
     return rows
 
 
-def _combined_tissue_points(ts, tree_results: list[TreeSimulation], sample_points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _combined_tissue_points(
+    ts, tree_results: list[TreeSimulation], sample_points: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     starts = []
     ends = []
     radii = []
@@ -773,11 +857,17 @@ def _combined_tissue_points(ts, tree_results: list[TreeSimulation], sample_point
         inlet_concentration=float(get_concentration_inlet()),
         tissue_cache=None,
     )
-    return sample_points[np.asarray(mask, dtype=bool)], np.asarray(conc, dtype=float)[np.asarray(mask, dtype=bool)]
+    return sample_points[np.asarray(mask, dtype=bool)], np.asarray(conc, dtype=float)[
+        np.asarray(mask, dtype=bool)
+    ]
 
 
-def _segment_geometry_from_rows(rows: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    starts = np.array([[r["start_x"], r["start_y"], r["start_z"]] for r in rows], dtype=float)
+def _segment_geometry_from_rows(
+    rows: list[dict[str, Any]],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    starts = np.array(
+        [[r["start_x"], r["start_y"], r["start_z"]] for r in rows], dtype=float
+    )
     ends = np.array([[r["end_x"], r["end_y"], r["end_z"]] for r in rows], dtype=float)
     radii = np.array([r["radius_cm"] for r in rows], dtype=float)
     return starts, ends, radii
@@ -794,8 +884,12 @@ def _nearest_segment_fields(
     if not hasattr(ts, "_prepare_tissue_geometry"):
         return {}
     try:
-        max_nearby = min(int(getattr(ts, "NEAREST_TISSUE_VESSELS", 250)), int(starts.shape[0]))
-        cache = _prepare_tissue_geometry(pts, starts, ends, radii, max_nearby=max_nearby)
+        max_nearby = min(
+            int(getattr(ts, "NEAREST_TISSUE_VESSELS", 250)), int(starts.shape[0])
+        )
+        cache = _prepare_tissue_geometry(
+            pts, starts, ends, radii, max_nearby=max_nearby
+        )
         nearest_idx = np.asarray(cache["nearest_idx"])
         d_center = np.asarray(cache["d_center"], dtype=np.float64)
         valid = np.asarray(cache["valid_mask"], dtype=bool)
@@ -807,8 +901,12 @@ def _nearest_segment_fields(
         seg_valid = nearest_idx[row, local].astype(np.int64)
         seg_valid = np.clip(seg_valid, 0, max(valid_global.size - 1, 0))
         closest_global = valid_global[seg_valid]
-        tree_ids = np.asarray([r.get("tree_id", -1) for r in segment_rows], dtype=np.int64)
-        flows = np.asarray([r.get("flow_ul_min", np.nan) for r in segment_rows], dtype=float)
+        tree_ids = np.asarray(
+            [r.get("tree_id", -1) for r in segment_rows], dtype=np.int64
+        )
+        flows = np.asarray(
+            [r.get("flow_ul_min", np.nan) for r in segment_rows], dtype=float
+        )
         return {
             "closest_segment_id": closest_global.astype(np.int64),
             "closest_tree_id": tree_ids[closest_global].astype(np.int64),

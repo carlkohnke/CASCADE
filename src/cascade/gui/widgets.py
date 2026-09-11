@@ -1,3 +1,5 @@
+"""Reusable CASCADE Studio controls, path pickers, status displays, and native dialogs."""
+
 from __future__ import annotations
 
 import base64
@@ -102,10 +104,15 @@ class ChoiceComboBox(QComboBox):
 
         host = self.window()
         text_width = max(
-            (choices.fontMetrics().horizontalAdvance(self.itemText(i)) for i in range(self.count())),
+            (
+                choices.fontMetrics().horizontalAdvance(self.itemText(i))
+                for i in range(self.count())
+            ),
             default=0,
         )
-        width = min(max(self.width(), text_width + 34, 190), max(host.width() - 12, 190))
+        width = min(
+            max(self.width(), text_width + 34, 190), max(host.width() - 12, 190)
+        )
         visible_rows = min(self.count(), 8)
         rows_height = sum(choices.sizeHintForRow(i) for i in range(visible_rows))
         list_margins = choices.contentsMargins()
@@ -292,10 +299,7 @@ class InfoTip(QLabel):
             max(150, natural_rect.width() + 8),
         )
         text = html.escape(self.toolTip()).replace("\n", "<br>")
-        tip = (
-            f"<div style='width:{content_width}px; white-space:normal;'>"
-            f"{text}</div>"
-        )
+        tip = f"<div style='width:{content_width}px; white-space:normal;'>{text}</div>"
         text_rect = self.fontMetrics().boundingRect(
             QRect(0, 0, content_width, 2000), Qt.TextWordWrap, self.toolTip()
         )
@@ -467,9 +471,7 @@ def choose_native_path(
     else:
         options = QFileDialog.Options()
     if mode == "directory":
-        return QFileDialog.getExistingDirectory(
-            parent, caption, start, options=options
-        )
+        return QFileDialog.getExistingDirectory(parent, caption, start, options=options)
     if mode == "save":
         selected, _ = QFileDialog.getSaveFileName(
             parent, caption, start, file_filter, options=options
@@ -556,10 +558,14 @@ $owner.Dispose()
 """
 
     if mode == "directory":
-        script = owner_setup + f"""
+        script = (
+            owner_setup
+            + f"""
 $selectedFolder = [CascadePickerNative]::PickFolder($owner.Handle, '{title}', '{initial_ps}')
 if ($selectedFolder) {{ [Console]::Write($selectedFolder) }}
-""" + owner_cleanup
+"""
+            + owner_cleanup
+        )
     else:
         dialog_class = "SaveFileDialog" if mode == "save" else "OpenFileDialog"
         filter_ps = _ps_quote(_qt_filter_to_windows(file_filter))
@@ -568,7 +574,9 @@ if ($selectedFolder) {{ [Console]::Write($selectedFolder) }}
             if mode == "save"
             else "$dialog.Multiselect = $false\n$dialog.CheckFileExists = $true"
         )
-        script = owner_setup + f"""
+        script = (
+            owner_setup
+            + f"""
 $dialog = New-Object System.Windows.Forms.{dialog_class}
 $dialog.Title = '{title}'
 $dialog.InitialDirectory = '{initial_ps}'
@@ -579,7 +587,9 @@ $result = $dialog.ShowDialog($owner)
 if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{
     [Console]::Write($dialog.FileName)
 }}
-""" + owner_cleanup
+"""
+            + owner_cleanup
+        )
     encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     process = subprocess.Popen(
         ["powershell.exe", "-NoProfile", "-STA", "-EncodedCommand", encoded],
@@ -673,8 +683,8 @@ def _ps_quote(value: str) -> str:
 
 def _qt_filter_to_windows(value: str) -> str:
     parts = []
-    for group in str(value or "All files (*)").split(";;"):
-        group = group.strip()
+    for raw_group in str(value or "All files (*)").split(";;"):
+        group = raw_group.strip()
         if group.endswith(")") and "(" in group:
             label, patterns = group.rsplit("(", 1)
             patterns = patterns[:-1].strip().replace(" ", ";")
@@ -830,9 +840,7 @@ class ParameterRow(QWidget):
             self._label_host.setFixedHeight(16)
             self._text.setWordWrap(False)
             self._text.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            self._label_row.setAlignment(
-                self._text, Qt.AlignLeft | Qt.AlignVCenter
-            )
+            self._label_row.setAlignment(self._text, Qt.AlignLeft | Qt.AlignVCenter)
             self._widget.setMaximumWidth(self._widget_maximum_width)
             self._grid.addWidget(self._label_host, 0, 0)
             self._grid.addWidget(self._widget, 1, 0)
@@ -845,16 +853,12 @@ class ParameterRow(QWidget):
             self._text.setWordWrap(True)
             self._text.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
             self._text.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self._label_row.setAlignment(
-                self._text, Qt.AlignRight | Qt.AlignVCenter
-            )
+            self._label_row.setAlignment(self._text, Qt.AlignRight | Qt.AlignVCenter)
             self._widget.setMaximumWidth(
                 300 if isinstance(self._widget, UnitValue) else 220
             )
             self._grid.addWidget(self._label_host, 0, 0)
-            self._grid.addWidget(
-                self._widget, 0, 1, Qt.AlignLeft | Qt.AlignVCenter
-            )
+            self._grid.addWidget(self._widget, 0, 1, Qt.AlignLeft | Qt.AlignVCenter)
             self._grid.setColumnStretch(2, 1)
 
     def use_stacked_layout(self) -> None:

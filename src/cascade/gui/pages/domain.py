@@ -2,26 +2,31 @@
 
 from __future__ import annotations
 
-from cascade.gui._common import (
-    Any,
-    Card,
-    Path,
-    PathPicker,
+from PySide6.QtWidgets import (
     QLabel,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
+)
+from cascade.gui.widgets import (
+    Card,
+    PathPicker,
+    labeled,
+    row_of,
+)
+from pathlib import Path
+from typing import Any
+from cascade.gui.ui_helpers import (
     _combo,
     _double,
     _set_combo,
     _spin,
-    labeled,
-    row_of,
 )
 
 from cascade.gui.pages.base import (
     Page,
 )
+
 
 class DomainPage(Page):
     def __init__(self, parent=None):
@@ -73,7 +78,7 @@ class DomainPage(Page):
             labeled(
                 "Surface detail",
                 self.sphere_detail,
-                "Coarse is the default and is about 55× smaller than Fine, which matches the former sphere resolution.",
+                "Coarse is the default and is about 55× smaller than Fine, which matches the reference sphere resolution.",
             )
         )
         self.stack.addWidget(sphere_panel)
@@ -195,6 +200,4 @@ class DomainPage(Page):
         config["domain"] = domain
 
 
-
-
-__all__ = ('DomainPage',)
+__all__ = ("DomainPage",)

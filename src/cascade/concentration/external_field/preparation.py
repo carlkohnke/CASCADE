@@ -108,9 +108,7 @@ def prepare_network_external_field(
         lengths,
         _prox_ids,
         _dist_ids,
-    ) = transport_runtime.recompute_tree_flows(
-        network, inlet_flow_cm3_s, fluid=fluid
-    )
+    ) = transport_runtime.recompute_tree_flows(network, inlet_flow_cm3_s, fluid=fluid)
     log(f"flow recompute completed in {perf_counter() - t0:.2f}s")
     segment_count = int(np.asarray(starts).shape[0])
     context = runtime._build_cext_geometry_context(
@@ -176,7 +174,9 @@ def prepare_network_external_field(
         "chb_max": capacity,
     }
     run_frozen_transport_step(runtime, solution, fluid=fluid)
-    log(f"initial frozen transport and Cext geometry completed in {perf_counter() - t0:.2f}s")
+    log(
+        f"initial frozen transport and Cext geometry completed in {perf_counter() - t0:.2f}s"
+    )
     return solution
 
 

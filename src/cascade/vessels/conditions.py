@@ -2,23 +2,34 @@
 
 from __future__ import annotations
 
-from cascade.vessels._build_common import (
-    Any,
-    Forest,
-    RootConfig,
-    RunConfig,
-    np,
-    repair_trees,
-    validate_trees,
-)
+from typing import Any
+
+import numpy as np
+
+from cascade.configuration.schema import RootConfig, RunConfig
+from cascade.vessels.connectivity import repair_trees, validate_trees
+from cascade.vessels.generation.svv_adapter import Forest
 
 from cascade.configuration.bridge import (
     load_runtime_module,
 )
 
+
 def _make_forest(config: RunConfig, domain, trees: list[Any]):
-    starts = [[np.asarray(root.start, dtype=float).reshape(1, 3) for root in config.network.roots]]
-    directions = [[None if root.direction is None else np.asarray(root.direction, dtype=float).reshape(1, 3) for root in config.network.roots]]
+    starts = [
+        [
+            np.asarray(root.start, dtype=float).reshape(1, 3)
+            for root in config.network.roots
+        ]
+    ]
+    directions = [
+        [
+            None
+            if root.direction is None
+            else np.asarray(root.direction, dtype=float).reshape(1, 3)
+            for root in config.network.roots
+        ]
+    ]
     forest = Forest(
         domain=domain,
         n_networks=1,
@@ -35,27 +46,37 @@ def _make_forest(config: RunConfig, domain, trees: list[Any]):
     return forest
 
 
-def _target_counts_for_config(config: RunConfig, n_trees: int, *, trees: list[Any] | None = None) -> list[int]:
+def _target_counts_for_config(
+    config: RunConfig, n_trees: int, *, trees: list[Any] | None = None
+) -> list[int]:
     if trees and config.growth.add_per_tree:
         adds = [max(int(v), 0) for v in config.growth.add_per_tree]
         if len(adds) == 1 and n_trees > 1:
             adds = adds * n_trees
         if len(adds) != n_trees:
-            raise ValueError(f"Expected {n_trees} growth.add_per_tree values, got {len(adds)}.")
+            raise ValueError(
+                f"Expected {n_trees} growth.add_per_tree values, got {len(adds)}."
+            )
         current = [_tree_terminal_segments(tree) for tree in trees]
         counts = [max(cur + add, 1) for cur, add in zip(current, adds)]
     elif trees and config.growth.add_total is not None:
         current = [_tree_terminal_segments(tree) for tree in trees]
-        adds = _split_total_adds(int(config.growth.add_total), trees, mode=config.growth.add_split_mode)
+        adds = _split_total_adds(
+            int(config.growth.add_total), trees, mode=config.growth.add_split_mode
+        )
         counts = [max(cur + add, 1) for cur, add in zip(current, adds)]
     elif config.network.target_terminal_counts:
         counts = [max(int(v), 1) for v in config.network.target_terminal_counts]
     elif config.network.target_total_terminal_count is not None:
-        counts = _split_total_target(int(config.network.target_total_terminal_count), n_trees, trees=trees)
+        counts = _split_total_target(
+            int(config.network.target_total_terminal_count), n_trees, trees=trees
+        )
     elif config.network.target_terminal_count is not None:
         counts = [max(int(config.network.target_terminal_count), 1)]
     elif trees:
-        counts = [max(int(getattr(tree, "n_terminals", 1) or 1) - 1, 1) for tree in trees]
+        counts = [
+            max(int(getattr(tree, "n_terminals", 1) or 1) - 1, 1) for tree in trees
+        ]
     else:
         counts = [1]
 
@@ -90,16 +111,22 @@ def _split_total_adds(total: int, trees: list[Any], *, mode: str) -> list[int]:
     if n_trees <= 0:
         return []
     if str(mode).strip().lower() == "flow-proportional":
-        weights = np.array([_tree_root_flow_for_weight(tree) for tree in trees], dtype=float)
+        weights = np.array(
+            [_tree_root_flow_for_weight(tree) for tree in trees], dtype=float
+        )
     else:
         weights = np.ones(n_trees, dtype=float)
     return _integer_split(total, weights)
 
 
-def _split_total_target(total: int, n_trees: int, *, trees: list[Any] | None) -> list[int]:
+def _split_total_target(
+    total: int, n_trees: int, *, trees: list[Any] | None
+) -> list[int]:
     total = max(int(total), n_trees)
     if trees:
-        weights = np.array([_tree_root_flow_for_weight(tree) for tree in trees], dtype=float)
+        weights = np.array(
+            [_tree_root_flow_for_weight(tree) for tree in trees], dtype=float
+        )
     else:
         weights = np.ones(n_trees, dtype=float)
     return [max(v, 1) for v in _integer_split(total, weights)]
@@ -122,7 +149,9 @@ def _integer_split(total: int, weights: np.ndarray) -> list[int]:
     return [int(v) for v in base]
 
 
-def _repair_and_validate_if_requested(trees: list[Any], config: RunConfig) -> tuple[list[int], list[dict[str, Any]]]:
+def _repair_and_validate_if_requested(
+    trees: list[Any], config: RunConfig
+) -> tuple[list[int], list[dict[str, Any]]]:
     repairs: list[int] = []
     reports: list[dict[str, Any]] = []
     if bool(config.network.repair_connectivity):
@@ -140,7 +169,11 @@ def _set_runtime_root(ts, root: RootConfig, *, side_length: float) -> None:
     scale = float(side_length) if side_length else 1.0
     start = np.asarray(root.start, dtype=float).reshape(1, 3) / scale
     ts.ROOT_LOCATION = start
-    ts.ROOT_DIR = None if root.direction is None else np.asarray(root.direction, dtype=float).reshape(1, 3)
+    ts.ROOT_DIR = (
+        None
+        if root.direction is None
+        else np.asarray(root.direction, dtype=float).reshape(1, 3)
+    )
 
 
 def _flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
@@ -152,7 +185,8 @@ def _flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
         return qin_ul_min * 1.0e-3 / 60.0 * q_scale
     qin_ul_min = (
         float(config.simulation.total_qin_ul_min)
-        if source == "total-qin-split" and config.simulation.total_qin_ul_min is not None
+        if source == "total-qin-split"
+        and config.simulation.total_qin_ul_min is not None
         else float(config.simulation.qin_target_ul_min)
     )
     if source in {"total-split", "total-qin-split"} and n_trees > 0:
@@ -161,7 +195,9 @@ def _flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
     return qin_ul_min * 1.0e-3 / 60.0 * q_scale
 
 
-def _terminal_flow_for_target(config: RunConfig, qin_cm3_s: float, target_count: int) -> float | None:
+def _terminal_flow_for_target(
+    config: RunConfig, qin_cm3_s: float, target_count: int
+) -> float | None:
     # Match the legacy scaled-flow convention: target_count is the
     # number passed to n_add, so terminal sinks are target_count + 1.
     if not getattr(load_runtime_module(), "SCALE_Q_BY_VOLUME", True):
@@ -173,7 +209,9 @@ def flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
     return _flow_for_tree(config, tree_id, n_trees)
 
 
-def _inlet_condition_for_tree(config: RunConfig, tree_id: int) -> dict[str, float] | None:
+def _inlet_condition_for_tree(
+    config: RunConfig, tree_id: int
+) -> dict[str, float] | None:
     conditions = list(config.simulation.inlet_conditions or [])
     if 0 <= int(tree_id) < len(conditions):
         return conditions[int(tree_id)]
@@ -223,8 +261,29 @@ def sync_tree_parameters_for_run(
     )
 
 
-def terminal_flow_for_target(config: RunConfig, qin_cm3_s: float, target_count: int) -> float | None:
+def terminal_flow_for_target(
+    config: RunConfig, qin_cm3_s: float, target_count: int
+) -> float | None:
     return _terminal_flow_for_target(config, qin_cm3_s, target_count)
 
 
-__all__ = ('_make_forest', '_target_counts_for_config', '_tree_terminal_segments', '_tree_root_flow_for_weight', '_split_total_adds', '_split_total_target', '_integer_split', '_repair_and_validate_if_requested', '_set_runtime_root', '_flow_for_tree', '_terminal_flow_for_target', 'flow_for_tree', '_inlet_condition_for_tree', 'pressures_for_tree', 'inlet_concentration_for_tree', '_set_runtime_tree_conditions', 'sync_tree_parameters_for_run', 'terminal_flow_for_target')
+__all__ = (
+    "_make_forest",
+    "_target_counts_for_config",
+    "_tree_terminal_segments",
+    "_tree_root_flow_for_weight",
+    "_split_total_adds",
+    "_split_total_target",
+    "_integer_split",
+    "_repair_and_validate_if_requested",
+    "_set_runtime_root",
+    "_flow_for_tree",
+    "_terminal_flow_for_target",
+    "flow_for_tree",
+    "_inlet_condition_for_tree",
+    "pressures_for_tree",
+    "inlet_concentration_for_tree",
+    "_set_runtime_tree_conditions",
+    "sync_tree_parameters_for_run",
+    "terminal_flow_for_target",
+)

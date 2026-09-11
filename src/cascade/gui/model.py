@@ -1,3 +1,9 @@
+"""Create, validate, estimate, and persist the GUI's project configuration model.
+
+Widget-independent helpers translate project JSON into validated run settings,
+resource estimates, sweep jobs, and preview descriptions.
+"""
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -14,7 +20,7 @@ import subprocess
 from typing import Any, Iterable
 from uuid import uuid4
 
-from cascade.configuration.models import example_config, parse_config
+from cascade.configuration.schema import example_config, parse_config
 from cascade.vessels.lattice import channel_count
 from cascade.utils.resources import resolve_domain_path
 
@@ -322,11 +328,21 @@ def validate_project(config: dict[str, Any]) -> ValidationReport:
 
     sim = config.get("simulation", {})
     solver = str(sim.get("concentration_solver", "topdown"))
-    if source == "lattice" and solver not in {"network_ext", "network_ext_hybrid_bg", "network"}:
+    if source == "lattice" and solver not in {
+        "network_ext",
+        "network_ext_hybrid_bg",
+        "network",
+    }:
         report.errors.append(
             "Lattice networks contain loops and require the general network concentration solver."
         )
-    if solver in {"network_ext", "network_ext_hybrid_bg", "topdown_ext", "topdown_ext_hybrid_bg", "topdown_ext_treecode"}:
+    if solver in {
+        "network_ext",
+        "network_ext_hybrid_bg",
+        "topdown_ext",
+        "topdown_ext_hybrid_bg",
+        "topdown_ext_treecode",
+    }:
         report.notes.append(
             "The external-concentration solve couples vessel oxygen to the tissue field."
         )
@@ -422,9 +438,7 @@ def estimate_resources(
     cext = settings.get("cext", {})
     tissue = settings.get("tissue", {})
     tissue_gl = int(oxygen.get("gl_order", oxygen.get("GL_ORDER", 5)))
-    cext_gl = int(
-        oxygen.get("gl_order_cext", oxygen.get("GL_ORDER_CEXT", tissue_gl))
-    )
+    cext_gl = int(oxygen.get("gl_order_cext", oxygen.get("GL_ORDER_CEXT", tissue_gl)))
     gl = max(tissue_gl, cext_gl)
     nearest = int(
         tissue.get("nearest_vessels", tissue.get("NEAREST_TISSUE_VESSELS", 250))
@@ -524,7 +538,7 @@ def expand_sweeps(config: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     # geometry is constructed.
     dimensions = sorted(
         zip(paths, values),
-        key=lambda item: (0 if _sweep_affects_geometry(item[0]) else 1),
+        key=lambda item: 0 if _sweep_affects_geometry(item[0]) else 1,
     )
     paths = [path for path, _values in dimensions]
     values = [dimension_values for _path, dimension_values in dimensions]
@@ -543,7 +557,16 @@ def expand_sweeps(config: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
                 inlet = oxygen.get("concentration_inlet_by_fluid", {})
                 if isinstance(inlet, dict):
                     oxygen["concentration_inlet_by_fluid"] = {
-                        key: value for key in (inlet or {"blood": value, "water": value, "cell media": value, "media": value})
+                        key: value
+                        for key in (
+                            inlet
+                            or {
+                                "blood": value,
+                                "water": value,
+                                "cell media": value,
+                                "media": value,
+                            }
+                        )
                     }
                 else:
                     oxygen["concentration_inlet_by_fluid"] = value
@@ -554,7 +577,10 @@ def expand_sweeps(config: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
 
 
 def _sweep_affects_geometry(path: str) -> bool:
-    return path.startswith(("domain.", "network.", "growth.")) or path == "simulation.build_fluid"
+    return (
+        path.startswith(("domain.", "network.", "growth."))
+        or path == "simulation.build_fluid"
+    )
 
 
 def create_jobs(config: dict[str, Any], project_dir: str | Path) -> list[JobRecord]:
@@ -586,7 +612,11 @@ def create_jobs(config: dict[str, Any], project_dir: str | Path) -> list[JobReco
         and config.get("outputs", {}).get("write_combined_sweep_csv", True)
     )
     combined_filename = Path(
-        str(config.get("outputs", {}).get("combined_sweep_filename", "sweep_summary.csv"))
+        str(
+            config.get("outputs", {}).get(
+                "combined_sweep_filename", "sweep_summary.csv"
+            )
+        )
     ).name
     if not combined_filename.lower().endswith(".csv"):
         combined_filename += ".csv"
@@ -637,9 +667,15 @@ def create_jobs(config: dict[str, Any], project_dir: str | Path) -> list[JobReco
                 output_dir=str(output_dir),
                 log_path=str(job_dir / "run.log"),
                 manifest_path=str(output_dir / "manifest.json"),
-                sweep_batch_id=geometry_batch if combined_csv_path is not None else None,
-                combined_csv_path=None if combined_csv_path is None else str(combined_csv_path),
-                sweep_parameters=sweep_parameters if combined_csv_path is not None else [],
+                sweep_batch_id=geometry_batch
+                if combined_csv_path is not None
+                else None,
+                combined_csv_path=None
+                if combined_csv_path is None
+                else str(combined_csv_path),
+                sweep_parameters=sweep_parameters
+                if combined_csv_path is not None
+                else [],
             )
         )
     return records
@@ -648,13 +684,25 @@ def create_jobs(config: dict[str, Any], project_dir: str | Path) -> list[JobReco
 _SWEEP_CSV_INFO = {
     "simulation.qin_target_ul_min": ("Inlet flow", "sweep_inlet_flow_uL_per_min"),
     "network.target_terminal_count": ("Terminal count", "sweep_target_terminals"),
-    "settings.oxygen.solute_diffusivity": ("Diffusivity", "sweep_diffusivity_cm2_per_s"),
+    "settings.oxygen.solute_diffusivity": (
+        "Diffusivity",
+        "sweep_diffusivity_cm2_per_s",
+    ),
     "settings.oxygen.vmax_mm": ("Vmax", "sweep_vmax_mol_per_m3_per_s"),
     "settings.oxygen.k_m_mm": ("Km", "sweep_km_mol_per_m3"),
-    "settings.hematocrit.hd_discharge": ("Discharge hematocrit", "sweep_discharge_hematocrit"),
-    "settings.oxygen.conc_max_for_normalization": ("Inlet concentration", "sweep_inlet_concentration_mol_per_m3"),
+    "settings.hematocrit.hd_discharge": (
+        "Discharge hematocrit",
+        "sweep_discharge_hematocrit",
+    ),
+    "settings.oxygen.conc_max_for_normalization": (
+        "Inlet concentration",
+        "sweep_inlet_concentration_mol_per_m3",
+    ),
     "settings.cext.hybrid_bg_grid": ("FFT grid", "sweep_fft_grid_points"),
-    "settings.cext.vess_coupling_max_iter": ("Cext iterations", "sweep_cext_iterations"),
+    "settings.cext.vess_coupling_max_iter": (
+        "Cext iterations",
+        "sweep_cext_iterations",
+    ),
 }
 
 
@@ -773,8 +821,8 @@ def oxygen_from_concentration(value: float, unit: str) -> float:
 
 def parse_points(text: str) -> list[list[float]]:
     points = []
-    for line_no, line in enumerate(text.splitlines(), start=1):
-        line = line.strip()
+    for line_no, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
         if not line:
             continue
         parts = [part.strip() for part in line.replace(";", ",").split(",")]

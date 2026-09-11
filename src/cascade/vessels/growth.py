@@ -1,7 +1,27 @@
-"""SVV tree growth scheduling and checkpoints."""
+"""SVV tree growth scheduling and checkpoints.
+
+Growth can proceed per tree, by a global schedule, or by assigning candidates
+to the nearest tree. Checkpoint and target snapshots preserve resumable forests.
+"""
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import json
+from time import perf_counter
+from typing import Any
+
+import numpy as np
+from svv.tree.collision.tree_collision import tree_collision
+from svv.tree.data.data import TreeMap
+from svv.tree.utils.TreeManager import KDTreeManager, USearchTree
+
+from cascade.configuration.schema import RunConfig
+from cascade.utils.resources import resolve_path
+from cascade.vessels.connectivity import repair_trees
+from cascade.vessels.generation.compatibility import (
+    branch_bifurcation as cascade_bifurcation,
+)
 from cascade.vessels.conditions import (
     _flow_for_tree,
     _set_runtime_root,
@@ -11,27 +31,10 @@ from cascade.vessels.conditions import (
     sync_tree_parameters_for_run,
 )
 
-from cascade.vessels._build_common import (
-    Any,
-    KDTreeManager,
-    RunConfig,
-    TreeMap,
-    USearchTree,
-    cascade_bifurcation,
-    contextmanager,
-    json,
-    np,
-    perf_counter,
-    repair_trees,
-    resolve_path,
-    sample_grid_points,
-    tree_collision,
-)
-from cascade.domain.sampling import load_sample_points
-
 from cascade.vessels.cache import (
     _attach_tree_domain,
 )
+
 
 def _build_configured_trees(ts, domain, config: RunConfig) -> list[Any]:
     targets = _target_counts_for_config(config, len(config.network.roots))
@@ -70,46 +73,22 @@ def _build_configured_trees(ts, domain, config: RunConfig) -> list[Any]:
     return trees
 
 
-def _pre_sample_points(ts, domain, config: RunConfig) -> tuple[np.ndarray | None, dict[str, Any] | None]:
-    if config.simulation.geometry_only or config.simulation.skip_tissue_oxygen:
-        return np.empty((0, 3), dtype=float), {"sample_mode": "none"}
-    if config.simulation.sample_mode == "grid":
-        return sample_grid_points(domain, config.simulation.tissue_grid)
-    if config.simulation.sample_mode == "file":
-        path = resolve_path(
-            config.simulation.sample_points_path,
-            base_dir=config.settings_path.parent if config.settings_path else None,
-        )
-        if path is None:
-            raise ValueError("simulation.sample_points_path is required for file sampling.")
-        points, metadata = load_sample_points(path)
-        requested = int(config.simulation.distance_sample_count)
-        if requested not in {0, int(points.shape[0])}:
-            raise ValueError(
-                "simulation.distance_sample_count must be 0 or match the fixed sample file "
-                f"({points.shape[0]} points)."
-            )
-        return points, metadata
-    n_points = int(config.simulation.distance_sample_count)
-    if n_points <= 0:
-        return np.empty((0, 3), dtype=float), {"sample_mode": "random", "requested_points": 0}
-    return (
-        np.asarray(ts.sample_domain_points(domain, n_points), dtype=float),
-        {"sample_mode": "random", "requested_points": int(n_points)},
-    )
-
-
-def _extend_trees_to_targets(ts, trees: list[Any], domain, config: RunConfig, targets: list[int], *, forest=None) -> None:
+def _extend_trees_to_targets(
+    ts, trees: list[Any], domain, config: RunConfig, targets: list[int], *, forest=None
+) -> None:
     if config.growth.assignment == "nearest-tree":
         _extend_trees_nearest(ts, trees, domain, config, targets, forest=forest)
         return
-    if config.growth.assignment == "scheduled" or config.growth.bulk_growth_mode == "never":
+    if (
+        config.growth.assignment == "scheduled"
+        or config.growth.bulk_growth_mode == "never"
+    ):
         _extend_trees_scheduled(ts, trees, domain, config, targets, forest=forest)
         return
-    for idx, (tree, target) in enumerate(zip(trees, targets)):
+    for idx, (tree, target_value) in enumerate(zip(trees, targets)):
         _attach_tree_domain(tree, domain)
         current = max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0)
-        target = max(int(target), 1)
+        target = max(int(target_value), 1)
         qin_cm3_s = _flow_for_tree(config, idx, len(trees))
         terminal_flow = _terminal_flow_for_target(config, qin_cm3_s, target)
         sync_tree_parameters_for_run(ts, tree, config, idx, terminal_flow)
@@ -126,8 +105,13 @@ def _extend_trees_to_targets(ts, trees: list[Any], domain, config: RunConfig, ta
         )
 
 
-def _extend_trees_scheduled(ts, trees: list[Any], domain, config: RunConfig, targets: list[int], *, forest=None) -> None:
-    remaining = [max(0, int(target) - max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0)) for tree, target in zip(trees, targets)]
+def _extend_trees_scheduled(
+    ts, trees: list[Any], domain, config: RunConfig, targets: list[int], *, forest=None
+) -> None:
+    remaining = [
+        max(0, int(target) - max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0))
+        for tree, target in zip(trees, targets)
+    ]
     total_add = int(sum(remaining))
     if total_add <= 0:
         return
@@ -156,19 +140,41 @@ def _extend_trees_scheduled(ts, trees: list[Any], domain, config: RunConfig, tar
             remaining[idx] -= 1
             completed += 1
             if checkpoint_every > 0 and completed % checkpoint_every == 0:
-                _save_growth_checkpoint(config, trees, forest, completed=completed, total_add=total_add, targets=targets)
-            saved_targets = _save_reached_targets(config, trees, forest, saved_targets, targets)
+                _save_growth_checkpoint(
+                    config,
+                    trees,
+                    forest,
+                    completed=completed,
+                    total_add=total_add,
+                    targets=targets,
+                )
+            saved_targets = _save_reached_targets(
+                config, trees, forest, saved_targets, targets
+            )
             if not any(rem > 0 for rem in remaining):
                 break
-    _save_growth_checkpoint(config, trees, forest, completed=completed, total_add=total_add, targets=targets, final=True)
+    _save_growth_checkpoint(
+        config,
+        trees,
+        forest,
+        completed=completed,
+        total_add=total_add,
+        targets=targets,
+        final=True,
+    )
 
 
-def _extend_trees_nearest(ts, trees: list[Any], domain, config: RunConfig, targets: list[int], *, forest=None) -> None:
+def _extend_trees_nearest(
+    ts, trees: list[Any], domain, config: RunConfig, targets: list[int], *, forest=None
+) -> None:
     if len(trees) <= 1:
         _extend_trees_scheduled(ts, trees, domain, config, targets, forest=forest)
         return
 
-    remaining = [max(0, int(target) - max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0)) for tree, target in zip(trees, targets)]
+    remaining = [
+        max(0, int(target) - max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0))
+        for tree, target in zip(trees, targets)
+    ]
     total_add = int(sum(remaining))
     if total_add <= 0:
         return
@@ -183,7 +189,9 @@ def _extend_trees_nearest(ts, trees: list[Any], domain, config: RunConfig, targe
 
     while any(rem > 0 for rem in remaining):
         ignore_now = _ignore_intertree_collisions_now(config, trees)
-        if _nearest_bulk_growth_allowed(config, trees, remaining, ignore_now=ignore_now):
+        if _nearest_bulk_growth_allowed(
+            config, trees, remaining, ignore_now=ignore_now
+        ):
             _save_growth_checkpoint(
                 config,
                 trees,
@@ -192,10 +200,14 @@ def _extend_trees_nearest(ts, trees: list[Any], domain, config: RunConfig, targe
                 total_add=total_add,
                 targets=targets,
             )
-            added = _grow_remaining_bulk_no_collision(ts, trees, domain, config, targets, remaining)
+            added = _grow_remaining_bulk_no_collision(
+                ts, trees, domain, config, targets, remaining
+            )
             completed += int(added)
             remaining = [0 for _ in remaining]
-            saved_targets = _save_reached_targets(config, trees, forest, saved_targets, targets)
+            saved_targets = _save_reached_targets(
+                config, trees, forest, saved_targets, targets
+            )
             break
 
         try:
@@ -221,10 +233,15 @@ def _extend_trees_nearest(ts, trees: list[Any], domain, config: RunConfig, targe
                 )
                 raise
             live_remaining = [
-                max(0, int(target) - max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0))
+                max(
+                    0,
+                    int(target) - max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0),
+                )
                 for tree, target in zip(trees, targets)
             ]
-            added = _grow_remaining_bulk_no_collision(ts, trees, domain, config, targets, live_remaining)
+            added = _grow_remaining_bulk_no_collision(
+                ts, trees, domain, config, targets, live_remaining
+            )
             completed += int(added)
             remaining = [0 for _ in remaining]
             break
@@ -239,10 +256,27 @@ def _extend_trees_nearest(ts, trees: list[Any], domain, config: RunConfig, targe
                 flush=True,
             )
         if checkpoint_every > 0 and completed % checkpoint_every == 0:
-            _save_growth_checkpoint(config, trees, forest, completed=completed, total_add=total_add, targets=targets)
-        saved_targets = _save_reached_targets(config, trees, forest, saved_targets, targets)
+            _save_growth_checkpoint(
+                config,
+                trees,
+                forest,
+                completed=completed,
+                total_add=total_add,
+                targets=targets,
+            )
+        saved_targets = _save_reached_targets(
+            config, trees, forest, saved_targets, targets
+        )
 
-    _save_growth_checkpoint(config, trees, forest, completed=completed, total_add=total_add, targets=targets, final=True)
+    _save_growth_checkpoint(
+        config,
+        trees,
+        forest,
+        completed=completed,
+        total_add=total_add,
+        targets=targets,
+        final=True,
+    )
 
 
 def _grow_remaining_bulk_no_collision(
@@ -254,8 +288,8 @@ def _grow_remaining_bulk_no_collision(
     remaining: list[int],
 ) -> int:
     completed = 0
-    for idx, (tree, add_n) in enumerate(zip(trees, remaining)):
-        add_n = int(add_n)
+    for idx, (tree, add_value) in enumerate(zip(trees, remaining)):
+        add_n = int(add_value)
         if add_n <= 0:
             continue
         _attach_tree_domain(tree, domain)
@@ -291,10 +325,14 @@ def _grow_one_nearest_tree(
     max_attempts = max(1, int(config.growth.collision_retry_limit))
     last_error: Exception | None = None
     for _attempt in range(max_attempts):
-        tree_idx, point, mesh_cell = _sample_nearest_tree_candidate(trees, domain, config, remaining)
+        tree_idx, point, mesh_cell = _sample_nearest_tree_candidate(
+            trees, domain, config, remaining
+        )
         tree = trees[int(tree_idx)]
         qin_cm3_s = _flow_for_tree(config, int(tree_idx), len(trees))
-        terminal_flow = _terminal_flow_for_target(config, qin_cm3_s, int(targets[int(tree_idx)]))
+        terminal_flow = _terminal_flow_for_target(
+            config, qin_cm3_s, int(targets[int(tree_idx)])
+        )
         sync_tree_parameters_for_run(ts, tree, config, int(tree_idx), terminal_flow)
         t0 = perf_counter()
         try:
@@ -336,7 +374,9 @@ def _sample_nearest_tree_candidate(
     active = [idx for idx, rem in enumerate(remaining) if int(rem) > 0]
     if not active:
         raise RuntimeError("No active trees remain for nearest-tree growth.")
-    points, cells = _domain_interior_points(domain, int(config.growth.nearest_tree_batch_points))
+    points, cells = _domain_interior_points(
+        domain, int(config.growth.nearest_tree_batch_points)
+    )
     finite = np.isfinite(points).all(axis=1)
     points = points[finite, :]
     cells = cells[finite]
@@ -345,7 +385,11 @@ def _sample_nearest_tree_candidate(
 
     nearest_by_tree = []
     for idx in active:
-        data = np.asarray(trees[int(idx)].data[: int(getattr(trees[int(idx)], "segment_count", 0) or 0), :])
+        data = np.asarray(
+            trees[int(idx)].data[
+                : int(getattr(trees[int(idx)], "segment_count", 0) or 0), :
+            ]
+        )
         nearest_by_tree.append(_min_point_segment_wall_distance(data, points))
     nearest_by_tree_arr = np.vstack(nearest_by_tree)
     assigned_pos = np.argmin(nearest_by_tree_arr, axis=0)
@@ -366,7 +410,9 @@ def _domain_interior_points(domain, count: int) -> tuple[np.ndarray, np.ndarray]
         points, cells = domain.get_interior_points(int(count))
     except TypeError:
         points = domain.get_interior_points(int(count))
-        cells = np.full((np.asarray(points).reshape(-1, 3).shape[0],), -1, dtype=np.int64)
+        cells = np.full(
+            (np.asarray(points).reshape(-1, 3).shape[0],), -1, dtype=np.int64
+        )
     points = np.asarray(points, dtype=float).reshape(-1, 3)
     cells = np.asarray(cells, dtype=np.int64).reshape(-1)
     if cells.size != points.shape[0]:
@@ -395,20 +441,30 @@ def _fixed_growth_points(point: np.ndarray, mesh_cell: int):
         cascade_bifurcation.add_vessel.__globals__["get_points"] = original
 
 
-def _fixed_point_candidates(tree, points: np.ndarray, mesh_cell: int, kwargs: dict[str, Any]):
-    data = np.asarray(tree.data[: int(getattr(tree, "segment_count", 0) or 0), :], dtype=np.float64)
+def _fixed_point_candidates(
+    tree, points: np.ndarray, mesh_cell: int, kwargs: dict[str, Any]
+):
+    data = np.asarray(
+        tree.data[: int(getattr(tree, "segment_count", 0) or 0), :], dtype=np.float64
+    )
     if data.shape[0] <= 0:
         raise RuntimeError("Cannot grow from a fixed point on an empty tree.")
     n_points = int(points.shape[0])
-    n_vessels_native = max(1, min(int(kwargs.get("n_vessels", min(data.shape[0], 10))), int(data.shape[0])))
+    n_vessels_native = max(
+        1, min(int(kwargs.get("n_vessels", min(data.shape[0], 10))), int(data.shape[0]))
+    )
     n_heuristic = int(kwargs.get("n_heuristic", 500))
     threshold_cutoff = int(kwargs.get("n_random_int", 10000))
-    threshold = float(kwargs.get("threshold", getattr(tree, "physical_clearance", 0.0) or 0.0))
+    threshold = float(
+        kwargs.get("threshold", getattr(tree, "physical_clearance", 0.0) or 0.0)
+    )
     if int(getattr(tree, "n_terminals", 0) or 0) >= threshold_cutoff:
         threshold = 0.0
     use_all_candidates = int(getattr(tree, "n_terminals", 0) or 0) < n_heuristic
     keep_k = int(data.shape[0]) if use_all_candidates else n_vessels_native
-    distances = _point_segment_distance_matrix(data, points, subtract_radius=not use_all_candidates)
+    distances = _point_segment_distance_matrix(
+        data, points, subtract_radius=not use_all_candidates
+    )
     order = np.argsort(distances, axis=1)[:, :keep_k]
     ordered_distances = np.take_along_axis(distances, order, axis=1)
     min_dist = np.min(ordered_distances, axis=1)
@@ -426,7 +482,9 @@ def _fixed_point_candidates(tree, points: np.ndarray, mesh_cell: int, kwargs: di
     return out_points, out_dist, out_idx, out_cells
 
 
-def _point_segment_distance_matrix(data: np.ndarray, points: np.ndarray, *, subtract_radius: bool) -> np.ndarray:
+def _point_segment_distance_matrix(
+    data: np.ndarray, points: np.ndarray, *, subtract_radius: bool
+) -> np.ndarray:
     data = np.asarray(data, dtype=np.float64)
     points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
     ab = data[:, 3:6] - data[:, 0:3]
@@ -442,10 +500,16 @@ def _point_segment_distance_matrix(data: np.ndarray, points: np.ndarray, *, subt
     return distances
 
 
-def _min_point_segment_wall_distance(data: np.ndarray, points: np.ndarray) -> np.ndarray:
+def _min_point_segment_wall_distance(
+    data: np.ndarray, points: np.ndarray
+) -> np.ndarray:
     if data.shape[0] == 0:
-        return np.full((np.asarray(points).reshape(-1, 3).shape[0],), np.inf, dtype=float)
-    return np.min(_point_segment_distance_matrix(data, points, subtract_radius=True), axis=1)
+        return np.full(
+            (np.asarray(points).reshape(-1, 3).shape[0],), np.inf, dtype=float
+        )
+    return np.min(
+        _point_segment_distance_matrix(data, points, subtract_radius=True), axis=1
+    )
 
 
 def _ignore_intertree_collisions_now(config: RunConfig, trees: list[Any]) -> bool:
@@ -463,15 +527,22 @@ def _ignore_intertree_collisions_now(config: RunConfig, trees: list[Any]) -> boo
     return int(total_segments) >= threshold
 
 
-def _nearest_bulk_growth_allowed(config: RunConfig, trees: list[Any], remaining: list[int], *, ignore_now: bool) -> bool:
+def _nearest_bulk_growth_allowed(
+    config: RunConfig, trees: list[Any], remaining: list[int], *, ignore_now: bool
+) -> bool:
     if not bool(ignore_now):
         return False
-    mode = str(config.growth.bulk_growth_mode or "never").strip().lower().replace("_", "-")
+    mode = (
+        str(config.growth.bulk_growth_mode or "never").strip().lower().replace("_", "-")
+    )
     if mode == "never":
         return False
     if mode == "always":
         return True
-    all_equal = all(int(rem) <= 0 or _tree_in_equal_bifurcation_mode(config, tree) for rem, tree in zip(remaining, trees))
+    all_equal = all(
+        int(rem) <= 0 or _tree_in_equal_bifurcation_mode(config, tree)
+        for rem, tree in zip(remaining, trees)
+    )
     if mode == "equal-bifurcation":
         return all_equal
     if mode == "after-collision-threshold":
@@ -481,7 +552,11 @@ def _nearest_bulk_growth_allowed(config: RunConfig, trees: list[Any], remaining:
 
 def _tree_in_equal_bifurcation_mode(config: RunConfig, tree: Any) -> bool:
     params = getattr(tree, "parameters", None)
-    n_equal = getattr(params, "n_equal_bifurcations", config.growth.n_equal_bifurcations) if params is not None else config.growth.n_equal_bifurcations
+    n_equal = (
+        getattr(params, "n_equal_bifurcations", config.growth.n_equal_bifurcations)
+        if params is not None
+        else config.growth.n_equal_bifurcations
+    )
     if n_equal is None:
         return False
     try:
@@ -491,7 +566,9 @@ def _tree_in_equal_bifurcation_mode(config: RunConfig, tree: Any) -> bool:
     return n_equal_int >= 0 and int(getattr(tree, "n_terminals", 0) or 0) >= n_equal_int
 
 
-def _candidate_hits_other_tree(trees: list[Any], tree_idx: int, added_vessels: Any, *, clearance: float) -> bool:
+def _candidate_hits_other_tree(
+    trees: list[Any], tree_idx: int, added_vessels: Any, *, clearance: float
+) -> bool:
     for other_idx, other_tree in enumerate(trees):
         if int(other_idx) == int(tree_idx):
             continue
@@ -499,8 +576,12 @@ def _candidate_hits_other_tree(trees: list[Any], tree_idx: int, added_vessels: A
         if other_count <= 0:
             continue
         other_data = np.asarray(other_tree.data[:other_count], dtype=np.float64)
-        for vessel in np.asarray(added_vessels, dtype=np.float64).reshape(-1, np.asarray(added_vessels).shape[-1]):
-            if tree_collision(other_data, vessel.reshape(1, -1), clearance=float(clearance)):
+        for vessel in np.asarray(added_vessels, dtype=np.float64).reshape(
+            -1, np.asarray(added_vessels).shape[-1]
+        ):
+            if tree_collision(
+                other_data, vessel.reshape(1, -1), clearance=float(clearance)
+            ):
                 return True
     return False
 
@@ -517,14 +598,20 @@ def _candidate_leaves_domain(config: RunConfig, tree: Any, added_vessels: Any) -
     n_samples = max(2, int(config.growth.domain_line_samples))
     tolerance = float(config.growth.domain_line_tolerance)
     t = np.linspace(0.0, 1.0, n_samples, dtype=float).reshape(-1, 1)
-    for vessel in np.asarray(added_vessels, dtype=float).reshape(-1, np.asarray(added_vessels).shape[-1]):
+    for vessel in np.asarray(added_vessels, dtype=float).reshape(
+        -1, np.asarray(added_vessels).shape[-1]
+    ):
         start = vessel[0:3]
         end = vessel[3:6]
         if not (np.isfinite(start).all() and np.isfinite(end).all()):
             return True
         line = start.reshape(1, 3) * (1.0 - t) + end.reshape(1, 3) * t
         values = np.asarray(domain(line), dtype=float).reshape(-1)
-        if values.size == 0 or np.any(~np.isfinite(values)) or np.any(values > tolerance):
+        if (
+            values.size == 0
+            or np.any(~np.isfinite(values))
+            or np.any(values > tolerance)
+        ):
             return True
     return False
 
@@ -534,7 +621,10 @@ def _prepare_loaded_tree_for_incremental_growth(tree: Any) -> None:
     if seg_count <= 0:
         return
     repair_trees([tree])
-    if getattr(tree, "vessel_map", None) is None or len(getattr(tree, "vessel_map", {})) < seg_count:
+    if (
+        getattr(tree, "vessel_map", None) is None
+        or len(getattr(tree, "vessel_map", {})) < seg_count
+    ):
         _repair_loaded_tree_vessel_map(tree)
     _rebuild_tree_spatial_indices(tree)
 
@@ -573,12 +663,27 @@ def _repair_loaded_tree_vessel_map(tree: Any) -> None:
 
     vessel_map = TreeMap()
     for row in range(seg_count):
-        vessel_map[int(row)] = {"upstream": ancestors(row), "downstream": descendants(row)}
+        vessel_map[int(row)] = {
+            "upstream": ancestors(row),
+            "downstream": descendants(row),
+        }
     tree.vessel_map = vessel_map
 
 
-def _commit_tree_add_result(tree: Any, result: tuple[Any, ...], *, decay_probability: float = 0.9) -> None:
-    change_i, change_j, new_tmp_data, _old_tmp_data, new_vessel_map, connectivity, new_inds, mesh_cell, added_vessels = result
+def _commit_tree_add_result(
+    tree: Any, result: tuple[Any, ...], *, decay_probability: float = 0.9
+) -> None:
+    (
+        change_i,
+        change_j,
+        new_tmp_data,
+        _old_tmp_data,
+        new_vessel_map,
+        connectivity,
+        new_inds,
+        mesh_cell,
+        added_vessels,
+    ) = result
     seg_count = int(getattr(tree, "segment_count", 0) or 0)
     if hasattr(tree, "ensure_preallocation"):
         tree.ensure_preallocation(seg_count + 2)
@@ -618,28 +723,40 @@ def _commit_tree_add_result(tree: Any, result: tuple[Any, ...], *, decay_probabi
             pass
     if hasattr(tree, "new_tree_scale"):
         tree.tree_scale = tree.new_tree_scale
-    _update_tree_spatial_indices(tree, np.asarray(new_inds, dtype=int).reshape(-1), old_segment_count=seg_count)
+    _update_tree_spatial_indices(
+        tree, np.asarray(new_inds, dtype=int).reshape(-1), old_segment_count=seg_count
+    )
     repair_trees([tree])
 
 
-def _update_tree_spatial_indices(tree: Any, rows: np.ndarray, *, old_segment_count: int) -> None:
+def _update_tree_spatial_indices(
+    tree: Any, rows: np.ndarray, *, old_segment_count: int
+) -> None:
     rows = np.asarray(rows, dtype=int).reshape(-1)
-    rows = np.unique(rows[(rows >= 0) & (rows < int(getattr(tree, "segment_count", 0) or 0))])
+    rows = np.unique(
+        rows[(rows >= 0) & (rows < int(getattr(tree, "segment_count", 0) or 0))]
+    )
     if rows.size == 0:
         return
     data = np.asarray(tree.data[: int(getattr(tree, "segment_count", 0) or 0)])
     mid = (data[rows, 0:3] + data[rows, 3:6]) * 0.5
     tree.preallocate_midpoints[rows, :] = mid
-    tree.midpoints = tree.preallocate_midpoints[: int(getattr(tree, "segment_count", 0) or 0), :]
+    tree.midpoints = tree.preallocate_midpoints[
+        : int(getattr(tree, "segment_count", 0) or 0), :
+    ]
     hnsw = getattr(tree, "hnsw_tree", None)
     try:
         if hnsw is None:
             raise RuntimeError("Missing HNSW tree.")
         replace_mask = rows < int(old_segment_count)
         if np.any(replace_mask):
-            hnsw.replace(mid[replace_mask].astype(np.float32), rows[replace_mask].astype(int))
+            hnsw.replace(
+                mid[replace_mask].astype(np.float32), rows[replace_mask].astype(int)
+            )
         if np.any(~replace_mask):
-            hnsw.add_items(mid[~replace_mask].astype(np.float32), rows[~replace_mask].astype(int))
+            hnsw.add_items(
+                mid[~replace_mask].astype(np.float32), rows[~replace_mask].astype(int)
+            )
         tree.hnsw_tree_id = id(hnsw)
     except Exception:
         _rebuild_tree_spatial_indices(tree)
@@ -648,9 +765,18 @@ def _update_tree_spatial_indices(tree: Any, rows: np.ndarray, *, old_segment_cou
 def _rebuild_tree_spatial_indices(tree: Any) -> None:
     seg_count = int(getattr(tree, "segment_count", 0) or 0)
     data = np.asarray(tree.data[:seg_count])
-    mid = (data[:, 0:3] + data[:, 3:6]) * 0.5 if seg_count else np.empty((0, 3), dtype=float)
-    if getattr(tree, "preallocate_midpoints", None) is None or int(tree.preallocate_midpoints.shape[0]) < seg_count:
-        tree.preallocate_midpoints = np.zeros((max(seg_count, 1), 3), dtype=getattr(tree, "data_dtype", np.float64))
+    mid = (
+        (data[:, 0:3] + data[:, 3:6]) * 0.5
+        if seg_count
+        else np.empty((0, 3), dtype=float)
+    )
+    if (
+        getattr(tree, "preallocate_midpoints", None) is None
+        or int(tree.preallocate_midpoints.shape[0]) < seg_count
+    ):
+        tree.preallocate_midpoints = np.zeros(
+            (max(seg_count, 1), 3), dtype=getattr(tree, "data_dtype", np.float64)
+        )
     tree.preallocate_midpoints[:seg_count, :] = mid
     tree.midpoints = tree.preallocate_midpoints[:seg_count, :]
     tree.kdtm = KDTreeManager(mid)
@@ -684,9 +810,13 @@ def _save_growth_checkpoint(
         "completed_adds": int(completed),
         "total_adds": int(total_add),
         "targets": [int(v) for v in targets],
-        "terminal_segments": [max(int(getattr(t, "n_terminals", 0) or 0) - 1, 0) for t in trees],
+        "terminal_segments": [
+            max(int(getattr(t, "n_terminals", 0) or 0) - 1, 0) for t in trees
+        ],
     }
-    checkpoint.with_name(checkpoint.name + ".json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    checkpoint.with_name(checkpoint.name + ".json").write_text(
+        json.dumps(meta, indent=2), encoding="utf-8"
+    )
 
 
 def _save_reached_targets(
@@ -698,13 +828,18 @@ def _save_reached_targets(
 ) -> set[int]:
     if not config.growth.save_target_counts:
         return saved
-    current_total = sum(max(int(getattr(t, "n_terminals", 0) or 0) - 1, 0) for t in trees)
-    out_dir = resolve_path(config.outputs.out_dir, base_dir=config.settings_path.parent if config.settings_path else None)
+    current_total = sum(
+        max(int(getattr(t, "n_terminals", 0) or 0) - 1, 0) for t in trees
+    )
+    out_dir = resolve_path(
+        config.outputs.out_dir,
+        base_dir=config.settings_path.parent if config.settings_path else None,
+    )
     if out_dir is None:
         raise ValueError("outputs.out_dir must identify an output directory.")
     out_dir.mkdir(parents=True, exist_ok=True)
-    for target in config.growth.save_target_counts:
-        target = int(target)
+    for target_value in config.growth.save_target_counts:
+        target = int(target_value)
         if target in saved or current_total < target:
             continue
         if forest is not None:
@@ -719,11 +854,36 @@ def _save_reached_targets(
             "target_total": int(target),
             "final_targets": [int(v) for v in final_targets],
         }
-        path.with_name(path.name + ".json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        path.with_name(path.name + ".json").write_text(
+            json.dumps(meta, indent=2), encoding="utf-8"
+        )
         saved.add(target)
     return saved
 
 
-
-
-__all__ = ('_build_configured_trees', '_pre_sample_points', '_extend_trees_to_targets', '_extend_trees_scheduled', '_extend_trees_nearest', '_grow_remaining_bulk_no_collision', '_grow_one_nearest_tree', '_sample_nearest_tree_candidate', '_domain_interior_points', '_fixed_growth_points', '_fixed_point_candidates', '_point_segment_distance_matrix', '_min_point_segment_wall_distance', '_ignore_intertree_collisions_now', '_nearest_bulk_growth_allowed', '_tree_in_equal_bifurcation_mode', '_candidate_hits_other_tree', '_candidate_leaves_domain', '_prepare_loaded_tree_for_incremental_growth', '_repair_loaded_tree_vessel_map', '_commit_tree_add_result', '_update_tree_spatial_indices', '_rebuild_tree_spatial_indices', '_save_growth_checkpoint', '_save_reached_targets')
+__all__ = (
+    "_build_configured_trees",
+    "_extend_trees_to_targets",
+    "_extend_trees_scheduled",
+    "_extend_trees_nearest",
+    "_grow_remaining_bulk_no_collision",
+    "_grow_one_nearest_tree",
+    "_sample_nearest_tree_candidate",
+    "_domain_interior_points",
+    "_fixed_growth_points",
+    "_fixed_point_candidates",
+    "_point_segment_distance_matrix",
+    "_min_point_segment_wall_distance",
+    "_ignore_intertree_collisions_now",
+    "_nearest_bulk_growth_allowed",
+    "_tree_in_equal_bifurcation_mode",
+    "_candidate_hits_other_tree",
+    "_candidate_leaves_domain",
+    "_prepare_loaded_tree_for_incremental_growth",
+    "_repair_loaded_tree_vessel_map",
+    "_commit_tree_add_result",
+    "_update_tree_spatial_indices",
+    "_rebuild_tree_spatial_indices",
+    "_save_growth_checkpoint",
+    "_save_reached_targets",
+)

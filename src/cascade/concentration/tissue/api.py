@@ -6,8 +6,11 @@ import math
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
-from cascade.core import TissueOxygenProblem, TissueOxygenResult
+from cascade.configuration import solver_state as _state
+from cascade.concentration.tissue.contracts import (
+    TissueOxygenProblem,
+    TissueOxygenResult,
+)
 
 from .greens import compute_tissue_samples_greens
 
@@ -22,7 +25,7 @@ def solve_tissue_oxygen(
     inlet_concentration: float | None = None,
     tissue_cache: dict | None = None,
 ) -> TissueOxygenResult:
-    """Evaluate tissue oxygen without exposing legacy tuple conventions."""
+    """Evaluate tissue oxygen and return retained samples in a typed result."""
     if not math.isfinite(float(diffusivity_cm2_s)) or diffusivity_cm2_s <= 0.0:
         raise ValueError("diffusivity_cm2_s must be finite and strictly positive.")
     if not math.isfinite(float(vmax)) or vmax < 0.0:

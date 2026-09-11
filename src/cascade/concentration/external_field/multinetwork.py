@@ -12,7 +12,7 @@ from time import perf_counter
 
 import numpy as np
 
-from cascade.settings.oxygen import DEFAULTS as _OXYGEN_DEFAULTS
+from cascade.configuration.settings.oxygen import DEFAULTS as _OXYGEN_DEFAULTS
 from cascade.vessels.collections import VascularNetworkSet
 from .preparation import (
     prepare_network_external_field,
@@ -27,6 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def _log(message: str) -> None:
     _LOGGER.info(message)
+
 
 def _concat_global_cext_context(solutions: list[dict]) -> tuple[dict, list[int]]:
     contexts = [sol["cext_context"] for sol in solutions]
@@ -46,19 +47,38 @@ def _concat_global_cext_context(solutions: list[dict]) -> tuple[dict, list[int]]
     exclude_parts = []
     exclude_count_parts = []
     exclude_width = max(
-        [int(np.asarray(ctx.get("exclude_idx", np.empty((0, 0), dtype=np.int32))).shape[1]) for ctx in contexts]
+        [
+            int(
+                np.asarray(
+                    ctx.get("exclude_idx", np.empty((0, 0), dtype=np.int32))
+                ).shape[1]
+            )
+            for ctx in contexts
+        ]
         or [32]
     )
     offset = 0
     for ctx, count in zip(contexts, counts):
-        for source_key, target in (("parents", parent_parts), ("left_child", left_parts), ("right_child", right_parts)):
-            arr = np.asarray(ctx.get(source_key, np.full((count,), -1, dtype=np.int32)), dtype=np.int32).copy()
+        for source_key, target in (
+            ("parents", parent_parts),
+            ("left_child", left_parts),
+            ("right_child", right_parts),
+        ):
+            arr = np.asarray(
+                ctx.get(source_key, np.full((count,), -1, dtype=np.int32)),
+                dtype=np.int32,
+            ).copy()
             valid = arr >= 0
             arr[valid] += np.int32(offset)
             target.append(arr)
-        order = np.asarray(ctx.get("order", np.arange(count, dtype=np.int32)), dtype=np.int32).copy()
+        order = np.asarray(
+            ctx.get("order", np.arange(count, dtype=np.int32)), dtype=np.int32
+        ).copy()
         order_parts.append(order + np.int32(offset))
-        ex = np.asarray(ctx.get("exclude_idx", np.full((count, exclude_width), -1, dtype=np.int32)), dtype=np.int32)
+        ex = np.asarray(
+            ctx.get("exclude_idx", np.full((count, exclude_width), -1, dtype=np.int32)),
+            dtype=np.int32,
+        )
         ex_out = np.full((count, exclude_width), -1, dtype=np.int32)
         width = min(int(ex.shape[1]) if ex.ndim == 2 else 0, exclude_width)
         if width > 0:
@@ -66,7 +86,9 @@ def _concat_global_cext_context(solutions: list[dict]) -> tuple[dict, list[int]]
             valid_ex = ex_slice >= 0
             ex_slice[valid_ex] += np.int32(offset)
             ex_out[:, :width] = ex_slice
-        ex_count = np.asarray(ctx.get("exclude_count", np.zeros((count,), dtype=np.uint8)), dtype=np.uint8).reshape(-1)
+        ex_count = np.asarray(
+            ctx.get("exclude_count", np.zeros((count,), dtype=np.uint8)), dtype=np.uint8
+        ).reshape(-1)
         if ex_count.shape[0] != count:
             ex_count = np.zeros((count,), dtype=np.uint8)
         exclude_parts.append(ex_out)
@@ -75,14 +97,30 @@ def _concat_global_cext_context(solutions: list[dict]) -> tuple[dict, list[int]]
 
     gl_points = cat("gl_points_si", np.float32)
     gl_order = int(gl_points.shape[1]) if gl_points.ndim >= 2 else 0
-    exclude_idx = np.concatenate(exclude_parts, axis=0) if exclude_parts else np.full((0, exclude_width), -1, dtype=np.int32)
-    exclude_count = np.concatenate(exclude_count_parts, axis=0) if exclude_count_parts else np.zeros((0,), dtype=np.uint8)
+    exclude_idx = (
+        np.concatenate(exclude_parts, axis=0)
+        if exclude_parts
+        else np.full((0, exclude_width), -1, dtype=np.int32)
+    )
+    exclude_count = (
+        np.concatenate(exclude_count_parts, axis=0)
+        if exclude_count_parts
+        else np.zeros((0,), dtype=np.uint8)
+    )
 
     out = {
-        "parents": np.concatenate(parent_parts) if parent_parts else np.empty((0,), dtype=np.int32),
-        "left_child": np.concatenate(left_parts) if left_parts else np.empty((0,), dtype=np.int32),
-        "right_child": np.concatenate(right_parts) if right_parts else np.empty((0,), dtype=np.int32),
-        "order": np.concatenate(order_parts) if order_parts else np.empty((0,), dtype=np.int32),
+        "parents": np.concatenate(parent_parts)
+        if parent_parts
+        else np.empty((0,), dtype=np.int32),
+        "left_child": np.concatenate(left_parts)
+        if left_parts
+        else np.empty((0,), dtype=np.int32),
+        "right_child": np.concatenate(right_parts)
+        if right_parts
+        else np.empty((0,), dtype=np.int32),
+        "order": np.concatenate(order_parts)
+        if order_parts
+        else np.empty((0,), dtype=np.int32),
         "level_order": np.arange(total, dtype=np.int32),
         "level_offsets": np.asarray([0, total], dtype=np.int32),
         "depth": 1,
@@ -94,17 +132,29 @@ def _concat_global_cext_context(solutions: list[dict]) -> tuple[dict, list[int]]
         "flows_si": cat("flows_si", np.float32),
         "lengths_si": cat("lengths_si", np.float32),
         "radii_si": cat("radii_si", np.float32),
-        "gl_t": np.asarray(contexts[0]["gl_t"], dtype=np.float32) if contexts else np.empty((0,), dtype=np.float32),
-        "gl_weights": np.asarray(contexts[0]["gl_weights"], dtype=np.float32) if contexts else np.empty((0,), dtype=np.float32),
+        "gl_t": np.asarray(contexts[0]["gl_t"], dtype=np.float32)
+        if contexts
+        else np.empty((0,), dtype=np.float32),
+        "gl_weights": np.asarray(contexts[0]["gl_weights"], dtype=np.float32)
+        if contexts
+        else np.empty((0,), dtype=np.float32),
         "gl_points_si": gl_points,
-        "ds_gl": cat("ds_gl", np.float32).reshape((total, gl_order)) if gl_order else np.empty((total, 0), dtype=np.float32),
+        "ds_gl": cat("ds_gl", np.float32).reshape((total, gl_order))
+        if gl_order
+        else np.empty((total, 0), dtype=np.float32),
         "exclude_idx": exclude_idx,
         "exclude_count": exclude_count,
         "diffusivity_si": float(contexts[0]["diffusivity_si"]) if contexts else 0.0,
-        "lambda_inlet": max((float(ctx.get("lambda_inlet", 0.0)) for ctx in contexts), default=0.0),
+        "lambda_inlet": max(
+            (float(ctx.get("lambda_inlet", 0.0)) for ctx in contexts), default=0.0
+        ),
         "cell_size": 0.0,
-        "reach_si": cat("reach_si", np.float32) if contexts else np.empty((0,), dtype=np.float32),
-        "max_reach_si": max((float(ctx.get("max_reach_si", 0.0)) for ctx in contexts), default=0.0),
+        "reach_si": cat("reach_si", np.float32)
+        if contexts
+        else np.empty((0,), dtype=np.float32),
+        "max_reach_si": max(
+            (float(ctx.get("max_reach_si", 0.0)) for ctx in contexts), default=0.0
+        ),
         "candidate_query_mode": "hybrid_bg",
         "candidate_kdtree": None,
         "gpu_direct_available": False,
@@ -135,7 +185,11 @@ def _concat_global_cext_state(solutions: list[dict]) -> dict:
 
     def cat(key: str) -> np.ndarray:
         pieces = [state_array(state, key) for state in states]
-        return np.concatenate(pieces, axis=0) if pieces else np.empty((0,), dtype=np.float32)
+        return (
+            np.concatenate(pieces, axis=0)
+            if pieces
+            else np.empty((0,), dtype=np.float32)
+        )
 
     first = states[0] if states else {}
     return {
@@ -155,11 +209,15 @@ def _concat_global_cext_state(solutions: list[dict]) -> dict:
         "vmax": float(first.get("vmax", VMAX_MM_DEFAULT)),
         "km": float(first.get("km", K_M_MM_DEFAULT)),
         "window_factor": float(first.get("window_factor", WINDOW_FACTOR_DEFAULT)),
-        "_lambda_bin_epoch": max((int(state.get("_lambda_bin_epoch", 0)) for state in states), default=0),
+        "_lambda_bin_epoch": max(
+            (int(state.get("_lambda_bin_epoch", 0)) for state in states), default=0
+        ),
     }
 
 
-def _compute_global_gfm_cext(cext_ts, solutions: list[dict], context: dict | None = None) -> tuple[np.ndarray, dict, dict]:
+def _compute_global_gfm_cext(
+    cext_ts, solutions: list[dict], context: dict | None = None
+) -> tuple[np.ndarray, dict, dict]:
     if cext_ts._cp is None:
         raise RuntimeError("Cext mode requires GPU/CuPy support.")
     if context is None:
@@ -176,7 +234,9 @@ def _compute_global_gfm_cext(cext_ts, solutions: list[dict], context: dict | Non
     )
     grid_meta = {
         "grid_n": int(hybrid.get("grid_n", 0)),
-        "origin_si": np.asarray(hybrid.get("origin", np.zeros((3,), dtype=np.float32)), dtype=float).tolist(),
+        "origin_si": np.asarray(
+            hybrid.get("origin", np.zeros((3,), dtype=np.float32)), dtype=float
+        ).tolist(),
         "side_si": float(hybrid.get("side", 0.0)),
         "spacing_si": float(hybrid.get("spacing", 0.0)),
         "near_radius_si": float(hybrid.get("near_radius_si", 0.0)),
@@ -200,22 +260,40 @@ def _compute_global_gfm_cext(cext_ts, solutions: list[dict], context: dict | Non
     return np.asarray(c_ext_new, dtype=np.float32), dict(timings), grid_meta
 
 
-def _apply_global_cext_update(solutions: list[dict], c_ext_target: np.ndarray, omega: float) -> tuple[float, float]:
-    counts = [int(np.asarray(sol["cext_state"]["c_ext_gl"]).shape[0]) for sol in solutions]
-    old_global = np.concatenate([np.asarray(sol["cext_state"]["c_ext_gl"], dtype=np.float32) for sol in solutions], axis=0)
+def _apply_global_cext_update(
+    solutions: list[dict], c_ext_target: np.ndarray, omega: float
+) -> tuple[float, float]:
+    counts = [
+        int(np.asarray(sol["cext_state"]["c_ext_gl"]).shape[0]) for sol in solutions
+    ]
+    old_global = np.concatenate(
+        [
+            np.asarray(sol["cext_state"]["c_ext_gl"], dtype=np.float32)
+            for sol in solutions
+        ],
+        axis=0,
+    )
     target = np.asarray(c_ext_target, dtype=np.float32)
     if old_global.shape != target.shape:
-        raise ValueError(f"Global Cext target shape {target.shape} does not match current state {old_global.shape}.")
+        raise ValueError(
+            f"Global Cext target shape {target.shape} does not match current state {old_global.shape}."
+        )
     omega_eff = float(omega)
     updated = old_global + np.float32(omega_eff) * (target - old_global)
     delta = target - old_global
     finite_delta = delta[np.isfinite(delta)]
     max_delta = float(np.max(np.abs(finite_delta))) if finite_delta.size else 0.0
     denom = float(np.linalg.norm(target.reshape(-1)))
-    rel_delta = float(np.linalg.norm(delta.reshape(-1)) / max(denom, 1.0e-30)) if delta.size else 0.0
+    rel_delta = (
+        float(np.linalg.norm(delta.reshape(-1)) / max(denom, 1.0e-30))
+        if delta.size
+        else 0.0
+    )
     offset = 0
     for sol, count in zip(solutions, counts):
-        sol["cext_state"]["c_ext_gl"] = np.asarray(updated[offset: offset + count], dtype=np.float32)
+        sol["cext_state"]["c_ext_gl"] = np.asarray(
+            updated[offset : offset + count], dtype=np.float32
+        )
         offset += count
     return max_delta, rel_delta
 
@@ -248,7 +326,11 @@ def _release_cext_transient_gpu_cache(cext_ts, *contexts) -> dict:
                 cached.clear()
                 released["contexts_cleared"] += 1
     if cext_ts is not None:
-        for attr in ("_LAST_CEXT_SOURCE_STATE", "_LAST_CEXT_CONTEXT", "_LAST_TISSUE_TIMINGS"):
+        for attr in (
+            "_LAST_CEXT_SOURCE_STATE",
+            "_LAST_CEXT_CONTEXT",
+            "_LAST_TISSUE_TIMINGS",
+        ):
             if hasattr(cext_ts, attr):
                 try:
                     setattr(cext_ts, attr, None)
@@ -283,7 +365,9 @@ def _solve_multinetwork_shared_global(
     fluid: str,
 ) -> tuple[list[dict], dict]:
     if cext_ts._cp is None:
-        raise RuntimeError("Cext mode requires GPU/CuPy support. Install CuPy or rerun with --no-cext.")
+        raise RuntimeError(
+            "Cext mode requires GPU/CuPy support. Install CuPy or rerun with --no-cext."
+        )
     t_total = perf_counter()
     solutions = []
     initial_cache_releases = []
@@ -293,8 +377,13 @@ def _solve_multinetwork_shared_global(
             cext_ts, ts, tree, inlet_flow, fluid=fluid, progress=_log
         )
         solutions.append(sol)
-        initial_cache_releases.append(_release_cext_transient_gpu_cache(cext_ts, sol.get("cext_context")))
-    if str(getattr(cext_ts, "CEXT_VESS_COUPLING_ACCEL", "none")).strip().lower() != "none":
+        initial_cache_releases.append(
+            _release_cext_transient_gpu_cache(cext_ts, sol.get("cext_context"))
+        )
+    if (
+        str(getattr(cext_ts, "CEXT_VESS_COUPLING_ACCEL", "none")).strip().lower()
+        != "none"
+    ):
         _log(
             "Shared-global forest Cext uses the CASCADE field evaluator with omega relaxation; "
             "use --cext-forest-mode backend-per-tree for the backend's Anderson/active-set loop."
@@ -324,14 +413,20 @@ def _solve_multinetwork_shared_global(
     global_context, _ = _concat_global_cext_context(solutions)
     for iter_idx in range(1, n_evals + 1):
         t_iter = perf_counter()
-        c_ext_new, timings, grid_meta = _compute_global_gfm_cext(cext_ts, solutions, global_context)
-        max_delta_last, rel_delta_last = _apply_global_cext_update(solutions, c_ext_new, omega)
+        c_ext_new, timings, grid_meta = _compute_global_gfm_cext(
+            cext_ts, solutions, global_context
+        )
+        max_delta_last, rel_delta_last = _apply_global_cext_update(
+            solutions, c_ext_new, omega
+        )
         reflected_total = 0.0
-        for tree_id, sol in enumerate(solutions):
+        for sol in solutions:
             t_reflect = perf_counter()
             run_frozen_transport_step(cext_ts, sol, fluid=fluid)
             elapsed = float(perf_counter() - t_reflect)
-            sol["cext_reflected_topdown_s"] = float(sol.get("cext_reflected_topdown_s", 0.0) + elapsed)
+            sol["cext_reflected_topdown_s"] = float(
+                sol.get("cext_reflected_topdown_s", 0.0) + elapsed
+            )
             reflected_total += elapsed
         completed_iters = iter_idx
         timings.update(
@@ -357,21 +452,27 @@ def _solve_multinetwork_shared_global(
             break
 
     for sol in solutions:
-        _snapshot_sol_cext_state(cext_ts, sol, solver=f"shared_global_gfm_{bg_mode}", backend="gpu")
+        _snapshot_sol_cext_state(
+            cext_ts, sol, solver=f"shared_global_gfm_{bg_mode}", backend="gpu"
+        )
 
     cext_vals = [
         np.asarray(sol["cext_state"]["c_ext_gl"], dtype=np.float32).reshape(-1)
         for sol in solutions
         if np.asarray(sol["cext_state"]["c_ext_gl"]).size
     ]
-    all_cext = np.concatenate(cext_vals) if cext_vals else np.empty((0,), dtype=np.float32)
+    all_cext = (
+        np.concatenate(cext_vals) if cext_vals else np.empty((0,), dtype=np.float32)
+    )
     cext_meta = {"timings": {}, "grid": grid_meta}
     cext_meta.update(
         {
             "enabled": True,
             "mode": "shared_global_gfm",
             "bg_mode": str(bg_mode),
-            "near_radius_mult": float(getattr(cext_ts, "CEXT_HYBRID_BG_NEAR_RADIUS_MULT", 0.0)),
+            "near_radius_mult": float(
+                getattr(cext_ts, "CEXT_HYBRID_BG_NEAR_RADIUS_MULT", 0.0)
+            ),
             "max_iter": int(max_iter),
             "completed_iters": int(completed_iters),
             "omega": float(omega),
@@ -385,7 +486,9 @@ def _solve_multinetwork_shared_global(
             "total_s": float(perf_counter() - t_total),
         }
     )
-    cext_meta["post_cext_gpu_cache_release"] = _release_cext_transient_gpu_cache(cext_ts, global_context)
+    cext_meta["post_cext_gpu_cache_release"] = _release_cext_transient_gpu_cache(
+        cext_ts, global_context
+    )
     return solutions, cext_meta
 
 
@@ -414,11 +517,21 @@ def compact_external_field_state(sol: dict) -> dict:
     if context is not None:
         gl_points = np.asarray(context["gl_points_si"], dtype=np.float32)
         diffusivity_si = float(context["diffusivity_si"])
-        segment_vectors = np.asarray(context.get("segment_vectors", np.zeros((gl_points.shape[0], 3), dtype=np.float32)), dtype=np.float32)
+        segment_vectors = np.asarray(
+            context.get(
+                "segment_vectors", np.zeros((gl_points.shape[0], 3), dtype=np.float32)
+            ),
+            dtype=np.float32,
+        )
     else:
         gl_points = np.asarray(state["gl_points_si"], dtype=np.float32)
         diffusivity_si = float(state["diffusivity_si"])
-        segment_vectors = np.asarray(state.get("segment_vectors", np.zeros((gl_points.shape[0], 3), dtype=np.float32)), dtype=np.float32)
+        segment_vectors = np.asarray(
+            state.get(
+                "segment_vectors", np.zeros((gl_points.shape[0], 3), dtype=np.float32)
+            ),
+            dtype=np.float32,
+        )
     q_weighted = np.asarray(state["q_weighted_gl"], dtype=np.float32)
     return {
         "solver": str(state.get("solver", "cext_state")),
@@ -427,20 +540,26 @@ def compact_external_field_state(sol: dict) -> dict:
         "diffusivity_si": diffusivity_si,
         "window_factor": float(state.get("window_factor", WINDOW_FACTOR_DEFAULT)),
         "c_iv_gl": np.asarray(state["c_iv_gl"], dtype=np.float32),
-        "c_bulk_gl": np.asarray(state.get("c_bulk_gl", state["c_iv_gl"]), dtype=np.float32),
-        "c_wall_gl": np.asarray(state.get("c_wall_gl", state["c_iv_gl"]), dtype=np.float32),
+        "c_bulk_gl": np.asarray(
+            state.get("c_bulk_gl", state["c_iv_gl"]), dtype=np.float32
+        ),
+        "c_wall_gl": np.asarray(
+            state.get("c_wall_gl", state["c_iv_gl"]), dtype=np.float32
+        ),
         "c_ext_gl": np.asarray(state["c_ext_gl"], dtype=np.float32),
         "lambda_iv_gl": np.asarray(state["lambda_iv_gl"], dtype=np.float32),
         "k_if_gl": np.asarray(state["k_if_gl"], dtype=np.float32),
         "q_line_gl": np.asarray(state["q_line_gl"], dtype=np.float32),
         "q_weighted_gl": q_weighted,
-        "mono2_weight_gl": np.asarray(state.get("mono2_weight_gl", np.zeros_like(q_weighted)), dtype=np.float32),
-        "dipole2_weight_gl": np.asarray(state.get("dipole2_weight_gl", np.zeros_like(q_weighted)), dtype=np.float32),
+        "mono2_weight_gl": np.asarray(
+            state.get("mono2_weight_gl", np.zeros_like(q_weighted)), dtype=np.float32
+        ),
+        "dipole2_weight_gl": np.asarray(
+            state.get("dipole2_weight_gl", np.zeros_like(q_weighted)), dtype=np.float32
+        ),
         "seg_cap_gl": np.asarray(state["seg_cap_gl"], dtype=np.float32),
         "segment_vectors": segment_vectors,
     }
-
-
 
 
 __all__ = (

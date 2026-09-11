@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from cascade.configuration import _legacy_state as _state
-from cascade.core import VesselConcentrationProblem, VesselConcentrationResult
+from cascade.configuration import solver_state as _state
+from cascade.concentration.vessel.contracts import (
+    VesselConcentrationProblem,
+    VesselConcentrationResult,
+)
 
 from .dispatch import _solve_channel_concentrations
 
@@ -11,7 +14,7 @@ from .dispatch import _solve_channel_concentrations
 def solve_vessel_concentration(
     problem: VesselConcentrationProblem,
 ) -> VesselConcentrationResult:
-    """Solve vessel concentrations without exposing legacy tuple/state conventions."""
+    """Solve vessel concentrations and return a typed result object."""
     inlet, outlet = _solve_channel_concentrations(
         problem.tree,
         problem.flows_cm3_s,

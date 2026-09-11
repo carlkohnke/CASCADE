@@ -10,7 +10,7 @@ import math
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 from cascade.assets.numerics import (
     GRAETZ_BI_PER_DECADE as _PRECOMPUTED_BI_PER_DECADE,
     GRAETZ_MAX_BI as _PRECOMPUTED_MAX_BI,
@@ -18,7 +18,12 @@ from cascade.assets.numerics import (
     GRAETZ_N_MODES as _PRECOMPUTED_N_MODES,
     GRAETZ_N_RADIAL as _PRECOMPUTED_N_RADIAL,
     GRAETZ_PROFILES as _PRECOMPUTED_PROFILES,
+    GRAETZ_VALIDATION_BASIS_TABLE as _VALIDATION_BASIS_TABLE,
+    GRAETZ_VALIDATION_BI_PER_DECADE as _VALIDATION_BI_PER_DECADE,
+    GRAETZ_VALIDATION_N_MODES as _VALIDATION_N_MODES,
+    GRAETZ_VALIDATION_N_RADIAL as _VALIDATION_N_RADIAL,
 )
+
 
 def _graetz_velocity_profile(rho: np.ndarray, profile_name: str) -> np.ndarray:
     profile = str(profile_name or "poiseuille").strip().lower()
@@ -54,7 +59,9 @@ def _graetz_build_matrices(
             N1 = (rho - x0) / h
             dN = np.array([-1.0 / h, 1.0 / h], dtype=float)
             N = np.array([N0, N1], dtype=float)
-            v = float(_graetz_velocity_profile(np.array([rho], dtype=float), profile_name)[0])
+            v = float(
+                _graetz_velocity_profile(np.array([rho], dtype=float), profile_name)[0]
+            )
             stiff_w = rho * jac
             mass_w = rho * v * jac
             for a in range(2):
@@ -78,7 +85,9 @@ def _graetz_get_basis(
     profile_name: str,
 ) -> dict:
     if _state._scipy_linalg is None:
-        raise RuntimeError("Graetz closure requires scipy.linalg in the active Python environment.")
+        raise RuntimeError(
+            "Graetz closure requires scipy.linalg in the active Python environment."
+        )
     n = max(int(n_radial), 2)
     nm = max(1, min(int(n_modes), n))
     K, M, rho, cup = _graetz_build_matrices(float(Bi), n, profile_name)
@@ -113,34 +122,60 @@ def _graetz_get_basis_table(
     n = max(int(n_radial), 2)
     nm = max(1, min(int(n_modes), n))
     profile = str(profile_name or "poiseuille").strip().lower()
-    per_decade = max(int(bi_per_decade if bi_per_decade is not None else _state.GRAETZ_BI_CACHE_PER_DECADE), 1)
+    per_decade = max(
+        int(
+            bi_per_decade
+            if bi_per_decade is not None
+            else _state.GRAETZ_BI_CACHE_PER_DECADE
+        ),
+        1,
+    )
     bi_min = max(float(min_bi if min_bi is not None else _state.GRAETZ_MIN_BI), 1e-30)
     bi_max = max(float(max_bi if max_bi is not None else _state.GRAETZ_MAX_BI), bi_min)
     requested = (n, nm, per_decade, bi_min, bi_max)
-    supported = (
+    production_profile = (
         _PRECOMPUTED_N_RADIAL,
         _PRECOMPUTED_N_MODES,
         _PRECOMPUTED_BI_PER_DECADE,
         _PRECOMPUTED_MIN_BI,
         _PRECOMPUTED_MAX_BI,
     )
-    if requested != supported:
+    validation_profile = (
+        _VALIDATION_N_RADIAL,
+        _VALIDATION_N_MODES,
+        _VALIDATION_BI_PER_DECADE,
+        _PRECOMPUTED_MIN_BI,
+        _PRECOMPUTED_MAX_BI,
+    )
+    if requested == production_profile:
+        basis_path = _state.GRAETZ_BASIS_PATH
+        table_version = "production-8x4-v1"
+    elif requested == validation_profile:
+        basis_path = _VALIDATION_BASIS_TABLE
+        table_version = "validation-6x3-v1"
+    else:
         raise ValueError(
-            "CASCADE's validated Graetz closure uses the fixed precomputed "
-            f"8-node/4-mode basis ({_PRECOMPUTED_BI_PER_DECADE} Bi bins per decade, "
-            f"{_PRECOMPUTED_MIN_BI:g} <= Bi <= {_PRECOMPUTED_MAX_BI:g}); got {requested}."
+            "CASCADE's Graetz closure accepts the precomputed production "
+            f"{_PRECOMPUTED_N_RADIAL}-node/{_PRECOMPUTED_N_MODES}-mode basis "
+            f"({_PRECOMPUTED_BI_PER_DECADE} Bi bins per decade, "
+            "or the reference-compatible "
+            f"{_VALIDATION_N_RADIAL}-node/{_VALIDATION_N_MODES}-mode basis "
+            f"({_VALIDATION_BI_PER_DECADE} bins per decade), both over "
+            f"{_PRECOMPUTED_MIN_BI:g} <= Bi <= {_PRECOMPUTED_MAX_BI:g}; got {requested}."
         )
     if profile not in _PRECOMPUTED_PROFILES:
-        raise ValueError(f"Unsupported Graetz velocity profile {profile!r}; choose one of {_PRECOMPUTED_PROFILES}.")
-    key_min = int(round(math.log10(_PRECOMPUTED_MIN_BI) * _PRECOMPUTED_BI_PER_DECADE))
-    key_max = int(round(math.log10(_PRECOMPUTED_MAX_BI) * _PRECOMPUTED_BI_PER_DECADE))
-    cache_key = ("precomputed-v1", profile)
+        raise ValueError(
+            f"Unsupported Graetz velocity profile {profile!r}; choose one of {_PRECOMPUTED_PROFILES}."
+        )
+    key_min = int(round(math.log10(_PRECOMPUTED_MIN_BI) * per_decade))
+    key_max = int(round(math.log10(_PRECOMPUTED_MAX_BI) * per_decade))
+    cache_key = (table_version, profile)
     cached = _state._GRAETZ_BASIS_TABLE_CACHE.get(cache_key)
     if cached is not None:
         return cached
     n_keys = key_max - key_min + 1
     try:
-        with np.load(_state.GRAETZ_BASIS_PATH, allow_pickle=False) as data:
+        with np.load(basis_path, allow_pickle=False) as data:
             metadata = {
                 "format_version": int(np.asarray(data["format_version"]).item()),
                 "n_radial": int(np.asarray(data["n_radial"]).item()),
@@ -152,11 +187,15 @@ def _graetz_get_basis_table(
             bi_values = np.asarray(data["bi_values"], dtype=np.float32).copy()
             mu2_table = np.asarray(data[f"{profile}_mu2"], dtype=np.float32).copy()
             phi_table = np.asarray(data[f"{profile}_phi"], dtype=np.float32).copy()
-            project_table = np.asarray(data[f"{profile}_project"], dtype=np.float32).copy()
-            cup_table = np.asarray(data[f"{profile}_cup_weights"], dtype=np.float32).copy()
+            project_table = np.asarray(
+                data[f"{profile}_project"], dtype=np.float32
+            ).copy()
+            cup_table = np.asarray(
+                data[f"{profile}_cup_weights"], dtype=np.float32
+            ).copy()
     except Exception as exc:
         raise RuntimeError(
-            f"Unable to load the packaged Graetz basis at {_state.GRAETZ_BASIS_PATH}: {exc}"
+            f"Unable to load the packaged Graetz basis at {basis_path}: {exc}"
         ) from exc
     expected_metadata = {
         "format_version": 1,
@@ -168,7 +207,7 @@ def _graetz_get_basis_table(
     }
     if metadata != expected_metadata:
         raise RuntimeError(
-            f"Graetz basis metadata mismatch at {_state.GRAETZ_BASIS_PATH}: "
+            f"Graetz basis metadata mismatch at {basis_path}: "
             f"expected {expected_metadata}, found {metadata}."
         )
     expected_shapes = {
@@ -187,9 +226,13 @@ def _graetz_get_basis_table(
     }
     for name, values in arrays.items():
         if values.shape != expected_shapes[name] or not np.all(np.isfinite(values)):
-            raise RuntimeError(f"Invalid {name} array in Graetz basis at {_state.GRAETZ_BASIS_PATH}.")
+            raise RuntimeError(
+                f"Invalid {name} array in Graetz basis at {basis_path}."
+            )
     if not np.all(mu2_table >= 0.0) or not np.all(np.diff(bi_values) > 0.0):
-        raise RuntimeError(f"Invalid eigenvalues or Bi ordering in {_state.GRAETZ_BASIS_PATH}.")
+        raise RuntimeError(
+            f"Invalid eigenvalues or Bi ordering in {basis_path}."
+        )
     table = {
         "profile": profile,
         "n_radial": n,
@@ -209,4 +252,9 @@ def _graetz_get_basis_table(
     return table
 
 
-__all__ = ['_graetz_velocity_profile', '_graetz_build_matrices', '_graetz_get_basis', '_graetz_get_basis_table']
+__all__ = [
+    "_graetz_velocity_profile",
+    "_graetz_build_matrices",
+    "_graetz_get_basis",
+    "_graetz_get_basis_table",
+]

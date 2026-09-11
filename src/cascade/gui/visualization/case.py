@@ -2,26 +2,25 @@
 
 from __future__ import annotations
 
-from cascade.gui.visualization.common import (
-    Any,
-    ChoiceComboBox,
-    IconButton,
-    Path,
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+from PySide6.QtCore import QSize, QTimer, Signal
+from PySide6.QtGui import QIntValidator
+from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QIntValidator,
     QLabel,
     QLineEdit,
     QPushButton,
-    QSize,
-    QTimer,
     QVBoxLayout,
     QWidget,
-    Signal,
-    json,
-    np,
 )
+
+from cascade.gui.widgets import ChoiceComboBox, IconButton
 
 from cascade.gui.visualization.fields import (
     _display_field_values,
@@ -50,6 +49,7 @@ from cascade.gui.visualization.geometry import (
     select_tissue_points,
     select_vessel_indices,
 )
+
 
 class CasePreview(QFrame):
     """Persistent preview panel shared by setup and analysis pages."""
@@ -116,7 +116,9 @@ class CasePreview(QFrame):
         # "Wireframe" plus the arrow needs a little more than the 94 px
         # compact width; 104 px stays compact without clipping the label.
         self.domain_view.setFixedWidth(104)
-        self.domain_view.setToolTip("Switch the domain between sectioned wireframe and translucent surface views.")
+        self.domain_view.setToolTip(
+            "Switch the domain between sectioned wireframe and translucent surface views."
+        )
         self.domain_view.currentIndexChanged.connect(
             lambda: self.canvas.set_domain_mode(self.domain_view.currentData())
         )
@@ -179,7 +181,9 @@ class CasePreview(QFrame):
         self.tissue_count.setObjectName("viewerTissueCount")
         self.tissue_count.setValidator(QIntValidator(1, 10_000_000, self.tissue_count))
         self.tissue_count.setAccessibleName("Maximum tissue points shown")
-        self.tissue_count.setToolTip("Maximum number of tissue points drawn in the viewer")
+        self.tissue_count.setToolTip(
+            "Maximum number of tissue points drawn in the viewer"
+        )
 
         def field(label: str, widget: QWidget) -> QWidget:
             container = QWidget(panel)
@@ -297,8 +301,12 @@ class CasePreview(QFrame):
         config.setdefault("gui", {})["viewer"] = self.view_settings()
 
     def _sync_count_enabled(self) -> None:
-        self.vessel_count.setEnabled(self.vessel_selection.currentData() not in {"all", "none"})
-        self.tissue_count.setEnabled(self.tissue_selection.currentData() not in {"all", "none"})
+        self.vessel_count.setEnabled(
+            self.vessel_selection.currentData() not in {"all", "none"}
+        )
+        self.tissue_count.setEnabled(
+            self.tissue_selection.currentData() not in {"all", "none"}
+        )
 
     def home(self) -> None:
         self.canvas.home()
@@ -454,7 +462,9 @@ class CasePreview(QFrame):
                 else None
             )
         roots = config.get("network", {}).get("roots") or []
-        inlets = np.asarray([root.get("start", [0, 0, 0]) for root in roots], dtype=float)
+        inlets = np.asarray(
+            [root.get("start", [0, 0, 0]) for root in roots], dtype=float
+        )
         segments = response.get("segments", [])
         requested_segments = response.get("requested_segments", segments)
         total_vessels = sum(int(value) for value in requested_segments)
@@ -520,7 +530,9 @@ class CasePreview(QFrame):
                 unique_ids, first_ids = np.unique(logical_ids, return_index=True)
                 _, reverse_first_ids = np.unique(logical_ids[::-1], return_index=True)
                 last_ids = len(logical_ids) - 1 - reverse_first_ids
-                vessel_mode, vessel_limit = self._layer_policy("vessel", len(unique_ids))
+                vessel_mode, vessel_limit = self._layer_policy(
+                    "vessel", len(unique_ids)
+                )
                 selected_ids = select_vessel_indices(
                     cache["starts"][first_ids],
                     cache["ends"][last_ids],
@@ -530,7 +542,9 @@ class CasePreview(QFrame):
                 )
                 selected_logical_ids = unique_ids[selected_ids]
                 visible_indices = np.flatnonzero(
-                    np.isin(logical_ids, np.asarray(selected_logical_ids, dtype=np.int64))
+                    np.isin(
+                        logical_ids, np.asarray(selected_logical_ids, dtype=np.int64)
+                    )
                 )
                 starts = cache["starts"][visible_indices]
                 ends = cache["ends"][visible_indices]
@@ -555,7 +569,9 @@ class CasePreview(QFrame):
             values, vessel_label = _display_field_values(
                 "vessel", vessel_field, cache, options
             )
-            values = values[self._visible_result_indices] if values is not None else None
+            values = (
+                values[self._visible_result_indices] if values is not None else None
+            )
             tissue_mode, tissue_limit = self._layer_policy(
                 "tissue", len(cache["tissue_points"])
             )
@@ -570,7 +586,9 @@ class CasePreview(QFrame):
             tissue_values, tissue_label = _display_field_values(
                 "tissue", tissue_field, cache, options
             )
-            tissue_values = tissue_values[tissue_indices] if tissue_values is not None else None
+            tissue_values = (
+                tissue_values[tissue_indices] if tissue_values is not None else None
+            )
             radius_source = next(
                 (
                     values
@@ -685,6 +703,4 @@ class CasePreview(QFrame):
         return cache
 
 
-
-
-__all__ = ('CasePreview',)
+__all__ = ("CasePreview",)

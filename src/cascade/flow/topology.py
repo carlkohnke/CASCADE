@@ -1,5 +1,4 @@
-"""Flow-network node indexing and boundary-condition normalization.
-"""
+"""Flow-network node indexing and boundary-condition normalization."""
 
 from __future__ import annotations
 
@@ -7,10 +6,12 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 
 
-def _build_node_indices(geom: np.ndarray, decimals: int = 12) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _build_node_indices(
+    geom: np.ndarray, decimals: int = 12
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     prox_points = geom[:, 0:3]
     dist_points = geom[:, 3:6]
     node_lookup: Dict[Tuple[float, float, float], int] = {}
@@ -53,4 +54,4 @@ def _normalize_kirchhoff_bc_mode(value: str | None = None) -> str:
         ) from exc
 
 
-__all__ = ['_build_node_indices', '_normalize_kirchhoff_bc_mode']
+__all__ = ["_build_node_indices", "_normalize_kirchhoff_bc_mode"]

@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from cascade.gui.visualization.common import (
-    Any,
-    Path,
-    channel_count,
-    generate_lattice,
-    lru_cache,
-    np,
-    resolve_domain_path,
-)
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from cascade.utils.resources import resolve_domain_path
+from cascade.vessels.lattice import channel_count, generate_lattice
 
 from cascade.gui.visualization.fields import (
     _mesh_line_segments,
@@ -18,6 +17,7 @@ from cascade.gui.visualization.fields import (
     _polyline_data,
     _values,
 )
+
 
 def domain_wireframe(domain: dict[str, Any]) -> np.ndarray:
     kind = str(domain.get("type", domain.get("kind", "cube"))).lower()
@@ -28,7 +28,11 @@ def domain_wireframe(domain: dict[str, Any]) -> np.ndarray:
         theta = np.linspace(0, 2 * np.pi, 49)
         for phi in np.linspace(-np.pi / 2, np.pi / 2, 7)[1:-1]:
             ring = center + radius * np.column_stack(
-                (np.cos(phi) * np.cos(theta), np.cos(phi) * np.sin(theta), np.full_like(theta, np.sin(phi)))
+                (
+                    np.cos(phi) * np.cos(theta),
+                    np.cos(phi) * np.sin(theta),
+                    np.full_like(theta, np.sin(phi)),
+                )
             )
             lines.extend(np.stack((ring[:-1], ring[1:]), axis=1))
         phi = np.linspace(-np.pi / 2, np.pi / 2, 25)
@@ -58,11 +62,20 @@ def domain_wireframe(domain: dict[str, Any]) -> np.ndarray:
         dtype=float,
     )
     center = np.asarray(domain.get("center", [0.0, 0.0, 0.0]), dtype=float)
-    corners = np.array(
-        [[x, y, z] for x in (-0.5, 0.5) for y in (-0.5, 0.5) for z in (-0.5, 0.5)],
-        dtype=float,
-    ) * dims + center
-    edges = [(i, j) for i in range(8) for j in range(i + 1, 8) if np.sum(corners[i] != corners[j]) == 1]
+    corners = (
+        np.array(
+            [[x, y, z] for x in (-0.5, 0.5) for y in (-0.5, 0.5) for z in (-0.5, 0.5)],
+            dtype=float,
+        )
+        * dims
+        + center
+    )
+    edges = [
+        (i, j)
+        for i in range(8)
+        for j in range(i + 1, 8)
+        if np.sum(corners[i] != corners[j]) == 1
+    ]
     return np.asarray([[corners[i], corners[j]] for i, j in edges], dtype=np.float32)
 
 
@@ -105,10 +118,14 @@ def domain_surface_triangles(domain: dict[str, Any]) -> np.ndarray:
         return np.asarray(triangles, dtype=np.float32)
 
     dims, center = _domain_dimensions(domain)
-    corners = np.asarray(
-        [[x, y, z] for x in (-0.5, 0.5) for y in (-0.5, 0.5) for z in (-0.5, 0.5)],
-        dtype=float,
-    ) * dims + center
+    corners = (
+        np.asarray(
+            [[x, y, z] for x in (-0.5, 0.5) for y in (-0.5, 0.5) for z in (-0.5, 0.5)],
+            dtype=float,
+        )
+        * dims
+        + center
+    )
     quads = (
         (0, 1, 3, 2),
         (4, 6, 7, 5),
@@ -130,7 +147,9 @@ def network_geometry(config: dict[str, Any]):
     if source == "lattice" or simple.get("mode") == "lattice":
         cells = int(simple.get("cells", 4))
         lattice_type = str(simple.get("lattice_type", "cubic"))
-        estimated = channel_count(cells, lattice_type) * max(int(simple.get("subdivisions", 1)), 1)
+        estimated = channel_count(cells, lattice_type) * max(
+            int(simple.get("subdivisions", 1)), 1
+        )
         preview_cells = cells
         simplified = False
         if estimated > 120_000:
@@ -160,7 +179,9 @@ def network_geometry(config: dict[str, Any]):
             f"{len(lattice['outlet_nodes'])} outlet{'s' if len(lattice['outlet_nodes']) != 1 else ''}"
         )
         if inlet_connections or outlet_connections:
-            detail += f"  │  {inlet_connections + outlet_connections} boundary connections"
+            detail += (
+                f"  │  {inlet_connections + outlet_connections} boundary connections"
+            )
         if simplified:
             detail += f"  │  preview simplified from ~{estimated:,}"
         return (
@@ -175,13 +196,37 @@ def network_geometry(config: dict[str, Any]):
     if source == "simple" or network.get("mode") == "simple":
         starts, ends = _simple_geometry(config)
         radii = np.full(len(starts), float(simple.get("radius_cm", 0.015)))
-        return starts, ends, radii, starts[:1], ends[-1:], None, f"{len(starts):,} channels shown"
+        return (
+            starts,
+            ends,
+            radii,
+            starts[:1],
+            ends[-1:],
+            None,
+            f"{len(starts):,} channels shown",
+        )
     if source == "uploaded" and network.get("input_path"):
         starts, ends = _load_uploaded_geometry(Path(str(network["input_path"])))
-        return starts, ends, None, starts[:1], ends[-1:], None, f"{len(starts):,} uploaded vessels"
+        return (
+            starts,
+            ends,
+            None,
+            starts[:1],
+            ends[-1:],
+            None,
+            f"{len(starts):,} uploaded vessels",
+        )
     roots = network.get("roots") or ([network["root"]] if network.get("root") else [])
     starts, ends, alpha, inlets = _svv_placeholder_geometry(config, roots)
-    return starts, ends, None, inlets, None, alpha, "Preparing the exact hydraulic SVV seed…"
+    return (
+        starts,
+        ends,
+        None,
+        inlets,
+        None,
+        alpha,
+        "Preparing the exact hydraulic SVV seed…",
+    )
 
 
 def _svv_placeholder_geometry(config, roots):
@@ -259,9 +304,15 @@ def limit_near_inlets(
         ids = ids[np.argsort(distances[ids, inlet], kind="stable")]
         chosen.extend(ids[:quota].tolist())
     if len(chosen) < int(limit):
-        remaining = np.setdiff1d(np.arange(n), np.asarray(chosen, dtype=int), assume_unique=False)
+        remaining = np.setdiff1d(
+            np.arange(n), np.asarray(chosen, dtype=int), assume_unique=False
+        )
         nearest = np.min(distances[remaining], axis=1)
-        chosen.extend(remaining[np.argsort(nearest, kind="stable")[: int(limit) - len(chosen)]].tolist())
+        chosen.extend(
+            remaining[
+                np.argsort(nearest, kind="stable")[: int(limit) - len(chosen)]
+            ].tolist()
+        )
     ids = np.asarray(chosen[: int(limit)], dtype=int)
     third = vals[ids] if values is not None else alphas[ids]
     return starts[ids], ends[ids], third, alphas[ids]
@@ -307,7 +358,9 @@ def select_vessel_indices(
         )
         nearest = np.min(distances[remaining], axis=1)
         chosen.extend(
-            remaining[np.argsort(nearest, kind="stable")[: limit - len(chosen)]].tolist()
+            remaining[
+                np.argsort(nearest, kind="stable")[: limit - len(chosen)]
+            ].tolist()
         )
     return np.asarray(chosen[:limit], dtype=int)
 
@@ -427,7 +480,10 @@ def preview_tissue_geometry(
     if requested <= limit:
         selection_mode = "all"
     ids, alpha = select_tissue_points(
-        points, inlet_points if inlet_points is not None else [], mode=selection_mode, limit=limit
+        points,
+        inlet_points if inlet_points is not None else [],
+        mode=selection_mode,
+        limit=limit,
     )
     return points[ids], alpha, requested
 
@@ -448,7 +504,9 @@ def _sample_preview_domain_points(
         if path is None:
             raise FileNotFoundError(domain["path"])
         stat = path.stat()
-        surface = _cached_domain_surface(str(path), int(stat.st_mtime_ns), int(stat.st_size))
+        surface = _cached_domain_surface(
+            str(path), int(stat.st_mtime_ns), int(stat.st_size)
+        )
         bounds = np.asarray(surface.bounds, dtype=float).reshape(3, 2)
         center = bounds.mean(axis=1)
         dims = bounds[:, 1] - bounds[:, 0]
@@ -457,7 +515,11 @@ def _sample_preview_domain_points(
     if mode == "grid":
         grid_shape = _bounded_grid_shape(shape, count)
         axes = [
-            np.linspace(center[axis] - 0.5 * dims[axis], center[axis] + 0.5 * dims[axis], int(grid_shape[axis]))
+            np.linspace(
+                center[axis] - 0.5 * dims[axis],
+                center[axis] + 0.5 * dims[axis],
+                int(grid_shape[axis]),
+            )
             for axis in range(3)
         ]
         mesh = np.meshgrid(*axes, indexing="ij")
@@ -465,9 +527,13 @@ def _sample_preview_domain_points(
     elif kind == "sphere":
         rng = np.random.default_rng(random_seed)
         direction = rng.normal(size=(count, 3))
-        direction /= np.maximum(np.linalg.norm(direction, axis=1, keepdims=True), 1.0e-12)
+        direction /= np.maximum(
+            np.linalg.norm(direction, axis=1, keepdims=True), 1.0e-12
+        )
         radius = float(domain.get("radius", dims[0] / 2.0))
-        points = center + direction * (rng.random(count) ** (1.0 / 3.0) * radius)[:, None]
+        points = (
+            center + direction * (rng.random(count) ** (1.0 / 3.0) * radius)[:, None]
+        )
     elif surface is not None:
         rng = np.random.default_rng(random_seed)
         accepted = []
@@ -528,7 +594,14 @@ def _domain_dimensions(domain):
     side = float(domain.get("side_length", 1.0))
     if str(domain.get("type", "cube")) == "sphere":
         side = 2.0 * float(domain.get("radius", side / 2.0))
-    dims = np.asarray([domain.get("x_length", side), domain.get("y_length", side), domain.get("z_length", side)], dtype=float)
+    dims = np.asarray(
+        [
+            domain.get("x_length", side),
+            domain.get("y_length", side),
+            domain.get("z_length", side),
+        ],
+        dtype=float,
+    )
     center = np.asarray(domain.get("center", [0, 0, 0]), dtype=float)
     return dims, center
 
@@ -538,9 +611,14 @@ def _analytic_inside(domain):
     dims, center = _domain_dimensions(domain)
     if kind == "sphere":
         radius = float(domain.get("radius", dims[0] / 2.0))
-        return lambda points: np.linalg.norm(np.asarray(points) - center, axis=1) <= radius * (1.0 + 1e-10)
+        return lambda points: (
+            np.linalg.norm(np.asarray(points) - center, axis=1)
+            <= radius * (1.0 + 1e-10)
+        )
     if kind in {"cube", "box"}:
-        return lambda points: np.all(np.abs(np.asarray(points) - center) <= 0.5 * dims + 1e-10, axis=1)
+        return lambda points: np.all(
+            np.abs(np.asarray(points) - center) <= 0.5 * dims + 1e-10, axis=1
+        )
     return None
 
 
@@ -601,9 +679,11 @@ def _mesh_wireframe(mesh) -> np.ndarray:
         surface = mesh.extract_surface().triangulate().clean()
         if surface.n_cells > 5_000:
             reduction = 1.0 - 4_000.0 / float(surface.n_cells)
-            surface = surface.decimate_pro(
-                reduction, preserve_topology=True
-            ).triangulate().clean()
+            surface = (
+                surface.decimate_pro(reduction, preserve_topology=True)
+                .triangulate()
+                .clean()
+            )
         bounds = np.asarray(surface.bounds, dtype=float).reshape(3, 2)
         center = bounds.mean(axis=1)
         contour_segments = []
@@ -614,9 +694,8 @@ def _mesh_wireframe(mesh) -> np.ndarray:
             # without reverting to the old every-triangle visual noise.
             for fraction in (0.20, 0.50, 0.80):
                 origin = center.copy()
-                origin[axis] = (
-                    bounds[axis, 0]
-                    + fraction * (bounds[axis, 1] - bounds[axis, 0])
+                origin[axis] = bounds[axis, 0] + fraction * (
+                    bounds[axis, 1] - bounds[axis, 0]
                 )
                 sliced = surface.slice(normal=normal, origin=origin)
                 segments = _mesh_line_segments(sliced)
@@ -653,9 +732,11 @@ def _mesh_triangles(mesh, *, maximum: int = 1_800) -> np.ndarray:
         surface = mesh.extract_surface().triangulate().clean()
         if surface.n_cells > maximum:
             reduction = 1.0 - float(maximum) / float(surface.n_cells)
-            surface = surface.decimate_pro(
-                reduction, preserve_topology=True
-            ).triangulate().clean()
+            surface = (
+                surface.decimate_pro(reduction, preserve_topology=True)
+                .triangulate()
+                .clean()
+            )
         faces = np.asarray(surface.faces, dtype=np.int64).reshape(-1, 4)
         faces = faces[faces[:, 0] == 3, 1:4]
         if len(faces) > maximum:
@@ -669,18 +750,14 @@ def _mesh_triangles(mesh, *, maximum: int = 1_800) -> np.ndarray:
 def _cached_domain_wireframe(
     path: str, _modified_ns: int, _file_size: int
 ) -> np.ndarray:
-    return _mesh_wireframe(
-        _cached_domain_surface(path, _modified_ns, _file_size)
-    )
+    return _mesh_wireframe(_cached_domain_surface(path, _modified_ns, _file_size))
 
 
 @lru_cache(maxsize=6)
 def _cached_domain_triangles(
     path: str, _modified_ns: int, _file_size: int
 ) -> np.ndarray:
-    return _mesh_triangles(
-        _cached_domain_surface(path, _modified_ns, _file_size)
-    )
+    return _mesh_triangles(_cached_domain_surface(path, _modified_ns, _file_size))
 
 
 @lru_cache(maxsize=6)
@@ -690,6 +767,26 @@ def _cached_domain_surface(path: str, _modified_ns: int, _file_size: int):
     return pv.read(path).extract_surface().triangulate().clean()
 
 
-
-
-__all__ = ('domain_wireframe', 'domain_surface_triangles', 'network_geometry', '_svv_placeholder_geometry', 'limit_near_inlets', 'select_vessel_indices', 'select_tissue_points', '_requested_tissue_count', 'preview_tissue_geometry', '_sample_preview_domain_points', '_points_inside_surface', '_bounded_grid_shape', '_domain_dimensions', '_analytic_inside', '_simple_geometry', '_load_uploaded_geometry', '_mesh_wireframe', '_mesh_triangles', '_cached_domain_wireframe', '_cached_domain_triangles', '_cached_domain_surface')
+__all__ = (
+    "domain_wireframe",
+    "domain_surface_triangles",
+    "network_geometry",
+    "_svv_placeholder_geometry",
+    "limit_near_inlets",
+    "select_vessel_indices",
+    "select_tissue_points",
+    "_requested_tissue_count",
+    "preview_tissue_geometry",
+    "_sample_preview_domain_points",
+    "_points_inside_surface",
+    "_bounded_grid_shape",
+    "_domain_dimensions",
+    "_analytic_inside",
+    "_simple_geometry",
+    "_load_uploaded_geometry",
+    "_mesh_wireframe",
+    "_mesh_triangles",
+    "_cached_domain_wireframe",
+    "_cached_domain_triangles",
+    "_cached_domain_surface",
+)

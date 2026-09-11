@@ -1,4 +1,7 @@
 """Tissue sampling geometry and spatial caches.
+
+The module limits vessel candidates by the Green's-function window, prepares
+quadrature geometry, and chunks large point sets for bounded-memory execution.
 """
 
 from __future__ import annotations
@@ -10,9 +13,14 @@ import traceback
 import numpy as np
 from scipy.spatial import cKDTree as _cKDTree
 
-from cascade.configuration import _legacy_state as _state
-from cascade.concentration.vessel.greens import _k0_lookup, _k_ratio, _tissue_kernel_numba
+from cascade.configuration import solver_state as _state
+from cascade.concentration.vessel.greens import (
+    _k0_lookup,
+    _k_ratio,
+    _tissue_kernel_numba,
+)
 from cascade.diagnostics.runtime import _ckdtree_query, _fmt_seconds
+
 
 def _diagnostic_stats(name: str, values: np.ndarray) -> str:
     arr = np.asarray(values).reshape(-1)
@@ -26,26 +34,9 @@ def _diagnostic_stats(name: str, values: np.ndarray) -> str:
     )
 
 
-def get_analysis_fluids() -> tuple[str, ...]:
-    mode = str(_state.FLUID).lower()
-    if mode == "both":
-        return ("water", "blood")
-    if mode in ("water", "blood"):
-        return (mode,)
-    raise ValueError('FLUID must be "water", "blood", or "both".')
-
-
-def get_concentration_inlet(fluid: str | None = None) -> float:
-    mode = str(fluid or _state.ACTIVE_FLUID).lower()
-    if mode == "both":
-        raise ValueError("Active fluid must be 'water' or 'blood'.")
-    try:
-        return float(_state.CONCENTRATION_INLET_BY_FLUID[mode])
-    except KeyError as exc:  # pragma: no cover
-        raise ValueError(f"Unknown fluid mode: {mode}") from exc
-
-
-def _process_tissue_chunk(start_idx: int, end_idx: int, data: dict) -> tuple[int, np.ndarray]:
+def _process_tissue_chunk(
+    start_idx: int, end_idx: int, data: dict
+) -> tuple[int, np.ndarray]:
 
     points_si = data["points_si"]
     starts_si = data["starts_si"]
@@ -140,8 +131,6 @@ def _process_tissue_chunk(start_idx: int, end_idx: int, data: dict) -> tuple[int
             Ci_R = cc_s * (k0_num / np.maximum(k0_den, 1e-300))
             denom_corr = np.maximum(km + np.minimum(Ci_R, cc_s), 1e-30)
 
-
-
             # ramp_span = max(max_r_ratio - min_r_ratio, 1e-12)
             # t_ramp = np.clip((r_over_lam - min_r_ratio) / ramp_span, 0.0, 1.0)
             # c_low = cs_mult_min * cc_s + np.minimum(cr_mult_min * Ci_R,cc_s)
@@ -149,13 +138,14 @@ def _process_tissue_chunk(start_idx: int, end_idx: int, data: dict) -> tuple[int
             # c_eff = (1.0 - t_ramp) * c_low + t_ramp * c_high
             # denom_corr = np.maximum(km + np.maximum(c_eff, 1e-12), 1e-30)
 
-
             lam_corr = np.sqrt(diffusivity_si / np.maximum(vmax / denom_corr, 1e-30))
             phi = np.maximum(radii_si[seg_i] / np.maximum(lam_corr, 1e-30), 1e-12)
             ratio = _k_ratio(phi)
             wall_factor = (diffusivity_si / np.maximum(lam_corr, 1e-30)) * ratio
             q_s = (2.0 * np.pi * radii_si[seg_i]) * wall_factor * cc_s
-            kernel = np.exp(-r_safe / np.maximum(lam_corr, 1e-30)) / (4.0 * np.pi * r_safe)
+            kernel = np.exp(-r_safe / np.maximum(lam_corr, 1e-30)) / (
+                4.0 * np.pi * r_safe
+            )
             integrand = q_s * (kernel / diffusivity_si)
             integrand[~valid_r] = 0.0
 
@@ -180,7 +170,11 @@ def _prepare_tissue_geometry(
 ) -> dict:
     t_total = perf_counter()
     t0 = perf_counter()
-    cache_float = np.float64 if _state.TISSUE_CACHE_FORCE_FLOAT64 else _state.TISSUE_CACHE_FLOAT_DTYPE
+    cache_float = (
+        np.float64
+        if _state.TISSUE_CACHE_FORCE_FLOAT64
+        else _state.TISSUE_CACHE_FLOAT_DTYPE
+    )
     points_si = (points * _state.CM_TO_M).astype(cache_float, copy=False)
     starts_si = (starts * _state.CM_TO_M).astype(cache_float, copy=False)
     ends_si = (ends * _state.CM_TO_M).astype(cache_float, copy=False)
@@ -188,7 +182,9 @@ def _prepare_tissue_geometry(
 
     segment_vectors = ends_si - starts_si
     seg_len_sq = np.sum(segment_vectors**2, axis=1)
-    min_len_sq = float(_state.TISSUE_MIN_SEGMENT_LENGTH_SI) * float(_state.TISSUE_MIN_SEGMENT_LENGTH_SI)
+    min_len_sq = float(_state.TISSUE_MIN_SEGMENT_LENGTH_SI) * float(
+        _state.TISSUE_MIN_SEGMENT_LENGTH_SI
+    )
     valid = np.isfinite(seg_len_sq) & (seg_len_sq > min_len_sq)
     starts_si = starts_si[valid]
     ends_si = ends_si[valid]
@@ -214,7 +210,9 @@ def _prepare_tissue_geometry(
         }
 
     nseg = starts_si.shape[0]
-    candidate_k = min(nseg, max(max_nearby, max_nearby * _state.TISSUE_KDTREE_CANDIDATE_MULT))
+    candidate_k = min(
+        nseg, max(max_nearby, max_nearby * _state.TISSUE_KDTREE_CANDIDATE_MULT)
+    )
     max_nearby = min(max_nearby, candidate_k, nseg)
     if max_nearby <= 0:
         return {
@@ -241,7 +239,9 @@ def _prepare_tissue_geometry(
         tree = None
         t_kdtree = 0.0
 
-    nearest_idx = np.zeros((points.shape[0], max_nearby), dtype=_state.TISSUE_CACHE_INDEX_DTYPE)
+    nearest_idx = np.zeros(
+        (points.shape[0], max_nearby), dtype=_state.TISSUE_CACHE_INDEX_DTYPE
+    )
     proj_raw = np.zeros((points.shape[0], max_nearby), dtype=cache_float)
     d_center = np.zeros((points.shape[0], max_nearby), dtype=cache_float)
     keep_mask = np.ones((points.shape[0],), dtype=bool)
@@ -251,7 +251,7 @@ def _prepare_tissue_geometry(
     t_refine = 0.0
     t_inside = 0.0
     for idx in range(0, len(points_si), chunk_size):
-        chunk = points_si[idx: idx + chunk_size]
+        chunk = points_si[idx : idx + chunk_size]
         if chunk.size == 0:
             continue
         if tree is not None:
@@ -273,22 +273,24 @@ def _prepare_tissue_geometry(
         closest = starts_c + proj_clipped[:, :, None] * seg_c
         dist = np.linalg.norm(chunk[:, None, :] - closest, axis=2)
         sel = np.argpartition(dist, kth=max_nearby - 1, axis=1)[:, :max_nearby]
-        nearest_idx[idx: idx + len(chunk)] = np.take_along_axis(cand, sel, axis=1)
-        proj_raw[idx: idx + len(chunk)] = np.take_along_axis(proj, sel, axis=1)
-        d_center[idx: idx + len(chunk)] = np.take_along_axis(dist, sel, axis=1)
+        nearest_idx[idx : idx + len(chunk)] = np.take_along_axis(cand, sel, axis=1)
+        proj_raw[idx : idx + len(chunk)] = np.take_along_axis(proj, sel, axis=1)
+        d_center[idx : idx + len(chunk)] = np.take_along_axis(dist, sel, axis=1)
         t_refine += perf_counter() - t0
 
         t0 = perf_counter()
         radius_local = np.minimum(
-            radii_si[nearest_idx[idx: idx + len(chunk)]],
-            np.sqrt(seg_len_sq[nearest_idx[idx: idx + len(chunk)]]),
+            radii_si[nearest_idx[idx : idx + len(chunk)]],
+            np.sqrt(seg_len_sq[nearest_idx[idx : idx + len(chunk)]]),
         )
-        proj_sel = proj_raw[idx: idx + len(chunk)]
+        proj_sel = proj_raw[idx : idx + len(chunk)]
         inside_any = np.any(
-            (proj_sel >= 0.0) & (proj_sel <= 1.0) & (d_center[idx: idx + len(chunk)] <= radius_local),
+            (proj_sel >= 0.0)
+            & (proj_sel <= 1.0)
+            & (d_center[idx : idx + len(chunk)] <= radius_local),
             axis=1,
         )
-        keep_mask[idx: idx + len(chunk)] = ~inside_any
+        keep_mask[idx : idx + len(chunk)] = ~inside_any
         t_inside += perf_counter() - t0
 
     if _state.SOLVER_TIMING_DETAILS:
@@ -323,14 +325,20 @@ def _build_tissue_geometry_context(
     ends: np.ndarray,
     radii: np.ndarray,
 ) -> dict:
-    cache_float = np.float64 if _state.TISSUE_CACHE_FORCE_FLOAT64 else _state.TISSUE_CACHE_FLOAT_DTYPE
+    cache_float = (
+        np.float64
+        if _state.TISSUE_CACHE_FORCE_FLOAT64
+        else _state.TISSUE_CACHE_FLOAT_DTYPE
+    )
     starts_si_all = (starts * _state.CM_TO_M).astype(cache_float, copy=False)
     ends_si_all = (ends * _state.CM_TO_M).astype(cache_float, copy=False)
     radii_si_all = (radii * _state.CM_TO_M).astype(cache_float, copy=False)
 
     segment_vectors_all = ends_si_all - starts_si_all
     seg_len_sq_all = np.sum(segment_vectors_all**2, axis=1)
-    min_len_sq = float(_state.TISSUE_MIN_SEGMENT_LENGTH_SI) * float(_state.TISSUE_MIN_SEGMENT_LENGTH_SI)
+    min_len_sq = float(_state.TISSUE_MIN_SEGMENT_LENGTH_SI) * float(
+        _state.TISSUE_MIN_SEGMENT_LENGTH_SI
+    )
     valid = np.isfinite(seg_len_sq_all) & (seg_len_sq_all > min_len_sq)
     starts_si = starts_si_all[valid]
     ends_si = ends_si_all[valid]
@@ -354,7 +362,11 @@ def _build_tissue_geometry_context(
 
 def _ensure_tissue_context_kdtree(context: dict):
     tree = context.get("tree")
-    if tree is None and _state._HAVE_SCIPY_SPATIAL and int(context["starts_si"].shape[0]) > 0:
+    if (
+        tree is None
+        and _state._HAVE_SCIPY_SPATIAL
+        and int(context["starts_si"].shape[0]) > 0
+    ):
         with _state._TISSUE_CONTEXT_KDTREE_LOCK:
             tree = context.get("tree")
             if tree is None:
@@ -372,7 +384,12 @@ def _prepare_tissue_geometry_from_context(
     *,
     max_nearby: int,
 ) -> dict:
-    cache_float = context.get("cache_float", np.float64 if _state.TISSUE_CACHE_FORCE_FLOAT64 else _state.TISSUE_CACHE_FLOAT_DTYPE)
+    cache_float = context.get(
+        "cache_float",
+        np.float64
+        if _state.TISSUE_CACHE_FORCE_FLOAT64
+        else _state.TISSUE_CACHE_FLOAT_DTYPE,
+    )
     points_si = (points * _state.CM_TO_M).astype(cache_float, copy=False)
     starts_si = context["starts_si"]
     ends_si = context["ends_si"]
@@ -393,13 +410,17 @@ def _prepare_tissue_geometry_from_context(
             "segment_vectors": segment_vectors,
             "seg_len_sq": seg_len_sq,
             "seg_len": seg_len,
-            "nearest_idx": np.empty((points.shape[0], 0), dtype=_state.TISSUE_CACHE_INDEX_DTYPE),
+            "nearest_idx": np.empty(
+                (points.shape[0], 0), dtype=_state.TISSUE_CACHE_INDEX_DTYPE
+            ),
             "proj_raw": np.empty((points.shape[0], 0), dtype=cache_float),
             "d_center": np.empty((points.shape[0], 0), dtype=cache_float),
             "keep_mask": np.zeros((points.shape[0],), dtype=bool),
         }
 
-    candidate_k = min(nseg, max(max_nearby, max_nearby * _state.TISSUE_KDTREE_CANDIDATE_MULT))
+    candidate_k = min(
+        nseg, max(max_nearby, max_nearby * _state.TISSUE_KDTREE_CANDIDATE_MULT)
+    )
     max_nearby = min(max_nearby, candidate_k, nseg)
     if max_nearby <= 0:
         return {
@@ -411,21 +432,25 @@ def _prepare_tissue_geometry_from_context(
             "segment_vectors": segment_vectors,
             "seg_len_sq": seg_len_sq,
             "seg_len": seg_len,
-            "nearest_idx": np.empty((points.shape[0], 0), dtype=_state.TISSUE_CACHE_INDEX_DTYPE),
+            "nearest_idx": np.empty(
+                (points.shape[0], 0), dtype=_state.TISSUE_CACHE_INDEX_DTYPE
+            ),
             "proj_raw": np.empty((points.shape[0], 0), dtype=cache_float),
             "d_center": np.empty((points.shape[0], 0), dtype=cache_float),
             "keep_mask": np.ones((points.shape[0],), dtype=bool),
         }
 
     tree = _ensure_tissue_context_kdtree(context)
-    nearest_idx = np.zeros((points.shape[0], max_nearby), dtype=_state.TISSUE_CACHE_INDEX_DTYPE)
+    nearest_idx = np.zeros(
+        (points.shape[0], max_nearby), dtype=_state.TISSUE_CACHE_INDEX_DTYPE
+    )
     proj_raw = np.zeros((points.shape[0], max_nearby), dtype=cache_float)
     d_center = np.zeros((points.shape[0], max_nearby), dtype=cache_float)
     keep_mask = np.ones((points.shape[0],), dtype=bool)
 
     chunk_size = max(int(_state.TISSUE_CACHE_CHUNK_SIZE), 1)
     for idx in range(0, len(points_si), chunk_size):
-        chunk = points_si[idx: idx + chunk_size]
+        chunk = points_si[idx : idx + chunk_size]
         if chunk.size == 0:
             continue
         if tree is not None:
@@ -444,20 +469,22 @@ def _prepare_tissue_geometry_from_context(
         closest = starts_c + proj_clipped[:, :, None] * seg_c
         dist = np.linalg.norm(chunk[:, None, :] - closest, axis=2)
         sel = np.argpartition(dist, kth=max_nearby - 1, axis=1)[:, :max_nearby]
-        nearest_idx[idx: idx + len(chunk)] = np.take_along_axis(cand, sel, axis=1)
-        proj_raw[idx: idx + len(chunk)] = np.take_along_axis(proj, sel, axis=1)
-        d_center[idx: idx + len(chunk)] = np.take_along_axis(dist, sel, axis=1)
+        nearest_idx[idx : idx + len(chunk)] = np.take_along_axis(cand, sel, axis=1)
+        proj_raw[idx : idx + len(chunk)] = np.take_along_axis(proj, sel, axis=1)
+        d_center[idx : idx + len(chunk)] = np.take_along_axis(dist, sel, axis=1)
 
         radius_local = np.minimum(
-            radii_si[nearest_idx[idx: idx + len(chunk)]],
-            np.sqrt(seg_len_sq[nearest_idx[idx: idx + len(chunk)]]),
+            radii_si[nearest_idx[idx : idx + len(chunk)]],
+            np.sqrt(seg_len_sq[nearest_idx[idx : idx + len(chunk)]]),
         )
-        proj_sel = proj_raw[idx: idx + len(chunk)]
+        proj_sel = proj_raw[idx : idx + len(chunk)]
         inside_any = np.any(
-            (proj_sel >= 0.0) & (proj_sel <= 1.0) & (d_center[idx: idx + len(chunk)] <= radius_local),
+            (proj_sel >= 0.0)
+            & (proj_sel <= 1.0)
+            & (d_center[idx : idx + len(chunk)] <= radius_local),
             axis=1,
         )
-        keep_mask[idx: idx + len(chunk)] = ~inside_any
+        keep_mask[idx : idx + len(chunk)] = ~inside_any
 
     return {
         "valid_mask": valid,
@@ -475,22 +502,32 @@ def _prepare_tissue_geometry_from_context(
     }
 
 
-def _compact_tissue_cache_by_influence(tissue_cache: dict, influence_radius: np.ndarray) -> dict:
+def _compact_tissue_cache_by_influence(
+    tissue_cache: dict, influence_radius: np.ndarray
+) -> dict:
     nearest_idx = tissue_cache["nearest_idx"]
     if nearest_idx.size == 0:
         return tissue_cache
 
     safe_idx = np.where(nearest_idx >= 0, nearest_idx, 0)
-    valid = (nearest_idx >= 0) & (tissue_cache["d_center"] <= influence_radius[safe_idx])
+    valid = (nearest_idx >= 0) & (
+        tissue_cache["d_center"] <= influence_radius[safe_idx]
+    )
     counts = np.sum(valid, axis=1)
     max_count = int(np.max(counts)) if counts.size else 0
     if max_count >= nearest_idx.shape[1] and np.all(valid):
         return tissue_cache
 
     out = dict(tissue_cache)
-    idx_compact = np.full((nearest_idx.shape[0], max_count), -1, dtype=nearest_idx.dtype)
-    proj_compact = np.zeros((nearest_idx.shape[0], max_count), dtype=tissue_cache["proj_raw"].dtype)
-    d_compact = np.zeros((nearest_idx.shape[0], max_count), dtype=tissue_cache["d_center"].dtype)
+    idx_compact = np.full(
+        (nearest_idx.shape[0], max_count), -1, dtype=nearest_idx.dtype
+    )
+    proj_compact = np.zeros(
+        (nearest_idx.shape[0], max_count), dtype=tissue_cache["proj_raw"].dtype
+    )
+    d_compact = np.zeros(
+        (nearest_idx.shape[0], max_count), dtype=tissue_cache["d_center"].dtype
+    )
     for row in range(nearest_idx.shape[0]):
         if counts[row] <= 0:
             continue
@@ -512,7 +549,9 @@ def _streaming_tissue_chunk_size(max_nearby: int) -> int:
     return int(min(max(chunk, 1), int(_state.TISSUE_STREAMING_MAX_CHUNK_POINTS)))
 
 
-def _compute_streaming_tissue_chunk(task: tuple[int, int, int, dict]) -> tuple[int, int, int, np.ndarray, np.ndarray, int, int, int]:
+def _compute_streaming_tissue_chunk(
+    task: tuple[int, int, int, dict],
+) -> tuple[int, int, int, np.ndarray, np.ndarray, int, int, int]:
     chunk_i, start_idx, end_idx, state = task
     context = state["context"]
     points = state["points"]
@@ -556,7 +595,9 @@ def _compute_streaming_tissue_chunk(task: tuple[int, int, int, dict]) -> tuple[i
                 _state._K0_LUT,
             )
         except Exception:
-            print("WARNING: Numba streaming tissue kernel failed for one chunk; falling back to non-numba chunk.")
+            print(
+                "WARNING: Numba streaming tissue kernel failed for one chunk; falling back to non-numba chunk."
+            )
             traceback.print_exc()
             out = None
 
@@ -589,11 +630,30 @@ def _compute_streaming_tissue_chunk(task: tuple[int, int, int, dict]) -> tuple[i
         out = np.zeros((end_idx - start_idx,), dtype=float)
         for r in ranges:
             local_start, local_out = _process_tissue_chunk(*r, worker_data)
-            out[local_start: local_start + len(local_out)] = local_out
+            out[local_start : local_start + len(local_out)] = local_out
 
     keep_mask = chunk_cache["keep_mask"]
     kept = int(np.count_nonzero(keep_mask))
-    return chunk_i, start_idx, end_idx, keep_mask, np.asarray(out, dtype=float), kept, before_candidates, after_candidates
+    return (
+        chunk_i,
+        start_idx,
+        end_idx,
+        keep_mask,
+        np.asarray(out, dtype=float),
+        kept,
+        before_candidates,
+        after_candidates,
+    )
 
 
-__all__ = ['_diagnostic_stats', 'get_analysis_fluids', 'get_concentration_inlet', '_process_tissue_chunk', '_prepare_tissue_geometry', '_build_tissue_geometry_context', '_ensure_tissue_context_kdtree', '_prepare_tissue_geometry_from_context', '_compact_tissue_cache_by_influence', '_streaming_tissue_chunk_size', '_compute_streaming_tissue_chunk']
+__all__ = [
+    "_diagnostic_stats",
+    "_process_tissue_chunk",
+    "_prepare_tissue_geometry",
+    "_build_tissue_geometry_context",
+    "_ensure_tissue_context_kdtree",
+    "_prepare_tissue_geometry_from_context",
+    "_compact_tissue_cache_by_influence",
+    "_streaming_tissue_chunk_size",
+    "_compute_streaming_tissue_chunk",
+]

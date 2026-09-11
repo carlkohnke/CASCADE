@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 from cascade.flow.rheology import tube_hematocrit
 from cascade.flow.topology import _build_node_indices
 
@@ -49,6 +49,13 @@ def solve_network_concentrations(
     tol: float = 1e-3,
     omega: float = _state.OMEGA,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, List[float]]]:
+    """Solve concentration transport on an arbitrary directed vessel graph.
+
+    Flow signs determine edge direction. Incoming solute fluxes mix at each
+    junction before segment-level wall loss is applied. Fixed-point iteration
+    continues to the requested tolerance while recording mass-balance history.
+    """
+
     if prox_ids is None or dist_ids is None:
         geom = np.zeros((starts.shape[0], 6), dtype=float)
         geom[:, 0:3] = starts
@@ -67,7 +74,14 @@ def solve_network_concentrations(
 
     num_nodes = int(max(up.max(), down.max()) + 1) if up.size else 0
     if num_nodes == 0:
-        empty_hist: Dict[str, List[float]] = {"iter": [], "max_delta": [], "M_in": [], "M_out": [], "M_drop": [], "MB_resid": []}
+        empty_hist: Dict[str, List[float]] = {
+            "iter": [],
+            "max_delta": [],
+            "M_in": [],
+            "M_out": [],
+            "M_drop": [],
+            "MB_resid": [],
+        }
         return np.empty((0,)), np.empty((0,)), np.empty((0,)), empty_hist
 
     valid_edges = q > 0.0
@@ -88,7 +102,9 @@ def solve_network_concentrations(
     else:
         sink_nodes = [n for n in range(num_nodes) if incoming[n] and not outgoing[n]]
     if sink_nodes:
-        sink_edges = np.concatenate([np.array(incoming[n], dtype=int) for n in sink_nodes])
+        sink_edges = np.concatenate(
+            [np.array(incoming[n], dtype=int) for n in sink_nodes]
+        )
     else:
         sink_edges = np.array([], dtype=int)
 
@@ -174,7 +190,9 @@ def solve_network_concentrations(
                 cols.append(n)
                 data.append(float(diag))
 
-            A = _sp.coo_matrix((data, (rows, cols)), shape=(num_nodes, num_nodes)).tolil()
+            A = _sp.coo_matrix(
+                (data, (rows, cols)), shape=(num_nodes, num_nodes)
+            ).tolil()
             b = np.zeros(num_nodes, dtype=float)
             for node, value in dirichlet.items():
                 col = np.asarray(A[:, node].todense()).ravel()
@@ -219,8 +237,14 @@ def solve_network_concentrations(
 
         cin = C[up]
         cout = cin * decay
-        M_in = float(np.sum(q[inlet_edges] * cin[inlet_edges])) if inlet_edges.size else 0.0
-        M_out = float(np.sum(q[sink_edges] * cout[sink_edges])) if sink_edges.size else 0.0
+        M_in = (
+            float(np.sum(q[inlet_edges] * cin[inlet_edges]))
+            if inlet_edges.size
+            else 0.0
+        )
+        M_out = (
+            float(np.sum(q[sink_edges] * cout[sink_edges])) if sink_edges.size else 0.0
+        )
         M_drop = float(np.sum(q * (cin - cout)))
         MB_resid = (M_in - M_out) - M_drop
 

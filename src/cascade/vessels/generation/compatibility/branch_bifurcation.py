@@ -1,3 +1,5 @@
+"""Grow a vascular tree by optimizing and inserting a new terminal bifurcation."""
+
 import numpy
 import numpy as np
 from scipy.spatial import cKDTree
@@ -31,52 +33,19 @@ ne.set_num_threads(16)
 #[TODO] adding a new vessel should track all data changes as lists that are returned as the solution
 #[TODO] check why it is difficult to obtain points for adding vessels
 
-#@profile
 def add_vessel(tree, **kwargs):
+    """Insert one optimized terminal bifurcation into ``tree``.
+
+    Candidate terminal points and nearby parent segments are screened for
+    domain and collision constraints before the lowest-cost geometry is committed.
+    Growth controls are supplied through ``kwargs`` by the public vessel workflow.
+    """
+
     if not _LOCAL_OPT_AVAILABLE:
         raise ImportError(
             "Local optimization requires accelerators. Install with 'pip install svv[accel]' "
             "or build with SVV_BUILD_EXTENSIONS=1."
         )
-    """
-    Create a potential vessel for the current tree configuration.
-
-    Parameters
-    ----------
-    tree : TreeData
-        The current tree configuration.
-    kwargs : dict
-        A dictionary of keyword arguments to be passed.
-        Keyword arguments:
-            interior_range : list
-                The range of interior values for the domain. Default is [-1.0, 0.0 - tree.domain_clearance].
-            exterior_range : list
-                The range of exterior values for the domain. Default is [0.0, 1.0].
-            flow_ratio : float
-                The ratio of the terminal flow to the flow of the closest vessel.
-                Default is 10 (i.e. terminal vessels are appended to tree vessels
-                that have a flow 10 times less than the new terminal flow).
-            callback : bool
-                A flag to enable the callback function. Default is True.
-            x0 : np.ndarray
-                The initial guess for the optimizer. Default is [0.5, 0.5].
-            threshold_exponent : float
-                The exponent for the threshold value. Default is 1.0
-            threshold_adjuster : float
-                The factor to adjust the threshold value. Default is 0.9.
-            n_points : int
-                The number of points to draw for the terminal point. Default is 100.
-            n_closest_vessels : int
-                The number of closest vessels to consider before trying
-                a terminal point. Default is 10.
-            nonconvex_sampling : int
-                The number of points to sample for nonconvexity. Default is 10.
-            homogeneous : bool
-                A flag to enable homogeneous vessel distribution within the
-                tissue domain. If not homogeneous, new vessels will be added
-                in a directed manner from the root isosurface location
-                inward. Default is True.
-    """
     interior_range = kwargs.get('interior_range', [-1.0, 0.0 - tree.domain_clearance])
     exterior_range = kwargs.get('exterior_range', [0.0, 1.0])
     flow_ratio = kwargs.get('flow_ratio', 20)

@@ -13,12 +13,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pyvista as pv
 
-from cascade.configuration import _legacy_state as _state
-from cascade.concentration.tissue.geometry import get_concentration_inlet
+from cascade.configuration import solver_state as _state
+from cascade.concentration.properties import get_concentration_inlet
 from cascade.concentration.tissue.greens import compute_tissue_samples_greens
+from cascade.concentration.vessel.tree import solve_tree_greens
 from cascade.domain.visualization import _add_domain_outline, _plot_cmap, _show_plotter
 from cascade.exporting.statistics import _linear_fit_slope_r2
-from cascade.simulation.network_solver import solve_tree_greens
+
 
 def _build_vessel_polydata(
     starts: np.ndarray,
@@ -40,7 +41,11 @@ def _build_vessel_polydata(
         points.append(pts)
         scalars.append(vals)
         radii_samples.append(np.full(pts.shape[0], radii[idx]))
-        lines.append(np.concatenate(([pts.shape[0]], np.arange(offset, offset + pts.shape[0], dtype=int))))
+        lines.append(
+            np.concatenate(
+                ([pts.shape[0]], np.arange(offset, offset + pts.shape[0], dtype=int))
+            )
+        )
         offset += pts.shape[0]
     if not points:
         return pv.PolyData()
@@ -125,9 +130,18 @@ def _plot_concentration(
         n_sides=_state.PLOT_TUBE_SIDES,
         capping=True,
     )
-    clim = [min(float(np.nanmin(cout)), _state.EXTRAVASCULAR_CONCENTRATION), float(inlet_concentration)]
+    clim = [
+        min(float(np.nanmin(cout)), _state.EXTRAVASCULAR_CONCENTRATION),
+        float(inlet_concentration),
+    ]
     plotter = pv.Plotter(window_size=_state.PLOT_WINDOW_SIZE)
-    plotter.add_mesh(vessel_mesh, scalars="scalar", cmap=_plot_cmap(), clim=clim, show_scalar_bar=True)
+    plotter.add_mesh(
+        vessel_mesh,
+        scalars="scalar",
+        cmap=_plot_cmap(),
+        clim=clim,
+        show_scalar_bar=True,
+    )
     if show_points and tissue_points.size:
         plotter.add_mesh(
             pv.PolyData(tissue_points),
@@ -203,7 +217,9 @@ def _plot_viability_points(
     )
     _add_domain_outline(plotter, domain)
     plotter.camera.Zoom(_state.PLOT_ZOOM)
-    plotter.add_text("Viability (red=dead, green=alive)", position="upper_left", font_size=12)
+    plotter.add_text(
+        "Viability (red=dead, green=alive)", position="upper_left", font_size=12
+    )
     _show_plotter(plotter)
 
 
@@ -246,21 +262,33 @@ def _dnc_histogram_fractions_um(
 
     edges_regular = np.arange(0.0, bin_max_um + bin_width_um, bin_width_um, dtype=float)
     if edges_regular.size < 2 or not np.isclose(edges_regular[-1], bin_max_um):
-        edges_regular = np.linspace(0.0, bin_max_um, int(round(bin_max_um / bin_width_um)) + 1, dtype=float)
+        edges_regular = np.linspace(
+            0.0, bin_max_um, int(round(bin_max_um / bin_width_um)) + 1, dtype=float
+        )
 
     finite = dnc_values_um[np.isfinite(dnc_values_um)]
     if finite.size == 0:
-        edges_plot = np.concatenate([edges_regular, np.array([bin_max_um + bin_width_um], dtype=float)])
+        edges_plot = np.concatenate(
+            [edges_regular, np.array([bin_max_um + bin_width_um], dtype=float)]
+        )
         return edges_plot, np.zeros(edges_regular.size - 1 + 1, dtype=float)
 
     regular = finite[finite <= bin_max_um]
     overflow = finite[finite > bin_max_um]
-    counts_regular, _ = np.histogram(regular, bins=edges_regular) if regular.size else (np.zeros(edges_regular.size - 1, dtype=int), edges_regular)
+    counts_regular, _ = (
+        np.histogram(regular, bins=edges_regular)
+        if regular.size
+        else (np.zeros(edges_regular.size - 1, dtype=int), edges_regular)
+    )
     overflow_count = int(overflow.size)
     total = int(finite.size)
-    fractions = np.concatenate([counts_regular.astype(float), np.array([float(overflow_count)], dtype=float)]) / float(total)
+    fractions = np.concatenate(
+        [counts_regular.astype(float), np.array([float(overflow_count)], dtype=float)]
+    ) / float(total)
 
-    edges_plot = np.concatenate([edges_regular, np.array([bin_max_um + bin_width_um], dtype=float)])
+    edges_plot = np.concatenate(
+        [edges_regular, np.array([bin_max_um + bin_width_um], dtype=float)]
+    )
     return edges_plot, fractions
 
 
@@ -313,8 +341,15 @@ def _fit_truncnorm_mu_sigma_lower0(values_um: np.ndarray) -> tuple[float, float]
     mu_span = max(6.0 * sigma0, 200.0)
     log_span = math.log(4.0)
     for _ in range(3):
-        mu_grid = np.linspace(best_mu - mu_span / 2.0, best_mu + mu_span / 2.0, 61, dtype=float)
-        log_grid = np.linspace(best_log_sigma - log_span / 2.0, best_log_sigma + log_span / 2.0, 61, dtype=float)
+        mu_grid = np.linspace(
+            best_mu - mu_span / 2.0, best_mu + mu_span / 2.0, 61, dtype=float
+        )
+        log_grid = np.linspace(
+            best_log_sigma - log_span / 2.0,
+            best_log_sigma + log_span / 2.0,
+            61,
+            dtype=float,
+        )
         for mu in mu_grid:
             for ls in log_grid:
                 val = _nll(float(mu), float(ls))
@@ -328,7 +363,9 @@ def _fit_truncnorm_mu_sigma_lower0(values_um: np.ndarray) -> tuple[float, float]
     return float(best_mu), float(math.exp(best_log_sigma))
 
 
-def _init_violin_points_csv(path: Path, *, target_counts: Sequence[int], n_rows: int) -> None:
+def _init_violin_points_csv(
+    path: Path, *, target_counts: Sequence[int], n_rows: int
+) -> None:
     headers = [str(int(t)) for t in target_counts]
     with path.open("w", newline="") as csvfile:
         writer = csv.writer(csvfile)
@@ -358,11 +395,15 @@ def _update_violin_points_csv(
 
     expected_header = [str(int(t)) for t in target_counts]
     if rows[0] != expected_header:
-        raise ValueError(f"violin CSV header mismatch: expected {expected_header}, got {rows[0]}")
+        raise ValueError(
+            f"violin CSV header mismatch: expected {expected_header}, got {rows[0]}"
+        )
 
     n_rows = len(rows) - 1
     if values.size != n_rows:
-        raise ValueError(f"values_um length ({values.size}) does not match CSV rows ({n_rows})")
+        raise ValueError(
+            f"values_um length ({values.size}) does not match CSV rows ({n_rows})"
+        )
 
     for i in range(n_rows):
         v = values[i]
@@ -395,26 +436,46 @@ def _plot_dnc_gaussians(
         cmap = mpl.cm.get_cmap(cmapcolorscheme)
     vmin = float(np.nanmin(targets))
     vmax = float(np.nanmax(targets))
-    if _state.GAUSSIAN_COLORMAP_LOG10 and np.isfinite(vmin) and np.isfinite(vmax) and vmin > 0.0 and vmax > vmin:
+    if (
+        _state.GAUSSIAN_COLORMAP_LOG10
+        and np.isfinite(vmin)
+        and np.isfinite(vmax)
+        and vmin > 0.0
+        and vmax > vmin
+    ):
         norm = mpl.colors.LogNorm(vmin=vmin, vmax=vmax)
     else:
         norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
 
-    x = np.linspace(0.0, float(_state.GAUSSIAN_PLOT_XMAX_UM), int(max(_state.GAUSSIAN_PLOT_NPTS, 2)), dtype=float)
+    x = np.linspace(
+        0.0,
+        float(_state.GAUSSIAN_PLOT_XMAX_UM),
+        int(max(_state.GAUSSIAN_PLOT_NPTS, 2)),
+        dtype=float,
+    )
     x_log_min = float(_state.GAUSSIAN_LOG_XMIN_UM)
     if not np.isfinite(x_log_min) or x_log_min <= 0.0:
         x_log_min = 0.1
-    x_pos = np.linspace(x_log_min, float(_state.GAUSSIAN_PLOT_XMAX_UM), int(max(_state.GAUSSIAN_PLOT_NPTS, 2)), dtype=float)
+    x_pos = np.linspace(
+        x_log_min,
+        float(_state.GAUSSIAN_PLOT_XMAX_UM),
+        int(max(_state.GAUSSIAN_PLOT_NPTS, 2)),
+        dtype=float,
+    )
     y_logx = np.log10(x_pos)
 
-    fig, (ax_lin, ax_log) = plt.subplots(ncols=2, figsize=(12, 4), constrained_layout=True)
+    fig, (ax_lin, ax_log) = plt.subplots(
+        ncols=2, figsize=(12, 4), constrained_layout=True
+    )
     for t, (mu, sigma) in zip(targets, mu_sigma):
         mu = float(mu)
         sigma = float(sigma)
         if not (np.isfinite(mu) and np.isfinite(sigma) and sigma > 0.0):
             continue
         color = cmap(norm(float(t)))
-        y = (1.0 / (sigma * math.sqrt(2.0 * math.pi))) * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
+        y = (1.0 / (sigma * math.sqrt(2.0 * math.pi))) * np.exp(
+            -0.5 * ((x - mu) / sigma) ** 2
+        )
         ax_lin.plot(
             x,
             y,
@@ -422,7 +483,9 @@ def _plot_dnc_gaussians(
             alpha=_state.HISTOGRAM_ALPHA,
             linewidth=2.0,
         )
-        y_pos = (1.0 / (sigma * math.sqrt(2.0 * math.pi))) * np.exp(-0.5 * ((x_pos - mu) / sigma) ** 2)
+        y_pos = (1.0 / (sigma * math.sqrt(2.0 * math.pi))) * np.exp(
+            -0.5 * ((x_pos - mu) / sigma) ** 2
+        )
         # Plot the same Gaussian values, just against log10(x) (no Jacobian / renormalization).
         y_log = y_pos
         ax_log.plot(
@@ -435,7 +498,9 @@ def _plot_dnc_gaussians(
     sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     if isinstance(norm, mpl.colors.LogNorm):
-        cbar = fig.colorbar(sm, ax=[ax_lin, ax_log], label="N_vessels (target_terminals, log scale)")
+        cbar = fig.colorbar(
+            sm, ax=[ax_lin, ax_log], label="N_vessels (target_terminals, log scale)"
+        )
         try:
             import matplotlib.ticker as mticker
 
@@ -452,7 +517,9 @@ def _plot_dnc_gaussians(
     ax_lin.set_ylabel("Probability density (1/Âµm)")
     ax_lin.grid(True, alpha=0.3)
 
-    ax_log.set_xlim(float(np.log10(x_log_min)), float(np.log10(_state.GAUSSIAN_PLOT_XMAX_UM)))
+    ax_log.set_xlim(
+        float(np.log10(x_log_min)), float(np.log10(_state.GAUSSIAN_PLOT_XMAX_UM))
+    )
     ax_log.set_ylim(bottom=0.0)
     ax_log.set_xlabel("log10(DNCW)")
     ax_log.set_ylabel("Probability density (same as linear; 1/Âµm)")
@@ -510,11 +577,14 @@ def plot_checker_tree(
 
 
 def _load_validation_points(csv_path: Path) -> Tuple[np.ndarray, np.ndarray]:
-    data = np.genfromtxt(csv_path, delimiter=",", names=True, dtype=float, encoding="utf-8-sig")
+    data = np.genfromtxt(
+        csv_path, delimiter=",", names=True, dtype=float, encoding="utf-8-sig"
+    )
     if data.size == 0:
         return np.empty((0, 3), dtype=float), np.empty((0,), dtype=float)
 
     names = {name.strip().lower(): name for name in data.dtype.names}
+
     def _pick(*candidates: str) -> Optional[str]:
         for cand in candidates:
             key = cand.lower()
@@ -561,7 +631,6 @@ def _plot_validation_scatter(x_ref: np.ndarray, y_pred: np.ndarray) -> None:
         valid_mask = x_ref < thr
         pred_mask = y_pred < thr
         valid_count = int(np.count_nonzero(valid_mask))
-        pred_count = int(np.count_nonzero(pred_mask))
         non_valid_count = int(np.count_nonzero(~valid_mask))
         if valid_count == 0:
             match_frac = 0.0
@@ -570,7 +639,9 @@ def _plot_validation_scatter(x_ref: np.ndarray, y_pred: np.ndarray) -> None:
         if non_valid_count == 0:
             false_frac = 0.0
         else:
-            false_frac = float(np.count_nonzero(pred_mask & (~valid_mask)) / non_valid_count)
+            false_frac = float(
+                np.count_nonzero(pred_mask & (~valid_mask)) / non_valid_count
+            )
         match_fracs.append(match_frac)
         false_fracs.append(false_frac)
 
@@ -588,12 +659,18 @@ def _plot_validation_scatter(x_ref: np.ndarray, y_pred: np.ndarray) -> None:
             continue
         x_line = np.array([mn, mx], dtype=float)
         y_line = slope * x_line + intercept
-        ax_scatter.plot(x_line, y_line, color=color, linewidth=1.5, label=f"Fit pred >= {thr}")
+        ax_scatter.plot(
+            x_line, y_line, color=color, linewidth=1.5, label=f"Fit pred >= {thr}"
+        )
 
     x_pos = np.arange(len(thresholds))
     width = 0.35
-    bars_match = ax_bar.bar(x_pos - width / 2.0, match_fracs, width=width, color="#2ca02c")
-    bars_false = ax_bar.bar(x_pos + width / 2.0, false_fracs, width=width, color="#d62728")
+    bars_match = ax_bar.bar(
+        x_pos - width / 2.0, match_fracs, width=width, color="#2ca02c"
+    )
+    bars_false = ax_bar.bar(
+        x_pos + width / 2.0, false_fracs, width=width, color="#d62728"
+    )
     ax_bar.set_ylim(0.0, 1.0)
     ax_bar.set_ylabel("fraction")
     ax_bar.set_xticks(x_pos)
@@ -617,4 +694,18 @@ def _plot_validation_scatter(x_ref: np.ndarray, y_pred: np.ndarray) -> None:
     plt.show()
 
 
-__all__ = ['_build_vessel_polydata', '_plot_flow', '_plot_concentration', '_plot_viability_points', '_plot_mass_balance', '_dnc_histogram_fractions_um', '_fit_truncnorm_mu_sigma_lower0', '_init_violin_points_csv', '_update_violin_points_csv', '_plot_dnc_gaussians', 'plot_checker_tree', '_load_validation_points', '_plot_validation_scatter']
+__all__ = [
+    "_build_vessel_polydata",
+    "_plot_flow",
+    "_plot_concentration",
+    "_plot_viability_points",
+    "_plot_mass_balance",
+    "_dnc_histogram_fractions_um",
+    "_fit_truncnorm_mu_sigma_lower0",
+    "_init_violin_points_csv",
+    "_update_violin_points_csv",
+    "_plot_dnc_gaussians",
+    "plot_checker_tree",
+    "_load_validation_points",
+    "_plot_validation_scatter",
+]

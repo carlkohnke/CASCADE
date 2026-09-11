@@ -2,29 +2,29 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from time import perf_counter
+from typing import Any
+
+import numpy as np
+
+from cascade.configuration.schema import RunConfig
+from cascade.utils.resources import resolve_path
+from cascade.vessels.generation.svv_adapter import Domain, Forest, Tree
 from cascade.vessels.results import (
     NetworkBuildResult,
 )
 
-from cascade.vessels._build_common import (
-    Any,
-    Domain,
-    Forest,
-    Path,
-    RunConfig,
-    Tree,
-    json,
-    np,
-    perf_counter,
-    resolve_path,
-)
 
 def _shared_geometry_cache_dir(config: RunConfig) -> Path | None:
     gui = config.raw.get("gui", {}) if isinstance(config.raw, dict) else {}
     value = gui.get("shared_geometry_cache_dir") if isinstance(gui, dict) else None
     if not value:
         return None
-    return resolve_path(value, base_dir=config.settings_path.parent if config.settings_path else None)
+    return resolve_path(
+        value, base_dir=config.settings_path.parent if config.settings_path else None
+    )
 
 
 def _load_shared_geometry_cache(
@@ -57,17 +57,24 @@ def _load_shared_geometry_cache(
         config.growth.enabled = False
         config.outputs.use_cache = False
         try:
-            trees, forest = _load_existing_network(cache_dir / str(network_name), domain, config)
+            trees, forest = _load_existing_network(
+                cache_dir / str(network_name), domain, config
+            )
         finally:
             config.growth.enabled = growth_enabled
             config.outputs.use_cache = use_cache
         return domain, trees, forest, (cache_dir, perf_counter() - t0)
     except Exception as exc:
-        print(f"Warning: could not reuse sweep geometry cache at {cache_dir}: {exc}", flush=True)
+        print(
+            f"Warning: could not reuse sweep geometry cache at {cache_dir}: {exc}",
+            flush=True,
+        )
         return None
 
 
-def _save_shared_geometry_cache(result: NetworkBuildResult, config: RunConfig) -> NetworkBuildResult:
+def _save_shared_geometry_cache(
+    result: NetworkBuildResult, config: RunConfig
+) -> NetworkBuildResult:
     """Publish a geometry bundle after a successful first run in a GUI sweep."""
     cache_dir = _shared_geometry_cache_dir(config)
     if cache_dir is None:
@@ -92,7 +99,9 @@ def _save_shared_geometry_cache(result: NetworkBuildResult, config: RunConfig) -
                 result.forest.save(str(cache_dir / "network.forest"))
             )
             network_kind = "forest"
-        elif result.trees and not getattr(result.trees[0], "_cascade_simple_network", False):
+        elif result.trees and not getattr(
+            result.trees[0], "_cascade_simple_network", False
+        ):
             network_saved = _published_archive_path(
                 result.trees[0].save(str(cache_dir / "network.tree.npz"))
             )
@@ -111,7 +120,10 @@ def _save_shared_geometry_cache(result: NetworkBuildResult, config: RunConfig) -
     except Exception as exc:
         # Caching is an optimization: never discard a completed simulation
         # setup merely because its reusable copy could not be written.
-        print(f"Warning: could not save sweep geometry cache at {cache_dir}: {exc}", flush=True)
+        print(
+            f"Warning: could not save sweep geometry cache at {cache_dir}: {exc}",
+            flush=True,
+        )
     return result
 
 
@@ -127,14 +139,23 @@ def _published_archive_path(reported_path: str | Path) -> Path:
     raise FileNotFoundError(f"Network save did not create {path} or {appended}.")
 
 
-def save_network_if_requested(result: NetworkBuildResult, config: RunConfig) -> Path | None:
+def save_network_if_requested(
+    result: NetworkBuildResult, config: RunConfig
+) -> Path | None:
     if not config.outputs.save_network:
         return None
-    out_dir = resolve_path(config.outputs.out_dir, base_dir=config.settings_path.parent if config.settings_path else None)
+    out_dir = resolve_path(
+        config.outputs.out_dir,
+        base_dir=config.settings_path.parent if config.settings_path else None,
+    )
     if out_dir is None:
         raise ValueError("outputs.out_dir must identify an output directory.")
     out_dir.mkdir(parents=True, exist_ok=True)
-    save_path = resolve_path(config.network.save_path, base_dir=out_dir) if config.network.save_path else None
+    save_path = (
+        resolve_path(config.network.save_path, base_dir=out_dir)
+        if config.network.save_path
+        else None
+    )
     if result.forest is not None:
         path = save_path or (out_dir / f"{config.prefix}.forest")
         saved = Path(result.forest.save(str(path))).resolve()
@@ -164,11 +185,15 @@ def save_network_if_requested(result: NetworkBuildResult, config: RunConfig) -> 
     return saved
 
 
-def _load_existing_network(path: Path, domain, config: RunConfig, *, ts) -> tuple[list[Any], Any | None]:
+def _load_existing_network(
+    path: Path, domain, config: RunConfig, *, ts
+) -> tuple[list[Any], Any | None]:
     suffix = path.suffix.lower()
     if Forest._is_simulation_cache(str(path)):
         if config.growth.enabled:
-            raise ValueError("Direct .forest simulation-cache inputs require growth.enabled=false.")
+            raise ValueError(
+                "Direct .forest simulation-cache inputs require growth.enabled=false."
+            )
         forest = Forest.load(
             str(path),
             mode="simulation",
@@ -247,13 +272,27 @@ def _forest_load_path(path: Path, config: RunConfig, *, mode: str) -> Path:
     ):
         return cache_path
     try:
-        Forest.build_simulation_cache_from_legacy(str(path), str(cache_path), show_progress=True)
+        Forest.build_simulation_cache_from_legacy(
+            str(path), str(cache_path), show_progress=True
+        )
         return cache_path
     except Exception as exc:
-        print(f"Warning: failed to build forest simulation cache ({exc}); loading forest directly.", flush=True)
+        print(
+            f"Warning: failed to build forest simulation cache ({exc}); loading forest directly.",
+            flush=True,
+        )
         return path
 
 
-
-
-__all__ = ('_shared_geometry_cache_dir', '_load_shared_geometry_cache', '_save_shared_geometry_cache', '_published_archive_path', 'save_network_if_requested', '_load_existing_network', '_attach_domain', '_attach_tree_domain', '_forest_cache_path', '_forest_load_path')
+__all__ = (
+    "_shared_geometry_cache_dir",
+    "_load_shared_geometry_cache",
+    "_save_shared_geometry_cache",
+    "_published_archive_path",
+    "save_network_if_requested",
+    "_load_existing_network",
+    "_attach_domain",
+    "_attach_tree_domain",
+    "_forest_cache_path",
+    "_forest_load_path",
+)

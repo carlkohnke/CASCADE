@@ -1,6 +1,6 @@
 """Canonical CASCADE case execution and batch orchestration."""
 
-from cascade.core.lazy import resolve_export
+from cascade.utils.lazy import resolve_export
 
 _EXPORTS = {
     "SimulationResult": ("cascade.simulation.engine", "SimulationResult"),

@@ -1,25 +1,33 @@
-"""Numerical solver configuration page."""
+"""Numerical solver configuration page.
+
+Controls are grouped by flow, vessel transport, external field, tissue, and
+acceleration policy, with applicability rules reflected in the enabled widgets.
+"""
 
 from __future__ import annotations
 
-from cascade.gui._common import (
-    Banner,
-    Card,
-    QColor,
+import json
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
     QHeaderView,
     QLineEdit,
     QTreeWidget,
     QTreeWidgetItem,
-    Qt,
-    SETTINGS_SECTIONS,
+)
+from cascade.configuration.settings import SETTINGS_SECTIONS
+from cascade.gui.widgets import (
+    Banner,
+    Card,
+    labeled,
+    row_of,
+)
+from cascade.gui.ui_helpers import (
     _combo,
     _double,
     _set_combo,
     _spin,
     _value,
-    json,
-    labeled,
-    row_of,
 )
 
 from cascade.gui.helpers import (
@@ -30,6 +38,7 @@ from cascade.gui.helpers import (
 from cascade.gui.pages.base import (
     Page,
 )
+
 
 class SolverPage(Page):
     def __init__(self, parent=None):
@@ -51,11 +60,23 @@ class SolverPage(Page):
         self.conc_solver = _combo(
             [
                 ("Network direct solver (best for large domains)", "network_ext"),
-                ("Network FFT solver (best for primitive-shape domains)", "network_ext_hybrid_bg"),
+                (
+                    "Network FFT solver (best for primitive-shape domains)",
+                    "network_ext_hybrid_bg",
+                ),
                 ("Top-down direct solver (for tree structures only)", "topdown_ext"),
-                ("Top-down FFT solver (for tree structures only)", "topdown_ext_hybrid_bg"),
-                ("Network, no vessel-vessel coupling (faster but less accurate)", "network"),
-                ("Top-down, no vessel-vessel coupling (faster but less accurate)", "topdown"),
+                (
+                    "Top-down FFT solver (for tree structures only)",
+                    "topdown_ext_hybrid_bg",
+                ),
+                (
+                    "Network, no vessel-vessel coupling (faster but less accurate)",
+                    "network",
+                ),
+                (
+                    "Top-down, no vessel-vessel coupling (faster but less accurate)",
+                    "topdown",
+                ),
             ]
         )
         self.conc_solver.setMinimumWidth(520)
@@ -71,9 +92,7 @@ class SolverPage(Page):
         choose.add(
             row_of(
                 labeled("Starting preset", self.preset),
-                labeled(
-                    "Vessel oxygen solver", self.conc_solver, important=True
-                ),
+                labeled("Vessel oxygen solver", self.conc_solver, important=True),
             )
         )
         choose.add(labeled("Flow solver", self.flow_solver, important=True))
@@ -306,7 +325,9 @@ class SolverPage(Page):
             parent.setForeground(0, QColor("#273944" if active else "#9ca6ac"))
 
     def _update_kappa_visibility(self, *_):
-        visible = self.closure.isEnabled() and self.closure.currentData() == "custom_kappa"
+        visible = (
+            self.closure.isEnabled() and self.closure.currentData() == "custom_kappa"
+        )
         self.kappa_row.setVisible(visible)
         self.kappa.setEnabled(visible)
 
@@ -540,6 +561,4 @@ class SolverPage(Page):
                 settings.setdefault(section, {})[name] = _parse_jsonish(child.text(1))
 
 
-
-
-__all__ = ('SolverPage',)
+__all__ = ("SolverPage",)

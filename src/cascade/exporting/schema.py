@@ -1,13 +1,12 @@
 """Stable tabular output schemas and aggregate metric definitions.
 
-The legacy runtime remains the authoritative source during migration. The
-exporting layer copies its immutable schema values and never mutates runtime
-configuration merely by being imported.
+The exporting layer copies schema values from the central solver state and
+never mutates run configuration merely by being imported.
 """
 
 from __future__ import annotations
 
-from cascade.configuration import _legacy_state as _state
+from cascade.configuration import solver_state as _state
 
 CSV_FIELDNAMES = tuple(_state.CSV_FIELDNAMES)
 AGGREGATED_METRICS = tuple(_state.AGGREGATED_METRICS)

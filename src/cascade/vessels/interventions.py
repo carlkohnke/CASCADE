@@ -57,7 +57,11 @@ class InterventionState:
     def mode(self) -> str:
         if not self.applied:
             return "none"
-        return "full_occlusion_subtree" if self.fraction_blocked >= 1.0 else "radius_reduction"
+        return (
+            "full_occlusion_subtree"
+            if self.fraction_blocked >= 1.0
+            else "radius_reduction"
+        )
 
     def metadata(self, networks: VascularNetworkSet) -> dict[str, Any]:
         effective_radius = None
@@ -132,9 +136,8 @@ def resolve_occlusion(
     address = networks.address(int(occlusion.global_segment_id))
     network = networks.networks[address.network_id]
     affected = np.asarray([address.local_id], dtype=np.int64)
-    if (
-        float(occlusion.fraction_blocked) >= 1.0
-        and bool(occlusion.include_downstream_when_complete)
+    if float(occlusion.fraction_blocked) >= 1.0 and bool(
+        occlusion.include_downstream_when_complete
     ):
         affected = collect_downstream_segment_ids(network, address.local_id)
     return InterventionState(

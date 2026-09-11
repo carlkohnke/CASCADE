@@ -13,14 +13,17 @@ from .rheology import (
     segment_viscosity_from_radius_hd,
     tube_hematocrit,
 )
+from .tree import assemble_tree_segments, recompute_tree_flows
 
 __all__ = [
     "FlowProblem",
     "FlowResult",
     "allocate_inlet_flows",
+    "assemble_tree_segments",
     "apply_fahraeus_lindqvist_resistance",
     "compute_segment_viscosity",
     "compute_tree_hematocrit",
+    "recompute_tree_flows",
     "segment_viscosity_from_radius",
     "segment_viscosity_from_radius_hd",
     "solve_flow",

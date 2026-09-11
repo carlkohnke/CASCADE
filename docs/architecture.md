@@ -136,10 +136,13 @@ dependency versions, random seed, execution environment, and generated
 manifest. Relative inputs resolve from the settings file, not from the caller's
 current directory.
 
-The GUI launches simulations as child processes. It stores settings and
-lightweight result metadata but does not retain full solver arrays after a
-worker exits. Large output tables and VTK files can be disabled when only
-summary results are needed.
+The GUI sends serial simulations to one local child worker. That worker keeps
+at most one compatible geometry, one spatial context, and one compact summary
+result warm; incompatible state and detailed solver arrays are evicted after
+export. It retires when idle or when the GUI closes. Large output tables and
+VTK files can be disabled when only summary results are needed. The CLI exposes
+the same bounded reuse through `cascade batch`; one-shot `cascade run` performs
+hard cleanup at completion.
 
 ## Validation boundary
 

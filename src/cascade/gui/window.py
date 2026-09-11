@@ -238,6 +238,14 @@ class MainWindow(QMainWindow):
         self._load_pages()
         self._initializing = False
         self._refresh_status()
+        # Pay Python/scientific import startup while the user is configuring
+        # the project.  JobRunner retires the worker after an idle interval.
+        QTimer.singleShot(1000, self._warmup_runner_if_visible)
+
+    def _warmup_runner_if_visible(self) -> None:
+        """Avoid launching a worker for headless model-only window instances."""
+        if self.isVisible():
+            self.runner.warmup()
 
     def _build_ui(self):
         self.title_bar = WindowTitleBar(self)
@@ -1085,6 +1093,7 @@ class MainWindow(QMainWindow):
                 return
             self.runner.cancel_pending()
             self.runner.cancel_current()
+        self.runner.shutdown()
         event.accept()
 
 

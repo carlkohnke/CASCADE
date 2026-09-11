@@ -5,13 +5,15 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 from pathlib import Path
+import tempfile
 from time import perf_counter
 from typing import Any
 
 import numpy as np
 
 from cascade.configuration.schema import RunConfig, parse_config
-from cascade.exporting.run import _summary_fieldnames, _write_csv
+from cascade.concentration.tissue.cache import build_tissue_cache_from_tree
+from cascade.exporting.run import _summary_fieldnames
 from cascade.utils.execution import release_completed_case_memory
 from cascade.configuration.bridge import apply_runtime_settings, load_runtime_module
 from cascade.domain.workflow import build_domain, prepare_sample_points
@@ -87,8 +89,8 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
     legacy_single_trial_std_nan = _as_bool(
         sweep.get("legacy_single_trial_std_nan"), False
     )
-    rows: list[dict[str, Any]] = []
-    timings: list[dict[str, Any]] = []
+    rows = _JsonlSpool()
+    timings = _JsonlSpool()
     t_sweep = perf_counter()
 
     for side_len in side_lengths:
@@ -225,70 +227,120 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                         if sample_points.size
                         else sample_points
                     )
-                    for fluid in fluids:
-                        run_raw = deepcopy(target_raw_config)
-                        run_raw.setdefault("simulation", {})["fluid"] = str(fluid)
-                        run_raw["simulation"]["qin_target_ul_min"] = float(qin)
-                        run_raw["simulation"]["distance_sample_count"] = int(
-                            sample_count
-                        )
-                        run_raw.setdefault("outputs", {})["out_dir"] = str(
-                            work_dir
-                            / f"side_{_label(side_len)}"
-                            / f"target_{target:08d}"
-                            / f"qin_{_label(qin)}"
-                            / f"M_{int(sample_count)}"
-                            / str(fluid)
-                        )
-                        run_raw["outputs"]["save_network"] = bool(write_network)
-                        config = _config_for(
-                            path, run_raw, target=target, fluid=fluid, qin=qin
-                        )
-                        config.simulation.distance_sample_count = int(sample_count)
-                        apply_runtime_settings(ts, config)
+                    tissue_caches: list[dict | None] | None = None
+                    cache_build_s = 0.0
+                    try:
+                        for fluid_index, fluid in enumerate(fluids):
+                            run_raw = deepcopy(target_raw_config)
+                            run_raw.setdefault("simulation", {})["fluid"] = str(fluid)
+                            run_raw["simulation"]["qin_target_ul_min"] = float(qin)
+                            run_raw["simulation"]["distance_sample_count"] = int(
+                                sample_count
+                            )
+                            run_raw.setdefault("outputs", {})["out_dir"] = str(
+                                work_dir
+                                / f"side_{_label(side_len)}"
+                                / f"target_{target:08d}"
+                                / f"qin_{_label(qin)}"
+                                / f"M_{int(sample_count)}"
+                                / str(fluid)
+                            )
+                            run_raw["outputs"]["save_network"] = bool(write_network)
+                            config = _config_for(
+                                path, run_raw, target=target, fluid=fluid, qin=qin
+                            )
+                            config.simulation.distance_sample_count = int(sample_count)
+                            apply_runtime_settings(ts, config)
 
-                        t0 = perf_counter()
-                        result = run_simulation(
-                            domain, trees, target_counts, config, sample_points=points
-                        )
-                        sim_s = perf_counter() - t0
-                        if legacy_single_trial_std_nan:
-                            for row in result.summary_rows:
-                                for key in list(row.keys()):
-                                    if key.endswith("_std"):
-                                        row[key] = float("nan")
-                        rows.extend(result.summary_rows)
-                        timings.append(
-                            {
-                                "side_length": float(side_len),
-                                "target_terminals": int(target),
-                                "qin_target_ul_min": float(qin),
-                                "distance_sample_count": int(sample_count),
-                                "fluid": str(fluid),
-                                "growth_s": float(growth_s),
-                                "simulation_s": float(sim_s),
-                            }
-                        )
-                        del result
-                        # Keep allocator pools warm inside this sequential worker
-                        # without retaining completed result arrays.
-                        release_completed_case_memory(ts, trim_accelerator_pools=False)
+                            # Geometry and sample coordinates are identical for
+                            # the fluid variants in this group.  Build the
+                            # spatial cache once, keep at most this one group
+                            # live, and release it in the finally block below.
+                            if (
+                                tissue_caches is None
+                                and points.size
+                                and not config.simulation.geometry_only
+                                and not config.simulation.skip_tissue_oxygen
+                                and not (
+                                    config.simulation.external_field.enabled
+                                    and config.simulation.external_field.scope
+                                    == "shared"
+                                )
+                            ):
+                                t_cache = perf_counter()
+                                tissue_caches = [
+                                    None
+                                    if getattr(tree, "_cascade_simple_network", False)
+                                    else build_tissue_cache_from_tree(tree, points)
+                                    for tree in trees
+                                ]
+                                cache_build_s = perf_counter() - t_cache
+
+                            t0 = perf_counter()
+                            result = run_simulation(
+                                domain,
+                                trees,
+                                target_counts,
+                                config,
+                                sample_points=points,
+                                tissue_caches=tissue_caches,
+                                reuse_geometry=True,
+                                materialize_segment_rows=False,
+                            )
+                            sim_s = perf_counter() - t0
+                            if legacy_single_trial_std_nan:
+                                for row in result.summary_rows:
+                                    for key in list(row.keys()):
+                                        if key.endswith("_std"):
+                                            row[key] = float("nan")
+                            rows.extend(result.summary_rows)
+                            timings.append(
+                                {
+                                    "side_length": float(side_len),
+                                    "target_terminals": int(target),
+                                    "qin_target_ul_min": float(qin),
+                                    "distance_sample_count": int(sample_count),
+                                    "fluid": str(fluid),
+                                    "growth_s": float(growth_s),
+                                    "tissue_cache_build_s": (
+                                        float(cache_build_s)
+                                        if fluid_index == 0
+                                        else 0.0
+                                    ),
+                                    "tissue_cache_reused": bool(
+                                        tissue_caches is not None and fluid_index > 0
+                                    ),
+                                    "simulation_s": float(sim_s),
+                                }
+                            )
+                            del result
+                            # Case-owned results are gone, while the one
+                            # intentionally reusable tissue cache remains live.
+                            release_completed_case_memory(
+                                ts, trim_accelerator_pools=None
+                            )
+                    finally:
+                        # Bound sweep memory independently of case count.  The
+                        # next sample-count group starts with no retained
+                        # point-by-vessel maps, even when a case raises.
+                        tissue_caches = None
+                        release_completed_case_memory(ts, trim_accelerator_pools=None)
 
             if write_network:
                 save_network_if_requested(build, grow_config)
 
     preferred_fields = _summary_fieldnames()
-    write_rows = rows
-    if legacy_columns_only and preferred_fields:
-        write_rows = [
-            {field: row.get(field, "") for field in preferred_fields} for row in rows
-        ]
-    _write_csv(output_csv, write_rows, preferred_fields=preferred_fields)
+    _write_spooled_csv(
+        output_csv,
+        rows,
+        preferred_fields=preferred_fields,
+        legacy_columns_only=legacy_columns_only,
+    )
     manifest_path = output_csv.with_name(output_csv.stem + "_manifest.json")
     manifest = {
         "settings_path": str(path),
         "output_csv": str(output_csv),
-        "row_count": len(rows),
+        "row_count": rows.count,
         "targets_requested": targets,
         "fluids": fluids,
         "side_lengths": side_lengths,
@@ -297,11 +349,10 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         "legacy_columns_only": legacy_columns_only,
         "legacy_single_trial_std_nan": legacy_single_trial_std_nan,
         "elapsed_s": perf_counter() - t_sweep,
-        "timings": timings,
     }
-    manifest_path.write_text(
-        json.dumps(_jsonable(manifest), indent=2, allow_nan=True), encoding="utf-8"
-    )
+    _write_spooled_manifest(manifest_path, manifest, timings)
+    rows.close()
+    timings.close()
     return {"summary_csv": str(output_csv), "manifest_json": str(manifest_path)}
 
 
@@ -441,3 +492,71 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
     return value
+
+
+class _JsonlSpool:
+    """Small cases stay in RAM; large sweeps spill records to a temp file."""
+
+    def __init__(self, max_memory_bytes: int = 8 * 1024 * 1024) -> None:
+        self._handle = tempfile.SpooledTemporaryFile(
+            max_size=max_memory_bytes, mode="w+", encoding="utf-8", newline="\n"
+        )
+        self.count = 0
+
+    def append(self, value: dict[str, Any]) -> None:
+        self._handle.write(json.dumps(_jsonable(value), allow_nan=True) + "\n")
+        self.count += 1
+
+    def extend(self, values) -> None:
+        for value in values:
+            self.append(value)
+
+    def __iter__(self):
+        self._handle.flush()
+        self._handle.seek(0)
+        for line in self._handle:
+            if line.strip():
+                yield json.loads(line)
+
+    def close(self) -> None:
+        self._handle.close()
+
+
+def _write_spooled_csv(
+    path: Path,
+    rows: _JsonlSpool,
+    *,
+    preferred_fields: list[str],
+    legacy_columns_only: bool,
+) -> None:
+    import csv
+
+    fields = list(dict.fromkeys(preferred_fields))
+    if not legacy_columns_only:
+        for row in rows:
+            fields.extend(key for key in row if key not in fields)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _write_spooled_manifest(
+    path: Path, metadata: dict[str, Any], timings: _JsonlSpool
+) -> None:
+    """Stream timing records so manifest creation never recreates a huge list."""
+    with path.open("w", encoding="utf-8") as handle:
+        handle.write("{\n")
+        items = list(metadata.items())
+        for key, value in items:
+            handle.write(f"  {json.dumps(str(key))}: ")
+            encoded = json.dumps(_jsonable(value), indent=2, allow_nan=True)
+            handle.write(encoded.replace("\n", "\n  "))
+            handle.write(",\n")
+        handle.write('  "timings": [')
+        for index, record in enumerate(timings):
+            handle.write("\n    " if index == 0 else ",\n    ")
+            handle.write(json.dumps(record, allow_nan=True))
+        if timings.count:
+            handle.write("\n  ")
+        handle.write("]\n}\n")

@@ -48,6 +48,7 @@ class GpuProbeResult:
 
 
 _DLL_DIRECTORY_HANDLES: list[Any] = []
+_GPU_PROBE_SUCCESS: GpuProbeResult | None = None
 
 
 def cuda_component_library_dirs() -> tuple[Path, ...]:
@@ -229,11 +230,15 @@ def probe_gpu_runtime(*, timeout_s: float = 30.0) -> GpuProbeResult:
 
 def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
     """Fail early with an actionable message when a configured GPU path is broken."""
+    global _GPU_PROBE_SUCCESS
     if not gpu_requested(config):
         return None
+    if _GPU_PROBE_SUCCESS is not None:
+        return _GPU_PROBE_SUCCESS
     preload_cuda_component_libraries()
     result = probe_gpu_runtime()
     if result.ready:
+        _GPU_PROBE_SUCCESS = result
         return result
     raise RuntimeError(
         "GPU preflight failed before vessel generation. This simulation requests a "

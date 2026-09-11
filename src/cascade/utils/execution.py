@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import sys
 from typing import Any, Callable, Iterator, TypeVar
 
 
@@ -19,6 +20,7 @@ class SimulationAlreadyRunningError(RuntimeError):
 
 
 _F = TypeVar("_F", bound=Callable[..., Any])
+_CASE_CLEANUP_COUNT = 0
 
 
 def simulation_lock_path() -> Path:
@@ -102,13 +104,31 @@ def guard_simulation(operation: str) -> Callable[[_F], _F]:
 def release_completed_case_memory(
     runtime_module: Any | None = None,
     *,
-    trim_accelerator_pools: bool = True,
+    trim_accelerator_pools: bool | None = True,
+    gpu_headroom_fraction: float = 0.20,
+    gpu_pool_limit_fraction: float = 0.50,
 ) -> dict[str, Any]:
-    """Release result state, optionally retaining accelerator pools for reuse."""
+    """Release one case while optionally retaining safe allocator capacity.
+
+    ``trim_accelerator_pools=None`` selects an adaptive policy: unused blocks
+    stay warm while the device has adequate headroom and are returned when the
+    pool grows too large or free VRAM is low.  Live arrays are never hidden by
+    this helper; callers must drop case-owned references before invoking it.
+    """
+    global _CASE_CLEANUP_COUNT
+    _CASE_CLEANUP_COUNT += 1
+    full_collection = bool(trim_accelerator_pools) or _CASE_CLEANUP_COUNT % 16 == 0
     released: dict[str, Any] = {
         "module_attrs_cleared": [],
         "cupy_pool_trimmed": False,
+        "cupy_pool_used_bytes": 0,
+        "cupy_pool_total_bytes": 0,
+        "gpu_free_bytes": None,
+        "gpu_total_bytes": None,
+        **host_memory_snapshot(),
+        "gc_generation": 2 if full_collection else 0,
     }
+    collected = False
     if runtime_module is not None:
         for name in (
             "_LAST_CEXT_SOURCE_STATE",
@@ -121,13 +141,35 @@ def release_completed_case_memory(
                     released["module_attrs_cleared"].append(name)
                 except Exception:
                     pass
+        gc.collect(2 if full_collection else 0)
+        collected = True
         cp = getattr(runtime_module, "_cp", None)
         if cp is not None:
             try:
                 cp.cuda.Stream.null.synchronize()
             except Exception:
                 pass
-            if trim_accelerator_pools:
+            should_trim = bool(trim_accelerator_pools)
+            try:
+                pool = cp.get_default_memory_pool()
+                released["cupy_pool_used_bytes"] = int(pool.used_bytes())
+                released["cupy_pool_total_bytes"] = int(pool.total_bytes())
+                free_bytes, total_bytes = cp.cuda.runtime.memGetInfo()
+                free_bytes = int(free_bytes)
+                total_bytes = int(total_bytes)
+                released["gpu_free_bytes"] = free_bytes
+                released["gpu_total_bytes"] = total_bytes
+                if trim_accelerator_pools is None and total_bytes > 0:
+                    should_trim = (
+                        free_bytes < float(gpu_headroom_fraction) * total_bytes
+                        or int(pool.total_bytes())
+                        > float(gpu_pool_limit_fraction) * total_bytes
+                    )
+            except Exception:
+                # Explicit trimming remains best-effort even when accounting is
+                # unavailable on an older CuPy/runtime combination.
+                should_trim = bool(trim_accelerator_pools)
+            if should_trim:
                 try:
                     cp.get_default_memory_pool().free_all_blocks()
                     released["cupy_pool_trimmed"] = True
@@ -137,8 +179,72 @@ def release_completed_case_memory(
                     cp.get_default_pinned_memory_pool().free_all_blocks()
                 except Exception:
                     pass
-    gc.collect()
+    # NumPy/CuPy arrays are reference-counted; a full cyclic scan on every
+    # sub-second case can cost more than the solve.  Sweep periodically and at
+    # hard boundaries, while still collecting new cycles after every case.
+    if not collected:
+        gc.collect(2 if full_collection else 0)
+    # CPython has already released unreachable objects at this point.  On
+    # glibc, large freed arenas can nevertheless remain mapped in a long-lived
+    # worker.  Return them only for an explicit hard cleanup or under genuine
+    # host-memory pressure; keeping ordinary arenas warm is faster between
+    # interactive cases.
+    available = released.get("host_available_bytes")
+    total = released.get("host_total_bytes")
+    host_pressure = bool(
+        isinstance(available, int)
+        and isinstance(total, int)
+        and total > 0
+        and available < 0.15 * total
+    )
+    released["host_allocator_trimmed"] = (
+        _trim_host_allocator()
+        if bool(trim_accelerator_pools) or host_pressure
+        else False
+    )
+    released.update(host_memory_snapshot())
     return released
+
+
+def host_memory_snapshot() -> dict[str, int | None]:
+    """Return current process RSS and system RAM headroom without dependencies."""
+    rss: int | None = None
+    available: int | None = None
+    total: int | None = None
+    try:
+        page = int(os.sysconf("SC_PAGE_SIZE"))
+        with Path("/proc/self/statm").open("r", encoding="ascii") as handle:
+            rss = int(handle.read().split()[1]) * page
+        values: dict[str, int] = {}
+        with Path("/proc/meminfo").open("r", encoding="ascii") as handle:
+            for line in handle:
+                key, value = line.split(":", 1)
+                values[key] = int(value.strip().split()[0]) * 1024
+        available = values.get("MemAvailable")
+        total = values.get("MemTotal")
+    except (OSError, ValueError, IndexError):
+        pass
+    return {
+        "process_rss_bytes": rss,
+        "host_available_bytes": available,
+        "host_total_bytes": total,
+    }
+
+
+def _trim_host_allocator() -> bool:
+    """Best-effort glibc arena trim for long-lived Linux workers."""
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL(None)
+        malloc_trim = getattr(libc, "malloc_trim")
+        malloc_trim.argtypes = [ctypes.c_size_t]
+        malloc_trim.restype = ctypes.c_int
+        return bool(malloc_trim(0))
+    except (AttributeError, OSError):
+        return False
 
 
 def _read_lock_metadata(handle) -> str:

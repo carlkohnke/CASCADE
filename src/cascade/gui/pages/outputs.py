@@ -137,7 +137,12 @@ class OutputsPage(Page):
         self.points_csv = QCheckBox("Tissue-points CSV")
         self.paraview = QCheckBox("ParaView VTK files")
         self.save_network = QCheckBox("Save vessel network")
-        self.save_network.setChecked(True)
+        self.paraview.setToolTip(
+            "Enable for a saved visualization snapshot; summary-only is much faster."
+        )
+        self.save_network.setToolTip(
+            "Enable when the generated network itself must be preserved."
+        )
         self.nearest_fields = QCheckBox("Add nearest-vessel fields to tissue points")
         checks = QWidget()
         grid = QGridLayout(checks)

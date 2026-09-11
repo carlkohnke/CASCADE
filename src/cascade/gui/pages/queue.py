@@ -171,10 +171,12 @@ class QueuePage(Page):
         if self.runner:
             try:
                 self.runner.jobs_changed.disconnect(self.refresh)
+                self.runner.job_updated.disconnect(self._refresh_job)
             except Exception:
                 pass
         self.runner = runner
         runner.jobs_changed.connect(self.refresh)
+        runner.job_updated.connect(self._refresh_job)
         runner.log_line.connect(self._append_log)
         runner.running_changed.connect(self._running_changed)
         self.refresh()
@@ -198,46 +200,7 @@ class QueuePage(Page):
             "Cancelled": Tokens.TEXT_3,
         }
         for row, job in enumerate(self.runner.jobs):
-            values = [job.name, self._timestamp_text(job), self._runtime_text(job)]
-            for col, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                item.setData(Qt.UserRole, job.id if col == 0 else None)
-                if col == 1:
-                    item.setToolTip(str(getattr(job, "created_at", "") or ""))
-                self.table.setItem(row, col, item)
-
-            status_cell = QWidget()
-            status_cell.setProperty("jobStatus", job.status)
-            status_layout = QVBoxLayout(status_cell)
-            status_layout.setContentsMargins(7, 4, 7, 4)
-            status_layout.setSpacing(4)
-            status_text = job.status
-            if job.status == "Running":
-                stage = str(job.stage or "Running")
-                status_text = f"{stage}  │  {int(job.progress or 0)}%"
-            status_label = QLabel(status_text)
-            status_label.setStyleSheet(
-                f"color:{tones.get(job.status, Tokens.TEXT_2)};font-weight:600;"
-            )
-            status_layout.addWidget(status_label)
-            if job.status == "Running":
-                progress = QProgressBar()
-                progress.setRange(0, 100)
-                progress.setValue(int(job.progress or 0))
-                progress.setTextVisible(False)
-                progress.setFixedHeight(5)
-                progress.setProperty("activeProgress", True)
-                status_layout.addWidget(progress)
-            self.table.setCellWidget(row, 3, status_cell)
-
-            results = QPushButton("Open results folder")
-            results.setProperty("secondary", True)
-            results.setToolTip(str(job.output_dir))
-            results.clicked.connect(
-                lambda _checked=False, path=str(job.output_dir): open_folder(path)
-            )
-            self.table.setCellWidget(row, 4, results)
-            self.table.setRowHeight(row, 46 if job.status == "Running" else 38)
+            self._render_job_row(row, job, tones)
             if job.id in selected:
                 self.table.selectRow(row)
         if self.runner.running and not self.runtime_timer.isActive():
@@ -245,6 +208,75 @@ class QueuePage(Page):
         elif not self.runner.running:
             self.runtime_timer.stop()
         self._update_action_states()
+
+    def _refresh_job(self, job_id: str) -> None:
+        """Update one queue row without rebuilding thousands of row widgets."""
+        if not self.runner:
+            return
+        row = next(
+            (
+                index
+                for index in range(self.table.rowCount())
+                if self.table.item(index, 0)
+                and self.table.item(index, 0).data(Qt.UserRole) == job_id
+            ),
+            None,
+        )
+        job = next((item for item in self.runner.jobs if item.id == job_id), None)
+        if row is None or job is None:
+            self.refresh()
+            return
+        tones = {
+            "Completed": Tokens.SUCCESS,
+            "Failed": Tokens.DANGER,
+            "Running": Tokens.TEXT,
+            "Queued": Tokens.AMBER,
+            "Cancelled": Tokens.TEXT_3,
+        }
+        self._render_job_row(row, job, tones)
+        self._update_action_states()
+
+    def _render_job_row(self, row, job, tones) -> None:
+        values = [job.name, self._timestamp_text(job), self._runtime_text(job)]
+        for col, value in enumerate(values):
+            item = QTableWidgetItem(str(value))
+            item.setData(Qt.UserRole, job.id if col == 0 else None)
+            if col == 1:
+                item.setToolTip(str(getattr(job, "created_at", "") or ""))
+            self.table.setItem(row, col, item)
+
+        status_cell = QWidget()
+        status_cell.setProperty("jobStatus", job.status)
+        status_layout = QVBoxLayout(status_cell)
+        status_layout.setContentsMargins(7, 4, 7, 4)
+        status_layout.setSpacing(4)
+        status_text = job.status
+        if job.status == "Running":
+            stage = str(job.stage or "Running")
+            status_text = f"{stage}  │  {int(job.progress or 0)}%"
+        status_label = QLabel(status_text)
+        status_label.setStyleSheet(
+            f"color:{tones.get(job.status, Tokens.TEXT_2)};font-weight:600;"
+        )
+        status_layout.addWidget(status_label)
+        if job.status == "Running":
+            progress = QProgressBar()
+            progress.setRange(0, 100)
+            progress.setValue(int(job.progress or 0))
+            progress.setTextVisible(False)
+            progress.setFixedHeight(5)
+            progress.setProperty("activeProgress", True)
+            status_layout.addWidget(progress)
+        self.table.setCellWidget(row, 3, status_cell)
+
+        results = QPushButton("Open results folder")
+        results.setProperty("secondary", True)
+        results.setToolTip(str(job.output_dir))
+        results.clicked.connect(
+            lambda _checked=False, path=str(job.output_dir): open_folder(path)
+        )
+        self.table.setCellWidget(row, 4, results)
+        self.table.setRowHeight(row, 46 if job.status == "Running" else 38)
 
     @staticmethod
     def _timestamp_text(job) -> str:

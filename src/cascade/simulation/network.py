@@ -55,6 +55,7 @@ def run_tree_simulation(
     inlet_concentration_override: Optional[float] = None,
     tissue_cache: dict | None = None,
     concentration_solver: str | None = None,
+    reuse_geometry: bool = False,
     return_details: bool = False,
 ) -> Dict[str, float] | tuple[Dict[str, float], dict]:
     """Run the complete flow, vessel-transport, and tissue pipeline for one tree.
@@ -87,6 +88,10 @@ def run_tree_simulation(
         else get_concentration_inlet(analysis_fluid)
     )
     concentration_solver_mode = _resolve_concentration_solver(concentration_solver)
+    # The hybrid Cext solver may retain one exact-match CPU/GPU geometry
+    # context on a reused tree. Standard one-shot calls and intervention runs
+    # continue to release it normally.
+    tree._cascade_reuse_cext_context = bool(reuse_geometry)
 
     # Normalize SVV storage into contiguous geometry and topology arrays shared
     # by every downstream solver backend.
@@ -101,7 +106,9 @@ def run_tree_simulation(
         outlet_nodes,
         prox_ids,
         dist_ids,
-    ) = assemble_tree_segments(tree, analysis_fluid)
+    ) = assemble_tree_segments(
+        tree, analysis_fluid, reuse_geometry=bool(reuse_geometry)
+    )
     t_assemble = perf_counter() - t_assemble
 
     total_length = float(np.nansum(lengths_arr))
@@ -230,6 +237,12 @@ def run_tree_simulation(
                             f"  Hematocrit flow iterations converged at {h_iter + 1}/{iter_count}: "
                             f"max_q_delta={delta_q:.3e} max_hd_delta={delta_hd:.3e}"
                         )
+                    break
+                if flows_fixed is not None and relax >= 1.0:
+                    # Under the fixed equal-terminal-flow boundary condition,
+                    # viscosity cannot feed back into flow. The first relaxed
+                    # hematocrit update is therefore already the exact fixed
+                    # point; a second identical pass only confirms it.
                     break
             mu_arr = segment_viscosity_from_radius_hd(
                 radii_arr, mu_base, analysis_fluid, hd_iter

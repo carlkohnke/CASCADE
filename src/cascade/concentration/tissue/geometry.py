@@ -230,7 +230,13 @@ def _prepare_tissue_geometry(
             "keep_mask": np.ones((points.shape[0],), dtype=bool),
         }
 
-    if _state._HAVE_SCIPY_SPATIAL:
+    dense_candidates = candidate_k == nseg
+    dense_candidate_ids = (
+        np.arange(nseg, dtype=_state.TISSUE_CACHE_INDEX_DTYPE)
+        if dense_candidates
+        else None
+    )
+    if _state._HAVE_SCIPY_SPATIAL and not dense_candidates:
         t0 = perf_counter()
         midpoints = 0.5 * (starts_si + ends_si)
         tree = _cKDTree(midpoints)
@@ -254,7 +260,12 @@ def _prepare_tissue_geometry(
         chunk = points_si[idx : idx + chunk_size]
         if chunk.size == 0:
             continue
-        if tree is not None:
+        if dense_candidates:
+            cand = np.broadcast_to(
+                dense_candidate_ids,
+                (len(chunk), nseg),
+            )
+        elif tree is not None:
             t0 = perf_counter()
             _, cand = _ckdtree_query(tree, chunk, k=candidate_k)
             t_query += perf_counter() - t0
@@ -272,10 +283,19 @@ def _prepare_tissue_geometry(
         proj_clipped = np.clip(proj, 0.0, 1.0)
         closest = starts_c + proj_clipped[:, :, None] * seg_c
         dist = np.linalg.norm(chunk[:, None, :] - closest, axis=2)
-        sel = np.argpartition(dist, kth=max_nearby - 1, axis=1)[:, :max_nearby]
-        nearest_idx[idx : idx + len(chunk)] = np.take_along_axis(cand, sel, axis=1)
-        proj_raw[idx : idx + len(chunk)] = np.take_along_axis(proj, sel, axis=1)
-        d_center[idx : idx + len(chunk)] = np.take_along_axis(dist, sel, axis=1)
+        if max_nearby == candidate_k:
+            nearest_idx[idx : idx + len(chunk)] = cand
+            proj_raw[idx : idx + len(chunk)] = proj
+            d_center[idx : idx + len(chunk)] = dist
+        else:
+            sel = np.argpartition(dist, kth=max_nearby - 1, axis=1)[
+                :, :max_nearby
+            ]
+            nearest_idx[idx : idx + len(chunk)] = np.take_along_axis(
+                cand, sel, axis=1
+            )
+            proj_raw[idx : idx + len(chunk)] = np.take_along_axis(proj, sel, axis=1)
+            d_center[idx : idx + len(chunk)] = np.take_along_axis(dist, sel, axis=1)
         t_refine += perf_counter() - t0
 
         t0 = perf_counter()
@@ -440,7 +460,13 @@ def _prepare_tissue_geometry_from_context(
             "keep_mask": np.ones((points.shape[0],), dtype=bool),
         }
 
-    tree = _ensure_tissue_context_kdtree(context)
+    dense_candidates = candidate_k == nseg
+    dense_candidate_ids = (
+        np.arange(nseg, dtype=_state.TISSUE_CACHE_INDEX_DTYPE)
+        if dense_candidates
+        else None
+    )
+    tree = None if dense_candidates else _ensure_tissue_context_kdtree(context)
     nearest_idx = np.zeros(
         (points.shape[0], max_nearby), dtype=_state.TISSUE_CACHE_INDEX_DTYPE
     )
@@ -453,7 +479,12 @@ def _prepare_tissue_geometry_from_context(
         chunk = points_si[idx : idx + chunk_size]
         if chunk.size == 0:
             continue
-        if tree is not None:
+        if dense_candidates:
+            cand = np.broadcast_to(
+                dense_candidate_ids,
+                (len(chunk), nseg),
+            )
+        elif tree is not None:
             _, cand = _ckdtree_query(tree, chunk, k=candidate_k)
             if cand.ndim == 1:
                 cand = cand[:, None]
@@ -468,10 +499,19 @@ def _prepare_tissue_geometry_from_context(
         proj_clipped = np.clip(proj, 0.0, 1.0)
         closest = starts_c + proj_clipped[:, :, None] * seg_c
         dist = np.linalg.norm(chunk[:, None, :] - closest, axis=2)
-        sel = np.argpartition(dist, kth=max_nearby - 1, axis=1)[:, :max_nearby]
-        nearest_idx[idx : idx + len(chunk)] = np.take_along_axis(cand, sel, axis=1)
-        proj_raw[idx : idx + len(chunk)] = np.take_along_axis(proj, sel, axis=1)
-        d_center[idx : idx + len(chunk)] = np.take_along_axis(dist, sel, axis=1)
+        if max_nearby == candidate_k:
+            nearest_idx[idx : idx + len(chunk)] = cand
+            proj_raw[idx : idx + len(chunk)] = proj
+            d_center[idx : idx + len(chunk)] = dist
+        else:
+            sel = np.argpartition(dist, kth=max_nearby - 1, axis=1)[
+                :, :max_nearby
+            ]
+            nearest_idx[idx : idx + len(chunk)] = np.take_along_axis(
+                cand, sel, axis=1
+            )
+            proj_raw[idx : idx + len(chunk)] = np.take_along_axis(proj, sel, axis=1)
+            d_center[idx : idx + len(chunk)] = np.take_along_axis(dist, sel, axis=1)
 
         radius_local = np.minimum(
             radii_si[nearest_idx[idx : idx + len(chunk)]],

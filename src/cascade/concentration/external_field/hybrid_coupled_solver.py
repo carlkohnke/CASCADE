@@ -6,6 +6,7 @@ near-field corrections, and adaptive convergence control.
 
 from __future__ import annotations
 
+import hashlib
 import math
 from time import perf_counter
 from typing import Tuple
@@ -62,6 +63,65 @@ from .state import (
 )
 from .topdown_solver import _solve_channel_concentrations_topdown_ext
 from .treecode import _rebuild_cext_hybrid_frozen_cache
+
+
+def _hybrid_context_cache_key(
+    flows: np.ndarray,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    radii: np.ndarray,
+    lengths: np.ndarray,
+    *,
+    inlet_concentration: float,
+    diffusivity: float,
+    vmax: float,
+    km: float,
+) -> tuple:
+    """Identify an immutable geometry/flow context for a serial worker.
+
+    Geometry arrays come from the opt-in assembly cache and therefore keep a
+    stable address until that cache is evicted. Flow direction affects source
+    orientation, but flow magnitude is a cheap dynamic input uploaded on a hit.
+    """
+
+    def array_identity(value: np.ndarray) -> tuple:
+        arr = np.asarray(value)
+        return (
+            tuple(int(v) for v in arr.shape),
+            str(arr.dtype),
+            int(arr.__array_interface__["data"][0]),
+        )
+
+    flow_sign = np.packbits(
+        np.asarray(flows, dtype=np.float64).reshape(-1) < 0.0,
+        bitorder="little",
+    )
+    flow_direction_digest = hashlib.blake2b(
+        flow_sign.view(np.uint8), digest_size=16
+    ).digest()
+    solver_settings = tuple(
+        (name, repr(getattr(_state, name)))
+        for name in sorted(dir(_state))
+        if name.startswith("CEXT_")
+        or name
+        in {
+            "FINITE_RADIUS_O2_TERMS",
+            "GL_ORDER_CEXT",
+            "LUMEN_WALL_CLOSURE",
+        }
+    )
+    return (
+        array_identity(starts),
+        array_identity(ends),
+        array_identity(radii),
+        array_identity(lengths),
+        flow_direction_digest,
+        float(inlet_concentration),
+        float(diffusivity),
+        float(vmax),
+        float(km),
+        solver_settings,
+    )
 
 
 def _solve_channel_concentrations_topdown_ext_hybrid_bg(
@@ -215,20 +275,58 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
     hct_setup_s = perf_counter() - t_stage
 
     t_stage = perf_counter()
-    context = _build_cext_geometry_context(
-        tree,
-        flows_arr,
-        starts,
-        ends,
-        radii,
-        lengths,
-        inlet_concentration=inlet_concentration,
-        diffusivity=diffusivity,
-        vmax=vmax,
-        km=km,
-        build_candidate_index=False,
-        network_topology=network_topology,
+    reuse_context = bool(
+        network_topology is None and getattr(tree, "_cascade_reuse_cext_context", False)
     )
+    context_key = None
+    context = None
+    if reuse_context:
+        context_key = _hybrid_context_cache_key(
+            flows_arr,
+            starts,
+            ends,
+            radii,
+            lengths,
+            inlet_concentration=inlet_concentration,
+            diffusivity=diffusivity,
+            vmax=vmax,
+            km=km,
+        )
+        cached_context = getattr(tree, "_cascade_cext_context_cache", None)
+        if (
+            isinstance(cached_context, dict)
+            and cached_context.get("key") == context_key
+            and isinstance(cached_context.get("context"), dict)
+        ):
+            context = cached_context["context"]
+            flows_si = np.asarray(
+                flows_arr * _state.CM3_TO_M3,
+                dtype=_state.CEXT_FLOAT_DTYPE,
+            )
+            context["flows_si"] = flows_si
+            gpu_static = context.get("gpu_static")
+            if isinstance(gpu_static, dict) and "flows_si" in gpu_static:
+                gpu_static["flows_si"].set(np.asarray(flows_si, dtype=np.float32))
+    if context is None:
+        context = _build_cext_geometry_context(
+            tree,
+            flows_arr,
+            starts,
+            ends,
+            radii,
+            lengths,
+            inlet_concentration=inlet_concentration,
+            diffusivity=diffusivity,
+            vmax=vmax,
+            km=km,
+            build_candidate_index=False,
+            network_topology=network_topology,
+        )
+        if reuse_context:
+            tree._cascade_cext_context_cache = {
+                "key": context_key,
+                "context": context,
+            }
     context_build_s = perf_counter() - t_stage
 
     t_stage = perf_counter()
@@ -468,7 +566,11 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
         if _state.SOLVER_TIMING_DETAILS:
             print(
                 "    Cext init predictor: "
-                f"max_cext={float(np.nanmax(np.asarray(ext_state['c_ext_gl'], dtype=float))) if ext_state['c_ext_gl'].size else 0.0:.3e}"
+                f"max_cext={float(np.nanmax(np.asarray(ext_state['c_ext_gl'], dtype=float))) if ext_state['c_ext_gl'].size else 0.0:.3e} "
+                f"deposit={float(hybrid_timings.get('deposit_s', 0.0)):.3f}s "
+                f"fft={float(hybrid_timings.get('fft_s', 0.0)):.3f}s "
+                f"self={float(hybrid_timings.get('fft_discrete_self_subtract_s', 0.0)):.3f}s "
+                f"sample={float(hybrid_timings.get('sample_s', 0.0)):.3f}s"
             )
         _maybe_trace_cext_iteration(
             0, ext_state, solver=solver_name, context=context, backend=backend

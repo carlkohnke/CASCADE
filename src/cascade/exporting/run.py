@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+from functools import lru_cache
 from importlib import metadata
 import json
 import os
@@ -63,7 +64,10 @@ def export_run(
 
     if config.outputs.write_segments_csv:
         path = out_dir / "segments.csv"
-        _write_csv(path, simulation.segment_rows)
+        if simulation.segment_rows:
+            _write_csv(path, simulation.segment_rows)
+        else:
+            _write_segment_csv_from_results(path, simulation.tree_results)
         outputs["segments_csv"] = str(path)
 
     if config.outputs.write_points_csv and simulation.point_rows:
@@ -72,15 +76,29 @@ def export_run(
         outputs["points_csv"] = str(path)
 
     if config.outputs.write_paraview:
-        if simulation.segment_rows and config.outputs.write_vessels_vtp:
+        if (
+            simulation.segment_rows or simulation.tree_results
+        ) and config.outputs.write_vessels_vtp:
             path = out_dir / "vessels.vtp"
-            _segment_polydata(
-                simulation.segment_rows,
-                resolution=max(int(config.outputs.vessel_resolution), 2),
-                float_dtype=_float_dtype(config.outputs.export_float_dtype),
-                index_dtype=_index_dtype(config.outputs.export_index_dtype),
-                tree_results=simulation.tree_results,
-            ).save(str(path))
+            float_dtype = _float_dtype(config.outputs.export_float_dtype)
+            index_dtype = _index_dtype(config.outputs.export_index_dtype)
+            poly = (
+                _segment_polydata(
+                    simulation.segment_rows,
+                    resolution=max(int(config.outputs.vessel_resolution), 2),
+                    float_dtype=float_dtype,
+                    index_dtype=index_dtype,
+                    tree_results=simulation.tree_results,
+                )
+                if simulation.segment_rows
+                else _segment_polydata_from_results(
+                    simulation.tree_results,
+                    resolution=max(int(config.outputs.vessel_resolution), 2),
+                    float_dtype=float_dtype,
+                    index_dtype=index_dtype,
+                )
+            )
+            poly.save(str(path))
             outputs["vessels_vtp"] = str(path)
         if (
             simulation.point_data or simulation.point_rows
@@ -133,6 +151,82 @@ def _summary_fieldnames() -> list[str]:
     return list(CSV_FIELDNAMES)
 
 
+def _write_segment_csv_from_results(path: Path, tree_results: list[Any]) -> None:
+    """Stream per-vessel CSV rows without retaining one Python dict per vessel."""
+    fields = [
+        "global_segment_id",
+        "tree_id",
+        "local_segment_id",
+        "start_x",
+        "start_y",
+        "start_z",
+        "end_x",
+        "end_y",
+        "end_z",
+        "radius_cm",
+        "length_cm",
+        "flow_cm3_s",
+        "flow_ul_min",
+        "pressure_pa",
+        "cin",
+        "cout",
+        "pressure_in_root",
+        "pressure_out_terminals",
+    ]
+    optional = [
+        name
+        for name in ("discharge_hematocrit", "tube_hematocrit")
+        if any(name in (getattr(item, "details", {}) or {}) for item in tree_results)
+    ]
+    fields.extend(optional)
+    global_id = 0
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(fields)
+        for result in tree_results:
+            details = getattr(result, "details", {}) or {}
+            starts = np.asarray(details.get("starts", np.empty((0, 3))), dtype=float)
+            ends = np.asarray(details.get("ends", np.empty((0, 3))), dtype=float)
+            count = int(starts.shape[0])
+            arrays = {
+                name: _detail_array(details, source, count)
+                for name, source in (
+                    ("radius_cm", "radii"),
+                    ("length_cm", "lengths"),
+                    ("flow_cm3_s", "flows"),
+                    ("pressure_pa", "pressures"),
+                    ("cin", "cin"),
+                    ("cout", "cout"),
+                    *[(name, name) for name in optional],
+                )
+            }
+            summary = getattr(result, "summary", {}) or {}
+            root_pressure = summary.get("pressure_in_root", np.nan)
+            outlet_pressure = summary.get("pressure_out_terminals", np.nan)
+            tree_id = int(getattr(result, "tree_id", 0))
+            for local_id in range(count):
+                flow = arrays["flow_cm3_s"][local_id]
+                row = [
+                    global_id,
+                    tree_id,
+                    local_id,
+                    *starts[local_id],
+                    *ends[local_id],
+                    arrays["radius_cm"][local_id],
+                    arrays["length_cm"][local_id],
+                    flow,
+                    flow * 60000.0,
+                    arrays["pressure_pa"][local_id] * 0.1,
+                    arrays["cin"][local_id],
+                    arrays["cout"][local_id],
+                    root_pressure,
+                    outlet_pressure,
+                ]
+                row.extend(arrays[name][local_id] for name in optional)
+                writer.writerow(row)
+                global_id += 1
+
+
 def _segment_polydata(
     rows: list[dict[str, Any]],
     *,
@@ -183,7 +277,6 @@ def _segment_polydata(
         "c_wall_gl": "wall_oxygen",
         "c_ext_gl": "external_oxygen",
     }
-
     for segment_id, row in enumerate(rows):
         start = np.asarray(starts[segment_id], dtype=float)
         end = np.asarray(ends[segment_id], dtype=float)
@@ -294,6 +387,184 @@ def _segment_polydata(
     return poly
 
 
+def _segment_polydata_from_results(
+    tree_results: list[Any],
+    *,
+    resolution: int,
+    float_dtype: np.dtype,
+    index_dtype: np.dtype,
+) -> pv.PolyData:
+    """Vectorize VTK vessel construction without per-segment Python dicts."""
+    point_chunks: list[np.ndarray] = []
+    line_chunks: list[np.ndarray] = []
+    fields: dict[str, list[np.ndarray]] = {}
+    global_segment_offset = 0
+    point_offset = 0
+    minimum_resolution = max(int(resolution), 2)
+    profile_names = {
+        "c_iv_gl": "intralumen_oxygen",
+        "c_bulk_gl": "bulk_oxygen",
+        "c_wall_gl": "wall_oxygen",
+        "c_ext_gl": "external_oxygen",
+    }
+    optional_fields = {
+        name
+        for name in ("discharge_hematocrit", "tube_hematocrit")
+        if any(name in (getattr(item, "details", {}) or {}) for item in tree_results)
+    }
+
+    def add(name: str, values: np.ndarray) -> None:
+        fields.setdefault(name, []).append(np.asarray(values).reshape(-1))
+
+    for result in tree_results:
+        details = getattr(result, "details", {}) or {}
+        starts = np.asarray(details.get("starts", np.empty((0, 3))), dtype=float)
+        ends = np.asarray(details.get("ends", np.empty((0, 3))), dtype=float)
+        nseg = int(starts.shape[0])
+        if nseg == 0:
+            continue
+        vectors = ends - starts
+        profile = details.get("vessel_quadrature")
+        gl_points = (
+            np.asarray(profile.get("gl_points_si"), dtype=float)
+            if isinstance(profile, dict)
+            else np.empty((0, 0, 3), dtype=float)
+        )
+        order = int(gl_points.shape[1]) if gl_points.ndim == 3 else 0
+        source_t = np.empty((0,), dtype=float)
+        if order and gl_points.shape[0] >= nseg:
+            length_sq = np.einsum("ij,ij->i", vectors, vectors)
+            valid = np.flatnonzero(length_sq > 0.0)
+            if valid.size:
+                sample = int(valid[0])
+                source_t = (
+                    (gl_points[sample] * 100.0 - starts[sample])
+                    @ vectors[sample]
+                ) / length_sq[sample]
+                source_t = np.clip(source_t, 0.0, 1.0)
+        base_t = np.linspace(0.0, 1.0, minimum_resolution, dtype=float)
+        target_t = np.unique(np.concatenate((base_t, source_t)))
+        count = int(target_t.size)
+        points = starts[:, None, :] + target_t[None, :, None] * vectors[:, None, :]
+        point_chunks.append(points.reshape(-1, 3).astype(float_dtype, copy=False))
+        ids = np.arange(point_offset, point_offset + nseg * count, dtype=np.int64)
+        lines = np.column_stack(
+            (np.full(nseg, count, dtype=np.int64), ids.reshape(nseg, count))
+        )
+        line_chunks.append(lines.reshape(-1))
+        point_offset += nseg * count
+
+        cin = _detail_array(details, "cin", nseg)
+        cout = _detail_array(details, "cout", nseg)
+        fallback = cin[:, None] + (cout - cin)[:, None] * target_t[None, :]
+        interpolated: dict[str, np.ndarray] = {}
+        if source_t.size:
+            order_idx = np.argsort(source_t, kind="stable")
+            sorted_t = source_t[order_idx]
+            for source_name, output_name in profile_names.items():
+                raw = np.asarray(profile.get(source_name, ()), dtype=float)
+                if raw.ndim == 2 and raw.shape[0] >= nseg and raw.shape[1] == order:
+                    interpolated[output_name] = _interp_rows(
+                        sorted_t, raw[:nseg, order_idx], target_t
+                    )
+        add(
+            "concentration",
+            interpolated.get(
+                "bulk_oxygen", interpolated.get("intralumen_oxygen", fallback)
+            ),
+        )
+        for name in profile_names.values():
+            add(name, interpolated.get(name, np.full((nseg, count), np.nan)))
+        is_node = (
+            np.any(
+                np.isclose(
+                    target_t[:, None], source_t[None, :], rtol=1e-6, atol=1e-7
+                ),
+                axis=1,
+            )
+            if source_t.size
+            else np.zeros(count, dtype=bool)
+        )
+        add("solver_quadrature_node", np.tile(is_node, nseg).astype(index_dtype))
+        add(
+            "solver_quadrature_order",
+            np.full(nseg * count, order, dtype=index_dtype),
+        )
+        scalar_fields = {
+            "flow_cm3_s": _detail_array(details, "flows", nseg),
+            "flow_ul_min": _detail_array(details, "flows", nseg) * 60000.0,
+            "pressure_pa": _detail_array(details, "pressures", nseg) * 0.1,
+            "radius_cm": _detail_array(details, "radii", nseg),
+            "length_cm": _detail_array(details, "lengths", nseg),
+        }
+        for name, values in scalar_fields.items():
+            add(name, np.repeat(values, count))
+        add(
+            "tree_id",
+            np.full(nseg * count, int(getattr(result, "tree_id", 0)), dtype=index_dtype),
+        )
+        add("local_segment_id", np.repeat(np.arange(nseg), count))
+        add(
+            "global_segment_id",
+            np.repeat(np.arange(global_segment_offset, global_segment_offset + nseg), count),
+        )
+        for source_name in optional_fields:
+            add(
+                source_name,
+                np.repeat(_detail_array(details, source_name, nseg), count),
+            )
+        global_segment_offset += nseg
+
+    if not point_chunks:
+        return pv.PolyData()
+    poly = pv.PolyData(np.concatenate(point_chunks), lines=np.concatenate(line_chunks))
+    integer_fields = {
+        "solver_quadrature_node",
+        "solver_quadrature_order",
+        "tree_id",
+        "local_segment_id",
+        "global_segment_id",
+    }
+    for name, chunks in fields.items():
+        values = np.concatenate(chunks)
+        if name in integer_fields:
+            poly.point_data[name] = values.astype(index_dtype, copy=False)
+        elif name not in profile_names.values() or np.any(np.isfinite(values)):
+            poly.point_data[name] = values.astype(float_dtype, copy=False)
+    return poly
+
+
+def _detail_array(details: dict[str, Any], name: str, count: int) -> np.ndarray:
+    values = np.asarray(details.get(name, ()), dtype=float).reshape(-1)
+    if values.size >= count:
+        return values[:count]
+    out = np.full(count, np.nan, dtype=float)
+    out[: values.size] = values
+    return out
+
+
+def _interp_rows(
+    source_t: np.ndarray, values: np.ndarray, target_t: np.ndarray
+) -> np.ndarray:
+    """Vectorized equivalent of one ``np.interp`` call per segment."""
+    if source_t.size == 1:
+        return np.repeat(values[:, :1], target_t.size, axis=1)
+    right = np.searchsorted(source_t, target_t, side="left")
+    right = np.clip(right, 1, source_t.size - 1)
+    left = right - 1
+    denominator = source_t[right] - source_t[left]
+    weight = np.divide(
+        target_t - source_t[left],
+        denominator,
+        out=np.zeros_like(target_t),
+        where=denominator != 0.0,
+    )
+    result = values[:, left] * (1.0 - weight) + values[:, right] * weight
+    result[:, target_t <= source_t[0]] = values[:, :1]
+    result[:, target_t >= source_t[-1]] = values[:, -1:]
+    return result
+
+
 def _points_polydata(
     rows: list[dict[str, Any]], *, float_dtype: np.dtype, index_dtype: np.dtype
 ) -> pv.PolyData:
@@ -307,7 +578,7 @@ def _points_polydata(
         if key in {"x", "y", "z"}:
             continue
         values = [r.get(key) for r in rows]
-        if key.endswith("_id") or key in {"point_id", "viability"}:
+        if key.endswith("_id") or key in {"point_id", "viability", "inside_tissue"}:
             poly.point_data[key] = np.asarray(values, dtype=index_dtype)
         else:
             poly.point_data[key] = np.asarray(values, dtype=float_dtype)
@@ -326,6 +597,8 @@ def _points_polydata_from_data(
         [np.ones(n, dtype=np.int64), np.arange(n, dtype=np.int64)]
     ).reshape(-1)
     poly = pv.PolyData(points, verts=verts)
+    # Keep coordinates as explicit point fields as well as mesh geometry.  This
+    # is part of the established tissue-output schema used by validation tools.
     for coordinate_index, coordinate_name in enumerate(("x", "y", "z")):
         poly.point_data[coordinate_name] = points[:, coordinate_index]
     for key, raw_values in data.items():
@@ -449,6 +722,7 @@ def _manifest(
     }
 
 
+@lru_cache(maxsize=1)
 def _dependency_versions() -> dict[str, str | None]:
     result: dict[str, str | None] = {}
     for distribution in (
@@ -469,6 +743,7 @@ def _dependency_versions() -> dict[str, str | None]:
     return result
 
 
+@lru_cache(maxsize=1)
 def _git_metadata() -> dict[str, Any]:
     root = Path(__file__).resolve().parents[2]
     if not (root / ".git").exists():
@@ -500,10 +775,19 @@ def _git_metadata() -> dict[str, Any]:
 def _file_sha256(path: str | Path | None) -> str | None:
     if path is None:
         return None
-    candidate = Path(path)
+    candidate = Path(path).expanduser().resolve()
     if not candidate.is_file():
         return None
-    return file_sha256(candidate)
+    stat = candidate.stat()
+    return _file_sha256_for_signature(
+        str(candidate), int(stat.st_size), int(stat.st_mtime_ns)
+    )
+
+
+@lru_cache(maxsize=16)
+def _file_sha256_for_signature(path: str, _size: int, _mtime_ns: int) -> str:
+    """Avoid re-reading unchanged large inputs for every serial manifest."""
+    return file_sha256(Path(path))
 
 
 def _jsonable(value: Any) -> Any:

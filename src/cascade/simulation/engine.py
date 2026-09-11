@@ -80,6 +80,9 @@ def run_simulation(
     config: RunConfig,
     *,
     sample_points: np.ndarray | None = None,
+    tissue_caches: list[dict | None] | None = None,
+    reuse_geometry: bool = False,
+    materialize_segment_rows: bool = True,
 ) -> SimulationResult:
     """Execute every network in a run through one consistent simulation path.
 
@@ -116,11 +119,18 @@ def run_simulation(
         and not bool(config.simulation.geometry_only)
         and not bool(config.simulation.skip_tissue_oxygen)
     )
+    # CLI/GUI callers opt into array-native exports.  Keep materialized rows as
+    # the API default for third-party callers which inspect SimulationResult.
     want_segment_rows = (
-        bool(config.outputs.write_segments_csv)
-        or (
-            bool(config.outputs.write_paraview)
-            and bool(config.outputs.write_vessels_vtp)
+        (
+            bool(materialize_segment_rows)
+            and (
+                bool(config.outputs.write_segments_csv)
+                or (
+                    bool(config.outputs.write_paraview)
+                    and bool(config.outputs.write_vessels_vtp)
+                )
+            )
         )
         or (want_point_data and bool(config.outputs.include_tissue_nearest_fields))
     )
@@ -186,8 +196,16 @@ def run_simulation(
                     ts, tree, target_count, config, qin_cm3_s
                 )
             else:
-                tissue_cache = None
-                if not config.simulation.skip_tissue_oxygen and sample_points.size:
+                tissue_cache = (
+                    tissue_caches[tree_id]
+                    if tissue_caches is not None and tree_id < len(tissue_caches)
+                    else None
+                )
+                if (
+                    tissue_cache is None
+                    and not config.simulation.skip_tissue_oxygen
+                    and sample_points.size
+                ):
                     t_cache = perf_counter()
                     tissue_cache = build_tissue_cache_from_tree(tree, sample_points)
                     timings[f"tree_{tree_id}_tissue_cache_s"] = perf_counter() - t_cache
@@ -203,6 +221,9 @@ def run_simulation(
                     ),
                     tissue_cache=tissue_cache,
                     concentration_solver=config.simulation.concentration_solver,
+                    reuse_geometry=(
+                        bool(reuse_geometry) and config.simulation.occlusion is None
+                    ),
                     return_details=True,
                 )
             zero_occluded_solution(details, intervention)

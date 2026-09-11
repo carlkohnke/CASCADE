@@ -515,6 +515,122 @@ if _state._HAVE_NUMBA:
                 out[row] = total
         return out
 
+    @njit(cache=True, parallel=True)
+    def _tissue_dense_kernel_numba(
+        points_si: np.ndarray,
+        starts_si: np.ndarray,
+        segment_vectors: np.ndarray,
+        seg_len_sq: np.ndarray,
+        seg_len: np.ndarray,
+        radii_si: np.ndarray,
+        cin_pos: np.ndarray,
+        alpha_edge: np.ndarray,
+        flow_sign: np.ndarray,
+        diffusivity_si: float,
+        km: float,
+        vmax: float,
+        window_factor: float,
+        lam_ref: float,
+        gl_nodes: np.ndarray,
+        gl_weights: np.ndarray,
+        xs_lut: np.ndarray,
+        k0_lut: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Fuse exact all-segment geometry and tissue integration on the CPU."""
+        n_points = points_si.shape[0]
+        n_segments = starts_si.shape[0]
+        keep_mask = np.ones(n_points, dtype=np.bool_)
+        out = np.zeros(n_points, dtype=np.float64)
+        for row in prange(n_points):
+            px = points_si[row, 0]
+            py = points_si[row, 1]
+            pz = points_si[row, 2]
+            cap_max = 1.0e-6
+            total = 0.0
+            for seg_i in range(n_segments):
+                len2 = seg_len_sq[seg_i]
+                L = seg_len[seg_i]
+                if len2 <= 0.0 or L <= 0.0:
+                    continue
+                sx0 = starts_si[seg_i, 0]
+                sx1 = starts_si[seg_i, 1]
+                sx2 = starts_si[seg_i, 2]
+                vx0 = segment_vectors[seg_i, 0]
+                vx1 = segment_vectors[seg_i, 1]
+                vx2 = segment_vectors[seg_i, 2]
+                wx0 = px - sx0
+                wx1 = py - sx1
+                wx2 = pz - sx2
+                proj_raw = (wx0 * vx0 + wx1 * vx1 + wx2 * vx2) / len2
+                proj_clip = min(1.0, max(0.0, proj_raw))
+                dx = px - (sx0 + proj_clip * vx0)
+                dy = py - (sx1 + proj_clip * vx1)
+                dz = pz - (sx2 + proj_clip * vx2)
+                d_center = np.sqrt(dx * dx + dy * dy + dz * dz)
+                if (
+                    proj_raw >= 0.0
+                    and proj_raw <= 1.0
+                    and d_center <= min(radii_si[seg_i], L)
+                ):
+                    keep_mask[row] = False
+                    total = 0.0
+                    break
+
+                proj = 1.0 - proj_raw if flow_sign[seg_i] < 0.0 else proj_raw
+                proj = min(1.0, max(0.0, proj))
+                s_star = proj * L
+                Cc_star = cin_pos[seg_i] * np.exp(-alpha_edge[seg_i] * s_star)
+                denom_gate = max(km + max(Cc_star, 1.0e-12), 1.0e-30)
+                lam_gate = np.sqrt(diffusivity_si / max(vmax / denom_gate, 1.0e-30))
+                if d_center > window_factor * lam_gate:
+                    continue
+                if Cc_star > cap_max:
+                    cap_max = Cc_star
+
+                half_width = window_factor * lam_ref
+                s0 = max(0.0, s_star - half_width)
+                s1 = min(L, s_star + half_width)
+                if s1 <= s0 + 1.0e-15:
+                    continue
+                mid = 0.5 * (s0 + s1)
+                half = 0.5 * (s1 - s0)
+                total_local = 0.0
+                radius = radii_si[seg_i]
+                cin_seg = cin_pos[seg_i]
+                alpha = alpha_edge[seg_i]
+                for g in range(gl_nodes.shape[0]):
+                    s = mid + half * gl_nodes[g]
+                    t = s / L
+                    rx = px - (sx0 + t * vx0)
+                    ry = py - (sx1 + t * vx1)
+                    rz = pz - (sx2 + t * vx2)
+                    r = np.sqrt(rx * rx + ry * ry + rz * rz)
+                    if r <= 1.0e-12:
+                        continue
+                    cc_s = cin_seg * np.exp(-alpha * s)
+                    denom_loc = max(km + max(cc_s, 1.0e-12), 1.0e-30)
+                    lam_loc = np.sqrt(diffusivity_si / max(vmax / denom_loc, 1.0e-30))
+                    phi_loc = max(radius / max(lam_loc, 1.0e-30), 1.0e-12)
+                    r_over_lam = r / max(lam_loc, 1.0e-30)
+                    k0_num = _interp_scalar(r_over_lam, xs_lut, k0_lut)
+                    k0_den = max(_interp_scalar(phi_loc, xs_lut, k0_lut), 1.0e-300)
+                    ci_r = cc_s * (k0_num / k0_den)
+                    denom_corr = max(km + min(3.0 * ci_r, cc_s), 1.0e-30)
+                    lam_corr = np.sqrt(diffusivity_si / max(vmax / denom_corr, 1.0e-30))
+                    phi = max(radius / max(lam_corr, 1.0e-30), 1.0e-12)
+                    ratio = _interp_scalar(phi, _state._KRATIO_XS, _state._KRATIO_YS)
+                    wall_factor = (diffusivity_si / max(lam_corr, 1.0e-30)) * ratio
+                    q_s = 2.0 * np.pi * radius * wall_factor * cc_s
+                    green = np.exp(-r / max(lam_corr, 1.0e-30)) / (4.0 * np.pi * r)
+                    total_local += gl_weights[g] * q_s * (green / diffusivity_si)
+                total += half * total_local
+
+            if keep_mask[row]:
+                if total < 0.0 or not np.isfinite(total):
+                    total = 0.0
+                out[row] = min(total, cap_max)
+        return keep_mask, out
+
 
 def _greens_lambda_char(
     diffusivity: float, vmax: float, km: float, cin: float
@@ -771,6 +887,7 @@ __all__ = [
     "_blood_greens_decay_ratio_numba",
     "_solve_channel_concentrations_topdown_numba",
     "_tissue_kernel_numba",
+    "_tissue_dense_kernel_numba",
     "_greens_lambda_char",
     "_greens_decay_factor",
     "_greens_segment_params",

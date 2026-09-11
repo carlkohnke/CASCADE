@@ -18,7 +18,11 @@ from cascade.concentration.external_field.state import (
     _prepare_cext_source_state_for_tissue,
     validate_cext_tissue_flux_consistency,
 )
-from cascade.concentration.vessel.greens import _k_ratio, _tissue_kernel_numba
+from cascade.concentration.vessel.greens import (
+    _k_ratio,
+    _tissue_dense_kernel_numba,
+    _tissue_kernel_numba,
+)
 from cascade.diagnostics.runtime import _fmt_seconds, _resolve_tissue_accel_mode
 from cascade.concentration.quadrature import _get_gl_nodes_weights
 
@@ -339,6 +343,37 @@ def compute_tissue_samples_greens(
             tissue_cache=tissue_cache,
         )
 
+    max_nearby = min(_state.NEAREST_TISSUE_VESSELS, len(starts))
+    use_dense_fused_cpu = (
+        _state._HAVE_NUMBA
+        and _state.TISSUE_USE_NUMBA
+        and max_nearby == len(starts)
+        and (tissue_cache is None or tissue_cache.get("dense_fused_cpu"))
+    )
+    if use_dense_fused_cpu:
+        try:
+            return _compute_tissue_samples_greens_dense_cpu(
+                points,
+                starts,
+                ends,
+                radii,
+                cin,
+                flows,
+                diffusivity=diffusivity,
+                vmax=vmax,
+                km=km,
+                window_factor=window_factor,
+                inlet_concentration=inlet_concentration,
+                tissue_cache=tissue_cache,
+            )
+        except Exception:
+            print(
+                "WARNING: fused dense CPU tissue kernel failed; falling back to "
+                "the candidate-cache path."
+            )
+            traceback.print_exc()
+            tissue_cache = None
+
     if _state.TISSUE_STREAMING_ENABLED and (
         (tissue_cache is not None and tissue_cache.get("streaming"))
         or (
@@ -361,7 +396,6 @@ def compute_tissue_samples_greens(
             tissue_cache=tissue_cache,
         )
 
-    max_nearby = min(_state.NEAREST_TISSUE_VESSELS, len(starts))
     if tissue_cache is None:
         tissue_cache = _prepare_tissue_geometry(
             points,
@@ -521,6 +555,103 @@ def compute_tissue_samples_greens(
     }
 
     return keep_mask, result
+
+
+def _compute_tissue_samples_greens_dense_cpu(
+    points: np.ndarray,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    radii: np.ndarray,
+    cin: np.ndarray,
+    flows: np.ndarray,
+    *,
+    diffusivity: float,
+    vmax: float,
+    km: float,
+    window_factor: float,
+    inlet_concentration: float | None,
+    tissue_cache: dict | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Run the exact all-segment CPU path without candidate matrices."""
+    t_total = perf_counter()
+    t0 = perf_counter()
+    context = (
+        tissue_cache["context"]
+        if tissue_cache is not None and tissue_cache.get("dense_fused_cpu")
+        else _build_tissue_geometry_context(starts, ends, radii)
+    )
+    valid = np.asarray(context["valid_mask"], dtype=bool)
+    points_si = np.asarray(points * _state.CM_TO_M, dtype=context["cache_float"])
+    starts_si = context["starts_si"]
+    segment_vectors = context["segment_vectors"]
+    seg_len_sq = context["seg_len_sq"]
+    seg_len = context["seg_len"]
+    radii_si = np.maximum(np.nan_to_num(context["radii_si"], nan=0.0), 0.0)
+    cin_pos = np.maximum(np.nan_to_num(np.asarray(cin)[valid], nan=0.0), 0.0)
+    flows_si = np.nan_to_num(np.asarray(flows)[valid] * _state.CM3_TO_M3, nan=0.0)
+    diffusivity_si = float(diffusivity * _state.CM2_TO_M2)
+    denom = np.maximum(float(km) + cin_pos, 1.0e-30)
+    lam_edge = np.sqrt(diffusivity_si / np.maximum(float(vmax) / denom, 1.0e-30))
+    ratio_edge = _k_ratio(radii_si / np.maximum(lam_edge, 1.0e-30))
+    alpha_edge = (
+        (2.0 * np.pi * radii_si / np.maximum(np.abs(flows_si), 1.0e-30))
+        * (diffusivity_si / np.maximum(lam_edge, 1.0e-30))
+        * ratio_edge
+    )
+    if inlet_concentration is None:
+        inlet_concentration = get_concentration_inlet()
+    lam_ref = float(
+        np.sqrt(
+            diffusivity_si
+            / max(
+                float(vmax) / max(float(km) + float(inlet_concentration), 1.0e-30),
+                1.0e-30,
+            )
+        )
+    )
+    gl_nodes, gl_weights = _get_gl_nodes_weights(_state.GL_ORDER)
+    t_setup = perf_counter() - t0
+    t0 = perf_counter()
+    keep_mask, result = _tissue_dense_kernel_numba(
+        points_si,
+        starts_si,
+        segment_vectors,
+        seg_len_sq,
+        seg_len,
+        radii_si,
+        cin_pos,
+        alpha_edge,
+        np.sign(flows_si),
+        float(diffusivity_si),
+        float(km),
+        float(vmax),
+        float(window_factor),
+        float(lam_ref),
+        gl_nodes,
+        gl_weights,
+        _state._KRATIO_XS,
+        _state._K0_LUT,
+    )
+    t_kernel = perf_counter() - t0
+    total = perf_counter() - t_total
+    if _state.SOLVER_TIMING_DETAILS:
+        print(
+            "  Tissue Greens solve: "
+            f"points={points.shape[0]} active_points={int(np.count_nonzero(keep_mask))} "
+            f"candidate_mode=dense_fused_cpu nseg={starts_si.shape[0]} "
+            f"gl_order={_state.GL_ORDER} setup={_fmt_seconds(t_setup)} "
+            f"kernel={_fmt_seconds(t_kernel)} total={_fmt_seconds(total)}"
+        )
+    _state._LAST_TISSUE_TIMINGS = {
+        "backend": "cpu_dense_fused",
+        "t_tissue_geometry_s": float(t_setup),
+        "t_tissue_oxygen_s": float(t_kernel),
+        "t_tissue_total_s": float(total),
+        "t_tissue_kdtree_query_s": 0.0,
+        "t_tissue_gpu_refine_s": 0.0,
+        "t_tissue_gpu_transfer_s": 0.0,
+    }
+    return np.asarray(keep_mask, dtype=bool), np.asarray(result, dtype=float)
 
 
 def estimate_bulk_tissue_concentration(

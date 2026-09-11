@@ -36,6 +36,7 @@ def _relative_l2(a: np.ndarray, b: np.ndarray) -> float:
 
 
 _state._TISSUE_GPU_KERNEL = None
+_state._TISSUE_GPU_DENSE_KERNEL = None
 _state._CEXT_TISSUE_GPU_KERNEL = None
 _state._TISSUE_CONTEXT_KDTREE_LOCK = threading.Lock()
 
@@ -51,6 +52,18 @@ def _get_tissue_gpu_kernel():
         _state.code, "tissue_greens_kernel"
     )
     return _state._TISSUE_GPU_KERNEL
+
+
+def _get_tissue_gpu_dense_kernel():
+    if _state._TISSUE_GPU_DENSE_KERNEL is not None:
+        return _state._TISSUE_GPU_DENSE_KERNEL
+    if _state._cp is None:
+        raise RuntimeError("CuPy is not available.")
+    source = load_cuda_source("tissue_greens_dense_kernel.cu")
+    _state._TISSUE_GPU_DENSE_KERNEL = _state._cp.RawKernel(
+        source, "tissue_greens_dense_kernel"
+    )
+    return _state._TISSUE_GPU_DENSE_KERNEL
 
 
 def _compute_tissue_samples_greens_gpu(
@@ -97,11 +110,14 @@ def _compute_tissue_samples_greens_gpu(
         nseg, max(max_nearby, max_nearby * _state.TISSUE_KDTREE_CANDIDATE_MULT)
     )
     keep_k = min(max_nearby, candidate_k, nseg)
-    tree = _ensure_tissue_context_kdtree(context)
-    if tree is None:
-        raise RuntimeError(
-            "Tissue GPU mode requires scipy cKDTree for CPU candidate query."
-        )
+    use_dense_fused = keep_k == nseg
+    tree = None
+    if not use_dense_fused:
+        tree = _ensure_tissue_context_kdtree(context)
+        if tree is None:
+            raise RuntimeError(
+                "Tissue GPU mode requires scipy cKDTree for CPU candidate query."
+            )
 
     t0 = perf_counter()
     cin_valid = np.asarray(cin[valid], dtype=np.float32)
@@ -159,7 +175,8 @@ def _compute_tissue_samples_greens_gpu(
     _state._cp.cuda.Stream.null.synchronize()
     t_upload_static = perf_counter() - t0
 
-    kernel = _get_tissue_gpu_kernel()
+    kernel = None if use_dense_fused else _get_tissue_gpu_kernel()
+    dense_kernel = _get_tissue_gpu_dense_kernel() if use_dense_fused else None
     keep_mask_all = np.zeros(points.shape[0], dtype=bool)
     result = np.zeros(points.shape[0], dtype=np.float32)
     points_si_all = np.asarray(points * _state.CM_TO_M, dtype=np.float32)
@@ -181,82 +198,130 @@ def _compute_tissue_samples_greens_gpu(
         chunk = points_si_all[start_idx:end_idx]
         try:
             t0 = perf_counter()
-            _, cand = _ckdtree_query(tree, chunk, k=candidate_k)
-            t_query += perf_counter() - t0
-            if cand.ndim == 1:
-                cand = cand[:, None]
-
-            t0 = perf_counter()
             points_g = _state._cp.asarray(chunk, dtype=_state._cp.float32)
-            cand_g = _state._cp.asarray(cand, dtype=_state._cp.int32)
+            if use_dense_fused:
+                cand_g = None
+            else:
+                _, cand = _ckdtree_query(tree, chunk, k=candidate_k)
+                t_query += perf_counter() - t0
+                if cand.ndim == 1:
+                    cand = cand[:, None]
+                t0 = perf_counter()
+                cand_g = _state._cp.asarray(cand, dtype=_state._cp.int32)
             _state._cp.cuda.Stream.null.synchronize()
             t_transfer += perf_counter() - t0
 
             t0 = perf_counter()
-            starts_c = starts_g[cand_g]
-            seg_c = segment_vectors_g[cand_g]
-            seg_len_sq_c = seg_len_sq_g[cand_g]
-            diff = points_g[:, None, :] - starts_c
-            proj = _state._cp.sum(diff * seg_c, axis=2) / seg_len_sq_c
-            proj_clip = _state._cp.clip(proj, 0.0, 1.0)
-            closest = starts_c + proj_clip[:, :, None] * seg_c
-            delta = points_g[:, None, :] - closest
-            dist_sq = _state._cp.sum(delta * delta, axis=2)
-            sel = _state._cp.argpartition(dist_sq, keep_k - 1, axis=1)[:, :keep_k]
-            nearest_g = _state._cp.take_along_axis(cand_g, sel, axis=1).astype(
-                _state._cp.int32, copy=False
-            )
-            proj_g = _state._cp.take_along_axis(proj, sel, axis=1).astype(
-                _state._cp.float32, copy=False
-            )
-            d_center_g = _state._cp.sqrt(
-                _state._cp.take_along_axis(dist_sq, sel, axis=1)
-            ).astype(_state._cp.float32, copy=False)
-            radius_local = _state._cp.minimum(radii_g[nearest_g], seg_len_g[nearest_g])
-            inside_any = _state._cp.any(
-                (proj_g >= 0.0) & (proj_g <= 1.0) & (d_center_g <= radius_local), axis=1
-            )
-            keep_g = (~inside_any).astype(_state._cp.uint8, copy=False)
-            _state._cp.cuda.Stream.null.synchronize()
-            t_refine += perf_counter() - t0
-
-            t0 = perf_counter()
+            keep_g = _state._cp.empty((chunk.shape[0],), dtype=_state._cp.uint8)
             out_g = _state._cp.zeros((chunk.shape[0],), dtype=_state._cp.float32)
             threads = 128
             blocks = (int(chunk.shape[0]) + threads - 1) // threads
-            kernel(
-                (blocks,),
-                (threads,),
-                (
-                    points_g.ravel(),
-                    starts_g.ravel(),
-                    segment_vectors_g.ravel(),
-                    seg_len_g,
-                    radii_g,
-                    nearest_g.ravel(),
-                    proj_g.ravel(),
-                    d_center_g.ravel(),
-                    keep_g,
-                    cin_pos_g,
-                    alpha_edge_g,
-                    flow_sign_g,
-                    np.float32(diffusivity_si),
-                    np.float32(km),
-                    np.float32(vmax),
-                    np.float32(window_factor),
-                    np.float32(lam_ref),
-                    gl_nodes_g,
-                    gl_weights_g,
-                    np.int32(_state.GL_ORDER),
-                    xs_lut_g,
-                    k0_lut_g,
-                    ratio_lut_g,
-                    np.int32(_state._KRATIO_XS.size),
-                    np.int32(chunk.shape[0]),
-                    np.int32(keep_k),
-                    out_g,
-                ),
-            )
+            if use_dense_fused:
+                dense_kernel(
+                    (blocks,),
+                    (threads,),
+                    (
+                        points_g.ravel(),
+                        starts_g.ravel(),
+                        segment_vectors_g.ravel(),
+                        seg_len_sq_g,
+                        seg_len_g,
+                        radii_g,
+                        cin_pos_g,
+                        alpha_edge_g,
+                        flow_sign_g,
+                        np.float32(diffusivity_si),
+                        np.float32(km),
+                        np.float32(vmax),
+                        np.float32(window_factor),
+                        np.float32(lam_ref),
+                        gl_nodes_g,
+                        gl_weights_g,
+                        np.int32(_state.GL_ORDER),
+                        xs_lut_g,
+                        k0_lut_g,
+                        ratio_lut_g,
+                        np.int32(_state._KRATIO_XS.size),
+                        np.int32(chunk.shape[0]),
+                        np.int32(nseg),
+                        keep_g,
+                        out_g,
+                    ),
+                )
+            else:
+                t_refine_start = perf_counter()
+                starts_c = starts_g[cand_g]
+                seg_c = segment_vectors_g[cand_g]
+                seg_len_sq_c = seg_len_sq_g[cand_g]
+                diff = points_g[:, None, :] - starts_c
+                proj = _state._cp.sum(diff * seg_c, axis=2) / seg_len_sq_c
+                proj_clip = _state._cp.clip(proj, 0.0, 1.0)
+                closest = starts_c + proj_clip[:, :, None] * seg_c
+                delta = points_g[:, None, :] - closest
+                dist_sq = _state._cp.sum(delta * delta, axis=2)
+                if keep_k == candidate_k:
+                    nearest_g = cand_g
+                    proj_g = proj.astype(_state._cp.float32, copy=False)
+                    d_center_g = _state._cp.sqrt(dist_sq).astype(
+                        _state._cp.float32, copy=False
+                    )
+                else:
+                    sel = _state._cp.argpartition(dist_sq, keep_k - 1, axis=1)[
+                        :, :keep_k
+                    ]
+                    nearest_g = _state._cp.take_along_axis(cand_g, sel, axis=1).astype(
+                        _state._cp.int32, copy=False
+                    )
+                    proj_g = _state._cp.take_along_axis(proj, sel, axis=1).astype(
+                        _state._cp.float32, copy=False
+                    )
+                    d_center_g = _state._cp.sqrt(
+                        _state._cp.take_along_axis(dist_sq, sel, axis=1)
+                    ).astype(_state._cp.float32, copy=False)
+                radius_local = _state._cp.minimum(
+                    radii_g[nearest_g], seg_len_g[nearest_g]
+                )
+                inside_any = _state._cp.any(
+                    (proj_g >= 0.0) & (proj_g <= 1.0) & (d_center_g <= radius_local),
+                    axis=1,
+                )
+                keep_g = (~inside_any).astype(_state._cp.uint8, copy=False)
+                _state._cp.cuda.Stream.null.synchronize()
+                t_refine += perf_counter() - t_refine_start
+                t0 = perf_counter()
+                kernel(
+                    (blocks,),
+                    (threads,),
+                    (
+                        points_g.ravel(),
+                        starts_g.ravel(),
+                        segment_vectors_g.ravel(),
+                        seg_len_g,
+                        radii_g,
+                        nearest_g.ravel(),
+                        proj_g.ravel(),
+                        d_center_g.ravel(),
+                        keep_g,
+                        cin_pos_g,
+                        alpha_edge_g,
+                        flow_sign_g,
+                        np.float32(diffusivity_si),
+                        np.float32(km),
+                        np.float32(vmax),
+                        np.float32(window_factor),
+                        np.float32(lam_ref),
+                        gl_nodes_g,
+                        gl_weights_g,
+                        np.int32(_state.GL_ORDER),
+                        xs_lut_g,
+                        k0_lut_g,
+                        ratio_lut_g,
+                        np.int32(_state._KRATIO_XS.size),
+                        np.int32(chunk.shape[0]),
+                        np.int32(keep_k),
+                        out_g,
+                    ),
+                )
             _state._cp.cuda.Stream.null.synchronize()
             t_greens += perf_counter() - t0
 
@@ -279,6 +344,7 @@ def _compute_tissue_samples_greens_gpu(
         print(
             "  Tissue GPU solve: "
             f"points={points.shape[0]} active_points={int(np.count_nonzero(keep_mask_all))} "
+            f"candidate_mode={'dense_fused' if use_dense_fused else 'kdtree'} "
             f"candidate_k={candidate_k} keep_k={keep_k} chunks={chunks_done} chunk_points={chunk_points} "
             f"setup_cpu={_fmt_seconds(t_setup_cpu)} upload_static={_fmt_seconds(t_upload_static)} "
             f"query={_fmt_seconds(t_query)} transfer={_fmt_seconds(t_transfer)} "
@@ -291,7 +357,7 @@ def _compute_tissue_samples_greens_gpu(
         t_setup_cpu + t_upload_static + t_query + t_transfer + t_refine + t_download
     )
     _state._LAST_TISSUE_TIMINGS = {
-        "backend": "gpu",
+        "backend": "gpu_dense_fused" if use_dense_fused else "gpu",
         "t_tissue_geometry_s": geometry_elapsed,
         "t_tissue_oxygen_s": float(t_greens),
         "t_tissue_total_s": float(total_elapsed),
@@ -695,6 +761,14 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
                 seg_len_si=np.asarray(seg_len, dtype=np.float32),
             )
             kernel_cell = _get_cext_tissue_cell_gpu_kernel()
+            # Small/medium trees benefit strongly from one launch because the
+            # cell-list kernel uses only O(points) device storage.  On very
+            # dense forests, however, each point walks thousands of nodes and
+            # one enormous grid can reduce scheduling/cache efficiency.  Keep
+            # configured chunks for those cases; OOM recovery below still
+            # halves either choice until the device can accommodate it.
+            if float(cell_metrics["estimated_nodes_per_point"]) <= 4096.0:
+                chunk_points = max(chunk_points, int(points.shape[0]))
             start_idx = 0
             chunks_done = 0
             while start_idx < points.shape[0]:
@@ -1006,6 +1080,7 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
 
 __all__ = [
     "_get_tissue_gpu_kernel",
+    "_get_tissue_gpu_dense_kernel",
     "_compute_tissue_samples_greens_gpu",
     "_get_cext_tissue_gpu_kernel",
     "_get_cext_tissue_cell_gpu_kernel",

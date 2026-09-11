@@ -27,7 +27,7 @@ Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `-
 4. **Physics** sets unit-aware flow/pressure boundary conditions, diffusivity, Vmax, Km, inlet oxygen, hematocrit, hemoglobin oxygen capacity, and an optional viability threshold.
 5. **Solver** selects the flow/concentration/Cext path, Graetz or well-mixed closure, finite-radius terms, quadrature, iterations, convergence, backend, and expert runtime overrides. Controls that do not apply are grayed out.
 6. **Outputs** chooses sampling and file products, creates Cartesian parameter sweeps, and shows a hardware estimate before queueing.
-7. **Run** saves a frozen settings file for every job and runs jobs sequentially in isolated Python processes, with stage, progress, cancellation, and logs.
+7. **Run** saves a frozen settings file for every job and runs jobs sequentially through a memory-bounded local worker, with stage, progress, cancellation, and logs.
 8. **Results** inspects summary data and scalar-colored vessel/tissue output in the shared interactive viewport.
 
 The tissue-point selector supports random points, a structured Cartesian grid, or a fixed CSV/NPY/NPZ coordinate file. Fixed files make validation runs evaluate identical coordinates; CSV columns are `x,y,z` in centimetres, while NPZ uses `points` or `sample_points` with shape `(N, 3)`.
@@ -65,8 +65,15 @@ Inlet and outlet locations are entered as one `x, y, z` point per line and snap 
 - Only one simulation worker is launched at a time.
 - A per-user operating-system lock also prevents a separately launched CASCADE CLI simulation from overlapping the Studio worker.
 - Full numerical arrays are never sent to the GUI.
-- A worker exits after its job, releasing its Python, CUDA, and allocator state.
-- Summary-only output is the default. Per-segment CSV, tissue CSV, and VTK output display a peak-memory warning.
+- The worker retains at most one compatible geometry, one spatial context, and
+  one compact summary result. Incompatible state is evicted before the next
+  job; detailed arrays are exported and released rather than retained.
+- The worker retires after an idle interval and exits when Studio closes,
+  releasing Python, CUDA, and allocator state. Memory pressure can force an
+  earlier cache eviction and allocator trim.
+- Per-segment and tissue CSV are disabled by default. ParaView output and the
+  saved network remain enabled for compatibility; disable detailed VTK/network
+  output when the fastest summary-only interactive loop is desired.
 - The hardware estimate reserves the larger of 2 GiB or 10% of system RAM for the OS.
 - Viewer-wide typed limits default to 5,000 vessels and 10,000 tissue points and apply to both setup and Results. Generated-network seed construction has its own approximately 1,000-segment responsiveness budget because tree growth, rather than rendering, dominates that path. The OpenGL viewport admits up to 250,000 vessels and 1,000,000 tissue points on hardware acceleration, or 50,000 of each with software OpenGL; the QPainter fallback uses 5,000 vessels and 10,000 tissue points. The status strip always reports displayed versus underlying counts, and the viewport releases CPU/GPU scene buffers while the queue is running.
 - Float32 and Int32 are the default export/cache choices where the runtime supports them; the core svVascularize compute path remains float64.

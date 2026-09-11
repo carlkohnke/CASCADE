@@ -3,10 +3,22 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 .cascade_cuda_path
 .cascade_python
 .gfm_cuda_path
 .ipynb_checkpoints/
+
+# operating-system/editor metadata
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
 
 # environments
 .venv/

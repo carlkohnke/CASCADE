@@ -10,12 +10,7 @@ from time import perf_counter
 
 from cascade import __version__
 from cascade.configuration.schema import example_config, load_config
-from cascade.exporting.run import export_run
 from cascade.utils.execution import guard_simulation
-from cascade.accelerators.backend import require_gpu_runtime
-from cascade.vessels.build import build_or_load_network
-from cascade.simulation.engine import run_simulation
-from cascade.simulation.sweep import run_sweep
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,11 +26,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_parser.add_argument("--settings", required=True, help="Path to settings JSON.")
 
+    batch_parser = sub.add_parser(
+        "batch",
+        help="Run multiple settings files serially with warm reusable state.",
+    )
+    batch_parser.add_argument(
+        "--settings",
+        required=True,
+        nargs="+",
+        help="Settings JSON files, in execution order.",
+    )
+    batch_parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="Continue with later cases when one settings file fails.",
+    )
+
     sweep_parser = sub.add_parser(
         "sweep", help="Run a JSON-configured target/fluid sweep into one summary CSV."
     )
     sweep_parser.add_argument(
         "--settings", required=True, help="Path to sweep settings JSON."
+    )
+
+    sub.add_parser(
+        "worker",
+        help="Run the persistent local worker used by CASCADE Studio.",
     )
 
     init_parser = sub.add_parser(
@@ -79,8 +95,14 @@ def main(argv: list[str] | None = None) -> int:
         return _init_settings(args)
     if args.command == "run":
         return _run(args)
+    if args.command == "batch":
+        return _batch(args)
     if args.command == "sweep":
         return _sweep(args)
+    if args.command == "worker":
+        from cascade.commands.worker import serve
+
+        return serve()
     if args.command == "doctor":
         from cascade.diagnostics.environment import main as doctor_main
 
@@ -121,36 +143,143 @@ def _init_settings(args: argparse.Namespace) -> int:
 
 @guard_simulation("cascade run")
 def _run(args: argparse.Namespace) -> int:
-    t0 = perf_counter()
-    config = load_config(args.settings)
-    print(f"Loaded settings: {config.settings_path}", flush=True)
-    gpu = require_gpu_runtime(config)
-    if gpu is not None:
-        print(f"GPU preflight passed: {gpu.summary}", flush=True)
-    build = build_or_load_network(config)
+    execute_configured_run(args.settings, cleanup_policy="hard")
+    return 0
+
+
+@guard_simulation("cascade batch")
+def _batch(args: argparse.Namespace) -> int:
+    """Run arbitrary serial cases without repaying import/build startup costs."""
+    from cascade.commands.workspace import InteractiveRunWorkspace
+    from cascade.configuration.bridge import load_runtime_module
+    from cascade.utils.execution import release_completed_case_memory
+
+    workspace = InteractiveRunWorkspace()
+    failures = 0
+    total_start = perf_counter()
+    try:
+        for index, settings in enumerate(args.settings, start=1):
+            print(f"\nBatch case {index}/{len(args.settings)}: {settings}", flush=True)
+            try:
+                execute_configured_run(
+                    settings, cleanup_policy="adaptive", workspace=workspace
+                )
+            except Exception as exc:
+                failures += 1
+                if not args.continue_on_error:
+                    raise
+                print(f"Case failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+    finally:
+        workspace.clear()
+        release_completed_case_memory(
+            load_runtime_module(), trim_accelerator_pools=True
+        )
     print(
-        f"Network ready: mode={config.network_mode} trees={len(build.trees)} "
-        f"segments={[int(getattr(t, 'segment_count', 0) or 0) for t in build.trees]}",
+        f"Batch finished: cases={len(args.settings)} failures={failures} "
+        f"elapsed={perf_counter() - total_start:.3f}s",
         flush=True,
     )
-    simulation = run_simulation(
-        build.domain,
-        build.trees,
-        build.target_counts,
-        config,
-        sample_points=build.sample_points,
-    )
-    outputs = export_run(config, build, simulation)
-    elapsed = perf_counter() - t0
-    print(f"Done in {elapsed:.3f}s")
-    print("Wrote:")
-    for key in sorted(outputs):
-        print(f"  {key}: {outputs[key]}")
-    return 0
+    return 1 if failures else 0
+
+
+def execute_configured_run(
+    settings_path: str | Path,
+    *,
+    cleanup_policy: str = "adaptive",
+    workspace=None,
+) -> tuple[dict[str, str], float]:
+    """Execute and export one case inside either a CLI or persistent worker.
+
+    Requested outputs are fully written before case-owned arrays are released.
+    ``hard`` returns all unused accelerator blocks to the driver; ``adaptive``
+    keeps safe reusable capacity warm for the next serial case.
+    """
+    if cleanup_policy not in {"hard", "adaptive"}:
+        raise ValueError("cleanup_policy must be 'hard' or 'adaptive'")
+    from cascade.accelerators.backend import require_gpu_runtime
+    from cascade.configuration.bridge import load_runtime_module
+    from cascade.exporting.run import export_run
+    from cascade.simulation.engine import run_simulation
+    from cascade.utils.execution import release_completed_case_memory
+    from cascade.vessels.build import build_or_load_network
+    t0 = perf_counter()
+    config = None
+    build = None
+    simulation = None
+    outputs: dict[str, str] = {}
+    try:
+        config = load_config(settings_path)
+        print(f"Loaded settings: {config.settings_path}", flush=True)
+        gpu = require_gpu_runtime(config)
+        if gpu is not None:
+            print(f"GPU preflight passed: {gpu.summary}", flush=True)
+        if workspace is None:
+            build = build_or_load_network(config)
+            build_reused = False
+        else:
+            build, build_reused = workspace.resolve_build(config)
+        print(
+            f"Network ready: mode={config.network_mode} trees={len(build.trees)} "
+            f"segments={[int(getattr(t, 'segment_count', 0) or 0) for t in build.trees]} "
+            f"reused={str(build_reused).lower()}",
+            flush=True,
+        )
+        tissue_caches = (
+            workspace.resolve_tissue_caches(config) if workspace is not None else None
+        )
+        simulation_key = None
+        if workspace is not None:
+            simulation, simulation_key = workspace.resolve_simulation(config)
+        if simulation is None:
+            simulation = run_simulation(
+                build.domain,
+                build.trees,
+                build.target_counts,
+                config,
+                sample_points=build.sample_points,
+                tissue_caches=tissue_caches,
+                reuse_geometry=workspace is not None,
+                materialize_segment_rows=False,
+            )
+            if workspace is not None and simulation_key is not None:
+                workspace.store_simulation(config, simulation_key, simulation)
+        outputs = export_run(config, build, simulation)
+        elapsed = perf_counter() - t0
+        print(f"Done in {elapsed:.3f}s")
+        print("Wrote:")
+        for key in sorted(outputs):
+            print(f"  {key}: {outputs[key]}")
+        return outputs, elapsed
+    finally:
+        # Export completes before this point.  Drop the large object graph first
+        # so the cleanup routine can actually return unused host/device memory.
+        simulation = None
+        build = None
+        config = None
+        try:
+            cleanup = release_completed_case_memory(
+                load_runtime_module(),
+                trim_accelerator_pools=True if cleanup_policy == "hard" else None,
+            )
+            if workspace is not None:
+                eviction = workspace.enforce_memory_budget(cleanup)
+                if eviction:
+                    print(
+                        f"Interactive memory pressure: evicted {eviction}",
+                        flush=True,
+                    )
+                    release_completed_case_memory(
+                        load_runtime_module(), trim_accelerator_pools=True
+                    )
+        except Exception:
+            # Cleanup must never replace the original simulation/export error.
+            pass
 
 
 @guard_simulation("cascade sweep")
 def _sweep(args: argparse.Namespace) -> int:
+    from cascade.simulation.sweep import run_sweep
+
     t0 = perf_counter()
     outputs = run_sweep(args.settings)
     elapsed = perf_counter() - t0

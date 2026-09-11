@@ -23,7 +23,9 @@ This repository targets the public `svv==0.0.48` API. CASCADE-owned compatibilit
 
 ## Status
 
-The current version is `0.1.0rc3`. It preserves the locally qualified M2/M3 numerical and performance baseline and adds a full CLI/package hardening pass.
+The current version is `0.1.0rc4`. It preserves the qualified M2/M3 numerical
+baseline and adds the modular solver layout, bounded interactive execution,
+accelerated CPU/GPU tissue paths, and release-boundary cleanup.
 
 Repository publication and remote CI remain separate release gates and are not claimed here. Detailed maintainer records, release history, and machine-specific validation evidence are retained outside the public repository.
 
@@ -83,6 +85,7 @@ python -m pip install '.[gui,gpu-cu13]'
 
 ```text
 cascade run --settings case.json
+cascade batch --settings case-001.json case-002.json case-003.json
 cascade sweep --settings sweep.json
 cascade init-settings case.json
 cascade doctor
@@ -237,6 +240,13 @@ NPZ files contain `points` or `sample_points` with shape `(N, 3)`. NPY files con
 
 CASCADE permits one memory-intensive CLI simulation per user at a time. A second `run` or `sweep` command exits with a clear active-owner error instead of risking two resident simulations. Studio already processes its queue sequentially.
 
+For several related cases, `cascade batch` keeps one compatible network,
+spatial context, and compiled accelerator state warm while still running cases
+strictly serially. Results are exported before per-case arrays are released;
+pass `--continue-on-error` for unattended batches that should proceed after an
+individual failure. A one-shot `cascade run` performs hard cleanup when it
+finishes.
+
 When growth is disabled, existing tree and forest inputs load in analysis-only mode. CASCADE omits growth preallocation and spatial indexes, and `.forest.simcache` members stream directly into the selected working dtype to avoid retaining a second full vessel table.
 
 ## Anatomical forests and occlusion
@@ -298,7 +308,10 @@ After installing the `gui` extra:
 cascade-gui
 ```
 
-The GUI configures domains, networks, solver settings, sweeps, queued runs, and result visualization. Each simulation runs in a separate worker process so its CPU and GPU allocations are released when the job exits.
+The GUI configures domains, networks, solver settings, sweeps, queued runs, and
+result visualization. Its persistent local worker reuses compatible geometry
+and accelerator state between serial jobs, evicts incompatible state before
+the next solve, and retires after an idle interval or when Studio closes.
 
 See [docs/gui.md](docs/gui.md).
 

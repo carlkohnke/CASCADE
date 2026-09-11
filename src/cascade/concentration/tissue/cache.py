@@ -109,6 +109,17 @@ def build_tissue_cache_from_tree(
             "max_nearby": int(max_nearby),
             "n_points": int(sample_points.shape[0]),
         }
+    if (
+        _state._HAVE_NUMBA
+        and _state.TISSUE_USE_NUMBA
+        and max_nearby == len(starts)
+    ):
+        return {
+            "dense_fused_cpu": True,
+            "context": _build_tissue_geometry_context(starts, ends, radii),
+            "max_nearby": int(max_nearby),
+            "n_points": int(sample_points.shape[0]),
+        }
     if _state.TISSUE_STREAMING_ENABLED and int(sample_points.shape[0]) >= int(
         _state.TISSUE_STREAMING_MIN_POINTS
     ):

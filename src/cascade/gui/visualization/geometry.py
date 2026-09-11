@@ -580,7 +580,7 @@ def _simple_geometry(config):
 
 def _load_uploaded_geometry(path: Path):
     if path.suffix.lower() == ".npz":
-        with np.load(path, allow_pickle=True) as data:
+        with np.load(path, allow_pickle=False) as data:
             if "starts" in data and "ends" in data:
                 return np.asarray(data["starts"]), np.asarray(data["ends"])
             if "data" in data:

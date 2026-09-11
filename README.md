@@ -15,6 +15,12 @@ CASCADE supports:
 
 This repository targets the public `svv==0.0.48` API. CASCADE-owned compatibility behavior is documented in [docs/svv-compatibility.md](docs/svv-compatibility.md).
 
+> **Legacy file safety:** `.tree.npz`, `.forest`, and `.forest.simcache` files
+> may contain Python pickle payloads for compatibility with existing `svv`
+> archives. Load these legacy files only when they come from a trusted source.
+> CSV segment networks and CASCADE's non-object NPZ inputs do not require
+> pickle deserialization.
+
 ## Status
 
 The current version is `0.1.0rc3`. It preserves the locally qualified M2/M3 numerical and performance baseline and adds a full CLI/package hardening pass.
@@ -263,7 +269,7 @@ See [docs/gui.md](docs/gui.md).
 
 ```bash
 python -m pip install '.[dev,gui]'
-python -m ruff check --select E9,F63,F7,F82 src setup_env.py
+python -m ruff check --select E9,F63,F7,F82,F601,F811,E741 src setup_env.py
 python -m build
 cascade self-test
 ```

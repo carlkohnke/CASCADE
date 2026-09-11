@@ -131,7 +131,8 @@ def save_network_if_requested(result: NetworkBuildResult, config: RunConfig) -> 
     if not config.outputs.save_network:
         return None
     out_dir = resolve_path(config.outputs.out_dir, base_dir=config.settings_path.parent if config.settings_path else None)
-    assert out_dir is not None
+    if out_dir is None:
+        raise ValueError("outputs.out_dir must identify an output directory.")
     out_dir.mkdir(parents=True, exist_ok=True)
     save_path = resolve_path(config.network.save_path, base_dir=out_dir) if config.network.save_path else None
     if result.forest is not None:

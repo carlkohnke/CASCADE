@@ -91,7 +91,8 @@ class ChoiceComboBox(QComboBox):
         if not self.isEnabled() or self.count() == 0:
             return
         self._ensure_choice_list()
-        assert self._choice_frame is not None and self._choice_list is not None
+        if self._choice_frame is None or self._choice_list is None:
+            raise RuntimeError("Choice-list popup initialization failed.")
 
         choices = self._choice_list
         choices.clear()

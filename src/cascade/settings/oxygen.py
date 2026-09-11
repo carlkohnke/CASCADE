@@ -38,22 +38,20 @@ DEFAULTS = {
     "FINITE_RADIUS_O2_TERMS": os.environ.get("SVV_FINITE_RADIUS_O2_TERMS", "both").strip().lower(),
     # Lumen-wall closure model; "graetz" models radial lumen gradients, "wellmixed" assumes uniform lumen concentration.
     "LUMEN_WALL_CLOSURE": os.environ.get("SVV_LUMEN_WALL_CLOSURE", "graetz").strip().lower(),
-    # Number of radial basis functions used in the Graetz lumen-wall approximation.
-    "GRAETZ_N_RADIAL": int(os.environ.get("SVV_GRAETZ_N_RADIAL", "6")),
-    # Number of axial modes used in the Graetz lumen-wall approximation.
-    "GRAETZ_N_MODES": int(os.environ.get("SVV_GRAETZ_N_MODES", "3")),
+    # Fixed radial nodes in the validated, precomputed Graetz basis.
+    "GRAETZ_N_RADIAL": 8,
+    # Fixed retained modes in the validated, precomputed Graetz basis.
+    "GRAETZ_N_MODES": 4,
     # Maximum fixed-point iterations for solving Graetz wall/lumen coupling per segment.
     "GRAETZ_MAX_FP_ITERS": int(os.environ.get("SVV_GRAETZ_MAX_FP_ITERS", "4")),
     # Convergence tolerance for Graetz fixed-point iterations.
     "GRAETZ_FP_TOL": float(os.environ.get("SVV_GRAETZ_FP_TOL", "1e-5")),
     # Velocity profile assumed inside the vessel lumen for Graetz calculations.
     "GRAETZ_VELOCITY_PROFILE": os.environ.get("SVV_GRAETZ_VELOCITY_PROFILE", "poiseuille").strip().lower(),
-    # Resolution of cached Graetz basis values per decade of Biot number.
-    "GRAETZ_BI_CACHE_PER_DECADE": int(os.environ.get("SVV_GRAETZ_BI_CACHE_PER_DECADE", "16")),
-    # Minimum Biot number represented in the Graetz basis cache.
-    "GRAETZ_MIN_BI": float(os.environ.get("SVV_GRAETZ_MIN_BI", "1e-8")),
-    # Maximum Biot number represented in the Graetz basis cache.
-    "GRAETZ_MAX_BI": float(os.environ.get("SVV_GRAETZ_MAX_BI", "1e6")),
+    # Resolution and range of the validated, precomputed Graetz basis.
+    "GRAETZ_BI_CACHE_PER_DECADE": 128,
+    "GRAETZ_MIN_BI": 1.0e-8,
+    "GRAETZ_MAX_BI": 1.0e6,
     # If true, print extra diagnostics for Graetz basis and fixed-point behavior.
     "GRAETZ_DEBUG_DIAGNOSTICS": os.environ.get("SVV_GRAETZ_DEBUG_DIAGNOSTICS", "0").strip().lower()
     in ("1", "true", "yes", "on"),

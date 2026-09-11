@@ -48,10 +48,19 @@ repository root. The codebase itself begins at `src/cascade/`.
 | `cascade.diagnostics` | Installation and runtime diagnostics |
 | `cascade.validation` | Bounded installed-package smoke validation |
 | `cascade.utils` | Execution guards and packaged-resource resolution |
-| `cascade.assets` | Packaged domains, vascular seeds, shaders, and launcher resources |
+| `cascade.assets` | Packaged domains, vascular seeds, and immutable numerical tables |
 
 The package root intentionally contains only `cascade/__init__.py`; application
 modules live in the package that owns their behavior.
+
+Within `cascade.concentration.vessel`, `network.py` owns the arbitrary-network
+node-mixing solver and `topdown.py` owns the tree-specialized solver. Workflow
+modules may call or temporarily re-export these functions, but do not contain
+their numerical implementations.
+
+Within `cascade.flow`, `kirchhoff.py` owns backend-independent orchestration
+and the tree-specialized solve, while `linear_system.py` owns sparse/dense
+matrix assembly, conditioning diagnostics, and linear-solver dispatch.
 
 ## Numerical boundaries
 
@@ -60,6 +69,14 @@ The solver passes explicit typed inputs and results at its public boundaries:
 `VesselConcentrationResult`, `TissueOxygenProblem`, and `TissueOxygenResult`.
 These contracts validate array shape, topology, and physical scalar inputs
 before numerical work begins.
+
+The finite-radius Green's-function kernels load a versioned Bessel table from
+`cascade.assets.numerics`. Its `K1/K0` values are generated with exponentially
+scaled Bessel functions so the ratio remains stable at large arguments. The
+Graetz closure likewise loads precomputed 8-radial-node, 4-mode bases for plug
+and Poiseuille profiles over `1e-8 <= Bi <= 1e6`, with 128 samples per decade.
+These are fixed release assets, not per-run caches or user-selectable
+discretizations; corrupt or missing assets fail immediately with a diagnostic.
 
 The former TissueSim implementation is decomposed across the flow,
 concentration, domain, exporting, workflow, and diagnostic packages.
@@ -91,11 +108,22 @@ requested.
 
 ## Dependency direction
 
+End-to-end single-tree orchestration lives in
+`cascade.workflows.tree_simulation`. The legacy `summarize_tree` name remains
+as a compatibility alias; new code uses `run_tree_simulation`, while
+`cascade.workflows.summaries` contains only compatibility imports.
+
 Scientific packages do not import GUI or command modules. Commands and GUI
 pages depend on workflows; workflows compose domain, vessel, flow,
 concentration, and export services. Public `svv` adaptation is confined to
 `cascade.vessels.generation` so it can be replaced without changing solver or
 interface code.
+
+Scientific modules import their dependencies explicitly. Concentration package
+initializers expose the stable API lazily, which prevents low-level numerical
+imports from loading unrelated solver backends or creating initialization
+cycles. The TissueSim facade re-exports completed implementations for legacy
+callers but no longer injects names into implementation modules.
 
 ## Reproducibility and memory
 

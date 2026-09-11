@@ -11,25 +11,21 @@ from .heart_support import (
 from .heart_domain import (
     _log,
 )
-
-def _tree_root_flow_cm3_s(tree) -> float:
-    params = getattr(tree, "parameters", None)
-    if params is not None:
-        val = getattr(params, "root_flow", None)
-        if val is not None and np.isfinite(float(val)) and float(val) > 0.0:
-            return float(val)
-    data = np.asarray(tree.data[: int(getattr(tree, "segment_count", 0) or 0)])
-    if data.size:
-        val = float(data[0, 22])
-        if np.isfinite(val) and val > 0.0:
-            return val
-    return 1.0
+from .flow_sources import tree_root_flow_cm3_s as _tree_root_flow_cm3_s
 
 
 def _flow_inputs(args, forest: Forest) -> list[float]:
     trees = list(forest.networks[0])
     root_flows = np.array([_tree_root_flow_cm3_s(tree) for tree in trees], dtype=float)
     if str(args.flow_source).lower() == "tree-root-flow":
+        missing = np.flatnonzero(~np.isfinite(root_flows) | (root_flows <= 0.0))
+        if missing.size:
+            indices = ", ".join(str(int(index)) for index in missing[:10])
+            raise ValueError(
+                "Tree-root flow was requested, but no positive stored root flow exists "
+                f"for tree index(es): {indices}. Use --flow-source total-qin-split "
+                "with --total-qin-ul-min to prescribe flow explicitly."
+            )
         return [float(v) for v in root_flows]
     if args.total_qin_ul_min is None:
         raise ValueError("--total-qin-ul-min is required when --flow-source total-qin-split")

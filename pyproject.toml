@@ -55,6 +55,7 @@ include = ["cascade*"]
 [tool.setuptools.package-data]
 cascade = [
     "assets/domains/*.stl",
+    "assets/numerics/*.npz",
     "gui/assets/*.svg",
     "gui/native/*.cs",
     "gui/shaders/*.frag",

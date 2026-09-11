@@ -7,6 +7,7 @@ _EXPORTS = {
     "TreeSimulation": ("cascade.workflows.simulation", "TreeSimulation"),
     "run_simulation": ("cascade.workflows.simulation", "run_simulation"),
     "run_sweep": ("cascade.workflows.sweep", "run_sweep"),
+    "run_tree_simulation": ("cascade.workflows.tree_simulation", "run_tree_simulation"),
 }
 __all__ = sorted(_EXPORTS)
 

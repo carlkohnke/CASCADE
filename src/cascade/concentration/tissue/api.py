@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import math
+
+import numpy as np
+
+from cascade.configuration import _legacy_state as _state
 from cascade.core import TissueOxygenProblem, TissueOxygenResult
+
+from .greens import compute_tissue_samples_greens
 
 
 def solve_tissue_oxygen(
@@ -16,9 +23,17 @@ def solve_tissue_oxygen(
     tissue_cache: dict | None = None,
 ) -> TissueOxygenResult:
     """Evaluate tissue oxygen without exposing legacy tuple conventions."""
-    from cascade.runtime import tissuesim
-
-    retained, concentration = tissuesim.compute_tissue_samples_greens(
+    if not math.isfinite(float(diffusivity_cm2_s)) or diffusivity_cm2_s <= 0.0:
+        raise ValueError("diffusivity_cm2_s must be finite and strictly positive.")
+    if not math.isfinite(float(vmax)) or vmax < 0.0:
+        raise ValueError("vmax must be finite and nonnegative.")
+    if not math.isfinite(float(km)) or km <= 0.0:
+        raise ValueError("km must be finite and strictly positive.")
+    if not math.isfinite(float(window_factor)) or window_factor <= 0.0:
+        raise ValueError("window_factor must be finite and strictly positive.")
+    if inlet_concentration is None and problem.vessel_inlet_concentration.size:
+        inlet_concentration = float(np.max(problem.vessel_inlet_concentration))
+    retained, concentration = compute_tissue_samples_greens(
         problem.points_cm,
         problem.segment_starts_cm,
         problem.segment_ends_cm,
@@ -35,7 +50,7 @@ def solve_tissue_oxygen(
     return TissueOxygenResult(
         retained_points=retained,
         concentration=concentration,
-        diagnostics=dict(tissuesim._LAST_TISSUE_TIMINGS or {}),
+        diagnostics=dict(_state._LAST_TISSUE_TIMINGS or {}),
     )
 
 

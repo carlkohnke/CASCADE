@@ -859,7 +859,10 @@ class Domain(object):
                     rdx = self.random_generator.random((n, 4, 1))
                     simplices = self.mesh_nodes[self.mesh_vertices[cells, :], :]
                     tmp_points = pick_from_tetrahedron(simplices, rdx)
-                    assert len(tmp_points) == n, "Length of points not equal to n!"
+                    if len(tmp_points) != n:
+                        raise RuntimeError(
+                            f"Tetrahedron sampling returned {len(tmp_points)} points; expected {n}."
+                        )
                     if implicit_range[1] == 0 and implicit_range[0] == -1:
                         pass
                     else:

@@ -1,4 +1,4 @@
-"""
+r"""
 The `core` module provides foundational components for constructing variational implicit point set surfaces, as
 described in [1]_.
 

@@ -4,7 +4,6 @@ from scipy.spatial import cKDTree
 import pyvista as pv
 from scipy.optimize import minimize, brute
 from copy import deepcopy
-import pyvista as pv
 from time import perf_counter
 import itertools
 from svv.tree.data.data import TreeData, TreeMap
@@ -799,15 +798,12 @@ def add_vessel(tree, **kwargs):
                                     change_j.append(28)
                                     new_data.append(alt_scale[k])
                                     old_data.append(tree.data[alt_idx[k], 28])
-                        #if not np.all(np.isclose(change_i, res_test[0])):
-                        #    print("change_i {} != \nnew change_i:{}".format(change_i, res_test[0]))
-                        #if not np.all(np.isclose(change_j, res_test[1])):
-                        #    print("change_i {} != \nnew change_i:{}".format(change_j, res_test[1]))
-                        #if not np.all(np.isclose(new_data, res_test[2])):
-                        #    print("change_i {} != \nnew change_i:{}".format(new_data, res_test[2]))
-                        #if not np.all(np.isclose(old_data, res_test[3])):
-                        #    print("change_i {} != \nnew change_i:{}".format(old_data, res_test[3]))
-                        assert np.all(np.isclose(tmp_28,tmp_28_copy)), "tmp_28: {} != \ntmp_28_copy:{}".format(tmp_28[~np.isclose(tmp_28,tmp_28_copy)],tmp_28_copy[~np.isclose(tmp_28,tmp_28_copy)])
+                        if not np.all(np.isclose(tmp_28, tmp_28_copy)):
+                            mismatch = ~np.isclose(tmp_28, tmp_28_copy)
+                            raise RuntimeError(
+                                "Bifurcation update unexpectedly modified protected data: "
+                                f"{tmp_28[mismatch]} != {tmp_28_copy[mismatch]}"
+                            )
                         """
                         end_3_4 = perf_counter()
                         tree.times['chunk_3_4'][-1] += end_3_4 - start_3_4
@@ -953,7 +949,10 @@ def add_vessel(tree, **kwargs):
                                                                                             threshold=threshold,
                                                                                             interior_range=interior_range,
                                                                                             n_vessels=n_closest_vessels)
-                    assert volume_threshold > threshold, "Volume threshold is not greater than threshold."
+                    if volume_threshold <= threshold:
+                        raise RuntimeError(
+                            "The vessel-search volume threshold must exceed the collision threshold."
+                        )
                     #search_tree=search_tree)
                 if numpy.all(numpy.isnan(terminal_points)):
                     volume_threshold *= threshold_adjuster

@@ -9,7 +9,7 @@ from .kirchhoff import solve_kirchhoff
 
 def solve_flow(problem: FlowProblem) -> FlowResult:
     """Solve a validated network problem using the configured Kirchhoff backend."""
-    pressures, flows, proximal, distal, nodes = solve_kirchhoff(
+    pressures, flows, proximal, distal, _legacy_nodes = solve_kirchhoff(
         problem.proximal_nodes,
         problem.distal_nodes,
         problem.resistances,
@@ -17,13 +17,14 @@ def solve_flow(problem: FlowProblem) -> FlowResult:
         float(problem.inlet_flow_cm3_s),
         problem.outlet_nodes,
         num_nodes=problem.node_count,
+        solver_mode=problem.solver,
+        boundary_condition=problem.boundary_condition,
     )
     return FlowResult(
         pressures=pressures,
         flows_cm3_s=flows,
         proximal_nodes=proximal,
         distal_nodes=distal,
-        node_coordinates_cm=nodes,
     )
 
 

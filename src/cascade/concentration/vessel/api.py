@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+from cascade.configuration import _legacy_state as _state
 from cascade.core import VesselConcentrationProblem, VesselConcentrationResult
+
+from .dispatch import _solve_channel_concentrations
 
 
 def solve_vessel_concentration(
     problem: VesselConcentrationProblem,
 ) -> VesselConcentrationResult:
     """Solve vessel concentrations without exposing legacy tuple/state conventions."""
-    from cascade.runtime import tissuesim
-
-    inlet, outlet = tissuesim._solve_channel_concentrations(
+    inlet, outlet = _solve_channel_concentrations(
         problem.tree,
         problem.flows_cm3_s,
         problem.inlet_nodes,
@@ -32,8 +33,8 @@ def solve_vessel_concentration(
     return VesselConcentrationResult(
         inlet=inlet,
         outlet=outlet,
-        external_field=tissuesim._LAST_CEXT_SOURCE_STATE,
-        diagnostics=dict(tissuesim._LAST_CONCENTRATION_TIMINGS or {}),
+        external_field=_state._LAST_CEXT_SOURCE_STATE,
+        diagnostics=dict(_state._LAST_CONCENTRATION_TIMINGS or {}),
     )
 
 

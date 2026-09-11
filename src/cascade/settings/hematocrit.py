@@ -19,38 +19,38 @@ DEFAULTS = {
     "HEMATOCRIT_DIAGNOSTICS": True,
     # Root discharge hematocrit, meaning the red-cell volume fraction entering the root segment.
     "HD_DISCHARGE": 0.42,
-    # NetFlow bifurcation-fit coefficient 1 for red-cell splitting at vessel branches.
-    "NETFLOW_BIFPAR_1": 0.964,
-    # NetFlow bifurcation-fit coefficient 2 for red-cell splitting at vessel branches.
-    "NETFLOW_BIFPAR_2": 6.98,
-    # NetFlow bifurcation-fit coefficient 3 for red-cell splitting at vessel branches.
-    "NETFLOW_BIFPAR_3": -13.29,
-    # NetFlow cell-fraction fit coefficient 1 used by the hematocrit/viscosity model.
-    "NETFLOW_CPAR_1": 0.80,
-    # NetFlow cell-fraction fit coefficient 2 used by the hematocrit/viscosity model.
-    "NETFLOW_CPAR_2": -0.075,
-    # NetFlow cell-fraction fit coefficient 3 used by the hematocrit/viscosity model.
-    "NETFLOW_CPAR_3": -11.0,
-    # NetFlow cell-fraction fit coefficient 4 used by the hematocrit/viscosity model.
-    "NETFLOW_CPAR_4": 12.0,
-    # NetFlow viscosity-fit coefficient 1 for blood apparent viscosity in small vessels.
-    "NETFLOW_VISCPAR_1": 6.0,
-    # NetFlow viscosity-fit coefficient 2 for blood apparent viscosity in small vessels.
-    "NETFLOW_VISCPAR_2": -0.085,
-    # NetFlow viscosity-fit coefficient 3 for blood apparent viscosity in small vessels.
-    "NETFLOW_VISCPAR_3": 3.2,
-    # NetFlow viscosity-fit coefficient 4 for blood apparent viscosity in small vessels.
-    "NETFLOW_VISCPAR_4": -2.44,
-    # NetFlow viscosity-fit coefficient 5 for blood apparent viscosity in small vessels.
-    "NETFLOW_VISCPAR_5": -0.06,
-    # NetFlow viscosity-fit coefficient 6 for blood apparent viscosity in small vessels.
-    "NETFLOW_VISCPAR_6": 0.645,
-    # NetFlow optimal vessel-width scale in micrometers for viscosity corrections.
-    "NETFLOW_OPTW_UM": 1.1,
-    # Plasma viscosity in centipoise used by the NetFlow hematocrit model.
-    "NETFLOW_VPLAS_CP": 1.0466,
-    # Mean cell volume in femtoliters used to rescale NetFlow blood-cell geometry.
-    "NETFLOW_MCV_FL": 55.0,
+    # Pries-Secomb bifurcation-fit coefficient 1 for red-cell splitting at vessel branches.
+    "PRIES_SECOMB_BIFPAR_1": 0.964,
+    # Pries-Secomb bifurcation-fit coefficient 2 for red-cell splitting at vessel branches.
+    "PRIES_SECOMB_BIFPAR_2": 6.98,
+    # Pries-Secomb bifurcation-fit coefficient 3 for red-cell splitting at vessel branches.
+    "PRIES_SECOMB_BIFPAR_3": -13.29,
+    # Pries-Secomb cell-fraction fit coefficient 1 used by the hematocrit/viscosity model.
+    "PRIES_SECOMB_CPAR_1": 0.80,
+    # Pries-Secomb cell-fraction fit coefficient 2 used by the hematocrit/viscosity model.
+    "PRIES_SECOMB_CPAR_2": -0.075,
+    # Pries-Secomb cell-fraction fit coefficient 3 used by the hematocrit/viscosity model.
+    "PRIES_SECOMB_CPAR_3": -11.0,
+    # Pries-Secomb cell-fraction fit coefficient 4 used by the hematocrit/viscosity model.
+    "PRIES_SECOMB_CPAR_4": 12.0,
+    # Pries-Secomb viscosity-fit coefficient 1 for blood apparent viscosity in small vessels.
+    "PRIES_SECOMB_VISCPAR_1": 6.0,
+    # Pries-Secomb viscosity-fit coefficient 2 for blood apparent viscosity in small vessels.
+    "PRIES_SECOMB_VISCPAR_2": -0.085,
+    # Pries-Secomb viscosity-fit coefficient 3 for blood apparent viscosity in small vessels.
+    "PRIES_SECOMB_VISCPAR_3": 3.2,
+    # Pries-Secomb viscosity-fit coefficient 4 for blood apparent viscosity in small vessels.
+    "PRIES_SECOMB_VISCPAR_4": -2.44,
+    # Pries-Secomb viscosity-fit coefficient 5 for blood apparent viscosity in small vessels.
+    "PRIES_SECOMB_VISCPAR_5": -0.06,
+    # Pries-Secomb viscosity-fit coefficient 6 for blood apparent viscosity in small vessels.
+    "PRIES_SECOMB_VISCPAR_6": 0.645,
+    # Pries-Secomb optimal vessel-width scale in micrometers for viscosity corrections.
+    "PRIES_SECOMB_OPTW_UM": 1.1,
+    # Plasma viscosity in centipoise used by the Pries-Secomb hematocrit model.
+    "PRIES_SECOMB_VPLAS_CP": 1.0466,
+    # Mean cell volume in femtoliters used to rescale Pries-Secomb blood-cell geometry.
+    "PRIES_SECOMB_MCV_FL": 55.0,
 }
 
 ALIASES = {
@@ -66,6 +66,6 @@ ALIASES = {
     "hd_discharge": "HD_DISCHARGE",
 }
 
-PREFIXES = ("HEMATOCRIT_", "NETFLOW_")
+PREFIXES = ("HEMATOCRIT_", "PRIES_SECOMB_")
 
 DEPRECATED = {}

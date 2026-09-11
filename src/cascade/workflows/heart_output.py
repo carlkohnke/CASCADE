@@ -10,7 +10,6 @@ from .heart_support import (
     Path,
     _normalize_path,
     gc,
-    hashlib,
     np,
     pv,
     tqdm,
@@ -23,6 +22,8 @@ from .heart_flow import (
 from .heart_domain import (
     _log,
 )
+from cascade.utils.hashing import file_sha256
+from cascade.exporting.domain import save_domain_geometry
 
 def _concat_tree_solutions(solutions: list[dict], *, index_dtype: np.dtype) -> dict:
     out = {}
@@ -230,11 +231,7 @@ def _inside_grid_points_chunked(domain, boundary: pv.PolyData, args) -> np.ndarr
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return file_sha256(path)
 
 
 def _load_tissue_points(path_value: str | Path) -> tuple[np.ndarray, dict]:
@@ -403,19 +400,17 @@ def _compute_tissue(
 
 
 def _save_domain_outputs(domain, out_dir: Path, prefix: str) -> dict:
+    saved = save_domain_geometry(
+        domain,
+        out_dir,
+        boundary_filename=f"{prefix}_domain_boundary.vtp",
+        mesh_filename=f"{prefix}_domain_mesh.vtu",
+    )
     outputs = {}
-    boundary = getattr(domain, "boundary", None)
-    if boundary is None and getattr(domain, "mesh", None) is not None:
-        boundary = domain.mesh.extract_surface()
-    if boundary is not None:
-        path = out_dir / f"{prefix}_domain_boundary.vtp"
-        boundary.save(str(path))
-        outputs["domain_boundary"] = str(path)
-    mesh = getattr(domain, "mesh", None)
-    if mesh is not None:
-        path = out_dir / f"{prefix}_domain_mesh.vtu"
-        mesh.save(str(path))
-        outputs["domain_mesh"] = str(path)
+    if "boundary" in saved:
+        outputs["domain_boundary"] = saved["boundary"]
+    if "mesh" in saved:
+        outputs["domain_mesh"] = saved["mesh"]
     return outputs
 
 

@@ -1,5 +1,3 @@
-# Legacy symbol names are bound by the temporary TissueSim compatibility facade.
-# ruff: noqa: F821
 """Compatibility facade for the modular CASCADE solver.
 
 New code should import from ``cascade.flow`` or ``cascade.concentration``.
@@ -24,6 +22,7 @@ import cascade.flow.kirchhoff as _implementation_8
 import cascade.flow.rheology as _implementation_9
 import cascade.flow.hematocrit as _implementation_10
 import cascade.concentration.vessel.topdown as _implementation_11
+import cascade.concentration.vessel.network as _implementation_network
 import cascade.concentration.vessel.dispatch as _implementation_12
 import cascade.concentration.vessel.greens as _implementation_13
 import cascade.concentration.vessel.graetz as _implementation_14
@@ -54,11 +53,11 @@ import cascade.exporting.statistics as _implementation_38
 import cascade.exporting.tables as _implementation_39
 import cascade.workflows.tree_cache as _implementation_40
 import cascade.workflows.tree_solver as _implementation_41
-import cascade.workflows.summaries as _implementation_42
+import cascade.workflows.tree_simulation as _implementation_42
 import cascade.commands.legacy_arguments as _implementation_43
 import cascade.commands.legacy_runner as _implementation_44
 
-_IMPLEMENTATIONS = (_implementation_0, _implementation_1, _implementation_2, _implementation_3, _implementation_4, _implementation_5, _implementation_6, _implementation_7, _implementation_8, _implementation_9, _implementation_10, _implementation_11, _implementation_12, _implementation_13, _implementation_14, _implementation_15, _implementation_16, _implementation_17, _implementation_18, _implementation_19, _implementation_20, _implementation_21, _implementation_22, _implementation_23, _implementation_24, _implementation_25, _implementation_26, _implementation_27, _implementation_28, _implementation_29, _implementation_30, _implementation_31, _implementation_32, _implementation_33, _implementation_34, _implementation_35, _implementation_36, _implementation_37, _implementation_38, _implementation_39, _implementation_40, _implementation_41, _implementation_42, _implementation_43, _implementation_44)
+_IMPLEMENTATIONS = (_implementation_0, _implementation_1, _implementation_2, _implementation_3, _implementation_4, _implementation_5, _implementation_6, _implementation_7, _implementation_8, _implementation_9, _implementation_10, _implementation_11, _implementation_network, _implementation_12, _implementation_13, _implementation_14, _implementation_15, _implementation_16, _implementation_17, _implementation_18, _implementation_19, _implementation_20, _implementation_21, _implementation_22, _implementation_23, _implementation_24, _implementation_25, _implementation_26, _implementation_27, _implementation_28, _implementation_29, _implementation_30, _implementation_31, _implementation_32, _implementation_33, _implementation_34, _implementation_35, _implementation_36, _implementation_37, _implementation_38, _implementation_39, _implementation_40, _implementation_41, _implementation_42, _implementation_43, _implementation_44)
 
 for _name, _value in vars(_state).items():
     if not _name.startswith("__"):
@@ -71,14 +70,7 @@ for _implementation in _IMPLEMENTATIONS:
         globals()[_name] = _value
         _EXPORTED_SYMBOLS.add(_name)
 
-_bound_symbols = {name: globals()[name] for name in _EXPORTED_SYMBOLS}
-for _implementation in (_state, *_IMPLEMENTATIONS):
-    _implementation.__dict__.update(_bound_symbols)
-
 _STATE_NAMES = frozenset(name for name in vars(_state) if not name.startswith("__"))
-_bound_state = {name: getattr(_state, name) for name in _STATE_NAMES}
-for _implementation in _IMPLEMENTATIONS:
-    _implementation.__dict__.update(_bound_state)
 
 
 class _TissueSimCompatibilityModule(_ModuleType):
@@ -93,11 +85,6 @@ class _TissueSimCompatibilityModule(_ModuleType):
     def __setattr__(self, name: str, value) -> None:
         if name in _STATE_NAMES:
             setattr(_state, name, value)
-            for implementation in _IMPLEMENTATIONS:
-                implementation.__dict__[name] = value
-        if name in _EXPORTED_SYMBOLS:
-            for implementation in (_state, *_IMPLEMENTATIONS):
-                implementation.__dict__[name] = value
         _ModuleType.__setattr__(self, name, value)
 
 
@@ -105,10 +92,10 @@ _sys.modules[__name__].__class__ = _TissueSimCompatibilityModule
 
 
 if __name__ == "__main__":
-    args = parse_args()
+    args = _implementation_43.parse_args()
     if args.profile_out:
-        _run_main_with_profile(args.profile_out)
+        _implementation_44._run_main_with_profile(args.profile_out)
     elif args.line_profile_out:
-        _run_main_with_line_profile(args.line_profile_out)
+        _implementation_44._run_main_with_line_profile(args.line_profile_out)
     else:
-        main()
+        _implementation_44.main()

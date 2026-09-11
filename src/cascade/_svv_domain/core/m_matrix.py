@@ -203,14 +203,14 @@ def m11(points, rbf_degree=3):
                 else:
                     norm2 = diff_sum ** (rbf_degree / 2 - 2)
             for k in range(d):
-                for l in range(d):
+                for column in range(d):
                     if i == j:
-                        m11_[j * d + l, i * d + k] = 0
-                    elif k == l:
-                        m11_[j * d + l, i * d + k] = -2 * (rbf_degree / 2 - 1) * rbf_degree * diff[k] ** 2 * norm2 - \
+                        m11_[j * d + column, i * d + k] = 0
+                    elif k == column:
+                        m11_[j * d + column, i * d + k] = -2 * (rbf_degree / 2 - 1) * rbf_degree * diff[k] ** 2 * norm2 - \
                                                      rbf_degree * norm1
                     else:
-                        m11_[j * d + l, i * d + k] = -2 * (rbf_degree / 2 - 1) * rbf_degree * diff[k] * diff[l] * norm2
+                        m11_[j * d + column, i * d + k] = -2 * (rbf_degree / 2 - 1) * rbf_degree * diff[k] * diff[column] * norm2
     return m11_
 
 

@@ -6,7 +6,7 @@ Each module contains defaults for one area of the solver:
 
 - `growth.py`: CCO/equal-bifurcation and growth-time controls.
 - `hemodynamics.py`: pressure, inlet flow, scaling, and Kirchhoff solver defaults.
-- `hematocrit.py`: discharge/tube hematocrit and Pries-Secomb/netflow constants.
+- `hematocrit.py`: discharge/tube hematocrit and Pries-Secomb constants.
 - `oxygen.py`: concentration, Graetz/lumen closure, O2 transport, Vmax, Km, diffusivity.
 - `tissue.py`: tissue sampling, nearest-vessel search, cache, streaming, and GPU tissue kernel controls.
 - `cext.py`: explicit extravascular concentration coupling, hybrid FFT/treecode, active sets, and acceleration controls.

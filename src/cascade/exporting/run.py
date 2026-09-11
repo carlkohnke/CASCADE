@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
-import hashlib
 from importlib import metadata
 import json
 import os
@@ -18,15 +17,18 @@ import pyvista as pv
 from cascade import __version__
 from cascade.configuration.models import RunConfig
 from cascade.utils.resources import resolve_path
+from cascade.utils.hashing import file_sha256
 from cascade.vessels.cache import save_network_if_requested
 from cascade.vessels.results import NetworkBuildResult
 from cascade.workflows.simulation import SimulationResult
 from cascade.exporting.schema import CSV_FIELDNAMES
+from cascade.exporting.domain import save_domain_geometry
 
 
 def export_run(config: RunConfig, build: NetworkBuildResult, simulation: SimulationResult) -> dict[str, str]:
     out_dir = resolve_path(config.outputs.out_dir, base_dir=config.settings_path.parent if config.settings_path else None)
-    assert out_dir is not None
+    if out_dir is None:
+        raise ValueError("outputs.out_dir must identify an output directory.")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     outputs: dict[str, str] = {}
@@ -278,28 +280,17 @@ def _points_polydata_from_data(
 
 
 def _save_domain_outputs(domain, out_dir: Path) -> dict[str, str]:
+    saved = save_domain_geometry(
+        domain,
+        out_dir,
+        boundary_filename="domain_boundary.vtp",
+        mesh_filename="domain_mesh.vtu",
+    )
     outputs: dict[str, str] = {}
-    boundary = getattr(domain, "boundary", None)
-    if boundary is None and getattr(domain, "mesh", None) is not None:
-        try:
-            boundary = domain.mesh.extract_surface()
-        except Exception:
-            boundary = None
-    if boundary is None:
-        try:
-            domain.get_boundary()
-            boundary = getattr(domain, "boundary", None)
-        except Exception:
-            boundary = None
-    if boundary is not None:
-        path = out_dir / "domain_boundary.vtp"
-        boundary.save(str(path))
-        outputs["domain_boundary_vtp"] = str(path)
-    mesh = getattr(domain, "mesh", None)
-    if mesh is not None:
-        path = out_dir / "domain_mesh.vtu"
-        mesh.save(str(path))
-        outputs["domain_mesh_vtu"] = str(path)
+    if "boundary" in saved:
+        outputs["domain_boundary_vtp"] = saved["boundary"]
+    if "mesh" in saved:
+        outputs["domain_mesh_vtu"] = saved["mesh"]
     return outputs
 
 
@@ -421,11 +412,7 @@ def _file_sha256(path: str | Path | None) -> str | None:
     candidate = Path(path)
     if not candidate.is_file():
         return None
-    digest = hashlib.sha256()
-    with candidate.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return file_sha256(candidate)
 
 
 def _jsonable(value: Any) -> Any:

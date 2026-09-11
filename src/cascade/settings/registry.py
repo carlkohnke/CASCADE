@@ -284,8 +284,8 @@ def _refresh_derived_runtime_values(runtime: Any, applied: dict[str, dict[str, A
         runtime.LUMEN_DIFFUSIVITY_CM2_S = float(override)
     elif hasattr(runtime, "LUMEN_DIFFUSIVITY_BLOOD_CM2_S"):
         runtime.LUMEN_DIFFUSIVITY_CM2_S = float(runtime.LUMEN_DIFFUSIVITY_BLOOD_CM2_S)
-    if hasattr(runtime, "NETFLOW_MCV_FL"):
-        runtime.NETFLOW_MCV_CORR = (92.0 / float(runtime.NETFLOW_MCV_FL)) ** (1.0 / 3.0)
+    if hasattr(runtime, "PRIES_SECOMB_MCV_FL"):
+        runtime.PRIES_SECOMB_MCV_CORR = (92.0 / float(runtime.PRIES_SECOMB_MCV_FL)) ** (1.0 / 3.0)
     if hasattr(runtime, "TREE_DATA_DTYPE"):
         runtime.TREE_DATA_DTYPE_STR = np.dtype(runtime.TREE_DATA_DTYPE).name
     if hasattr(runtime, "TREE_INDEX_DTYPE"):

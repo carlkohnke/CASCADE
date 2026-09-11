@@ -59,7 +59,8 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         sweep.get("work_dir", sweep.get("out_dir", _outputs_section(raw).get("out_dir", "cascade_sweep"))),
         base_dir=path.parent,
     )
-    assert work_dir is not None
+    if work_dir is None:
+        raise ValueError("sweep.work_dir must identify a working directory.")
     work_dir.mkdir(parents=True, exist_ok=True)
 
     write_network = _as_bool(sweep.get("save_final_network"), False)
@@ -282,7 +283,8 @@ def _output_csv_path(raw: dict[str, Any], sweep: dict[str, Any], settings_path: 
     if output is None:
         outputs = _outputs_section(raw)
         out_dir = resolve_path(outputs.get("out_dir", "cascade_sweep"), base_dir=settings_path.parent)
-        assert out_dir is not None
+        if out_dir is None:
+            raise ValueError("outputs.out_dir must identify an output directory.")
         prefix = outputs.get("prefix") or "cascade_sweep"
         return (out_dir / f"{prefix}.csv").resolve()
     path = Path(output).expanduser()

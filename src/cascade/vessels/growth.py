@@ -20,7 +20,6 @@ from cascade.vessels._build_common import (
     USearchTree,
     cascade_bifurcation,
     contextmanager,
-    hashlib,
     json,
     np,
     perf_counter,
@@ -29,6 +28,7 @@ from cascade.vessels._build_common import (
     sample_grid_points,
     tree_collision,
 )
+from cascade.utils.hashing import file_sha256
 
 from cascade.vessels.cache import (
     _attach_tree_domain,
@@ -140,11 +140,7 @@ def _load_sample_points(path: str | Path) -> np.ndarray:
 
 
 def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return file_sha256(path)
 
 
 def _extend_trees_to_targets(ts, trees: list[Any], domain, config: RunConfig, targets: list[int], *, forest=None) -> None:
@@ -748,7 +744,8 @@ def _save_reached_targets(
         return saved
     current_total = sum(max(int(getattr(t, "n_terminals", 0) or 0) - 1, 0) for t in trees)
     out_dir = resolve_path(config.outputs.out_dir, base_dir=config.settings_path.parent if config.settings_path else None)
-    assert out_dir is not None
+    if out_dir is None:
+        raise ValueError("outputs.out_dir must identify an output directory.")
     out_dir.mkdir(parents=True, exist_ok=True)
     for target in config.growth.save_target_counts:
         target = int(target)

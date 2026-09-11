@@ -1,5 +1,3 @@
-# Legacy symbol names are bound by the temporary TissueSim compatibility facade.
-# ruff: noqa: F821
 """Temporary state bridge for the pre-refactor runtime settings.
 
 The compatibility facade writes here while the typed configuration objects
@@ -8,12 +6,33 @@ become the only inputs to the scientific solvers.
 
 from __future__ import annotations
 
-from cascade.runtime import _dependencies
+import os
+from pathlib import Path
+from typing import Sequence
 
-for _dependency_name, _dependency_value in vars(_dependencies).items():
-    if not _dependency_name.startswith("__"):
-        globals().setdefault(_dependency_name, _dependency_value)
-del _dependency_name, _dependency_value
+import numpy as np
+
+from cascade.runtime._dependencies import (
+    Domain,
+    Tree,
+    _HAVE_CUPY,
+    _HAVE_NUMBA,
+    _HAVE_SCIPY,
+    _HAVE_SCIPY_NDIMAGE,
+    _HAVE_SCIPY_SPARSE,
+    _HAVE_SCIPY_SPATIAL,
+    _IMPORT_ERROR,
+    _compute_cext_batch_numba,
+    _cp,
+    _scipy_linalg,
+    _scipy_ndimage,
+    get_num_threads,
+    set_num_threads,
+)
+
+# Lazily populated compatibility state. Declaring it here makes direct module
+# imports deterministic rather than dependent on facade import order.
+_DEFAULT_TREE_PARAMS: dict | None = None
 
 N_EQUAL_BIFURCATIONS: int | None = None
 EQUAL_TERMINAL_ONLY_ENABLE: bool = True
@@ -70,9 +89,9 @@ TARGET_TERMINAL_COUNTS: tuple[int, ...] = (0,0, 1, 2, 3, 4, 5, 8, 10, 15, 25, 35
 ROOT_LOCATION = np.array([[0.49, -0.49, -0.49]])  # scaled by cube side length at runtime
 ROOT_DIR = np.array([[-0.49, 0.49, 0.49]])
 # OUTPUT_CSV_NAME = "Cube_EXT_q_considers_Cext_Vmax_04_300kplus.csv"
-OUTPUT_CSV_NAME = "Cube_testing.csv"
+OUTPUT_CSV_NAME = "cascade_results.csv"
 NONDIMENSIONAL_NUMBERS = False
-NONDIMENSIONAL_CSV_NAME = "Cube_nondimensional_numbers.csv"
+NONDIMENSIONAL_CSV_NAME = "cascade_dimensionless_results.csv"
 FLUID = "both"  # analysis mode: "water", "blood", or "both"
 BUILD_FLUID = "blood"
 ACTIVE_FLUID = FLUID
@@ -252,14 +271,14 @@ CEXT_INDEX_DTYPE = np.int32
 # q_line and by the finite-radius dipole source coefficient.
 FINITE_RADIUS_O2_TERMS = str(os.environ.get("SVV_FINITE_RADIUS_O2_TERMS", "both")).strip().lower()
 LUMEN_WALL_CLOSURE = str(os.environ.get("SVV_LUMEN_WALL_CLOSURE", "graetz")).strip().lower()
-GRAETZ_N_RADIAL = int(os.environ.get("SVV_GRAETZ_N_RADIAL", "6"))
-GRAETZ_N_MODES = int(os.environ.get("SVV_GRAETZ_N_MODES", "3"))
+GRAETZ_N_RADIAL = 8
+GRAETZ_N_MODES = 4
 GRAETZ_MAX_FP_ITERS = int(os.environ.get("SVV_GRAETZ_MAX_FP_ITERS", "4"))
 GRAETZ_FP_TOL = float(os.environ.get("SVV_GRAETZ_FP_TOL", "1e-5"))
 GRAETZ_VELOCITY_PROFILE = str(os.environ.get("SVV_GRAETZ_VELOCITY_PROFILE", "poiseuille")).strip().lower()
-GRAETZ_BI_CACHE_PER_DECADE = int(os.environ.get("SVV_GRAETZ_BI_CACHE_PER_DECADE", "16"))
-GRAETZ_MIN_BI = float(os.environ.get("SVV_GRAETZ_MIN_BI", "1e-8"))
-GRAETZ_MAX_BI = float(os.environ.get("SVV_GRAETZ_MAX_BI", "1e6"))
+GRAETZ_BI_CACHE_PER_DECADE = 128
+GRAETZ_MIN_BI = 1.0e-8
+GRAETZ_MAX_BI = 1.0e6
 GRAETZ_DEBUG_DIAGNOSTICS = str(os.environ.get("SVV_GRAETZ_DEBUG_DIAGNOSTICS", "0")).strip().lower() in ("1", "true", "yes", "on")
 LUMEN_DIFFUSIVITY_WATER_CM2_S = float(os.environ.get("SVV_LUMEN_DIFFUSIVITY_WATER_CM2_S", "3.2e-5"))
 LUMEN_DIFFUSIVITY_BLOOD_CM2_S = float(os.environ.get("SVV_LUMEN_DIFFUSIVITY_BLOOD_CM2_S", "2.41e-5"))
@@ -349,23 +368,23 @@ HEMATOCRIT_HDTOL = 1.0e-3
 HEMATOCRIT_MIN = 0.0
 HEMATOCRIT_MAX = 0.95
 HEMATOCRIT_DIAGNOSTICS = True
-NETFLOW_BIFPAR_1 = 0.964
-NETFLOW_BIFPAR_2 = 6.98
-NETFLOW_BIFPAR_3 = -13.29
-NETFLOW_CPAR_1 = 0.80
-NETFLOW_CPAR_2 = -0.075
-NETFLOW_CPAR_3 = -11.0
-NETFLOW_CPAR_4 = 12.0
-NETFLOW_VISCPAR_1 = 6.0
-NETFLOW_VISCPAR_2 = -0.085
-NETFLOW_VISCPAR_3 = 3.2
-NETFLOW_VISCPAR_4 = -2.44
-NETFLOW_VISCPAR_5 = -0.06
-NETFLOW_VISCPAR_6 = 0.645
-NETFLOW_OPTW_UM = 1.1
-NETFLOW_VPLAS_CP = 1.0466
-NETFLOW_MCV_FL = 55.0
-NETFLOW_MCV_CORR = (92.0 / NETFLOW_MCV_FL) ** (1.0 / 3.0)
+PRIES_SECOMB_BIFPAR_1 = 0.964
+PRIES_SECOMB_BIFPAR_2 = 6.98
+PRIES_SECOMB_BIFPAR_3 = -13.29
+PRIES_SECOMB_CPAR_1 = 0.80
+PRIES_SECOMB_CPAR_2 = -0.075
+PRIES_SECOMB_CPAR_3 = -11.0
+PRIES_SECOMB_CPAR_4 = 12.0
+PRIES_SECOMB_VISCPAR_1 = 6.0
+PRIES_SECOMB_VISCPAR_2 = -0.085
+PRIES_SECOMB_VISCPAR_3 = 3.2
+PRIES_SECOMB_VISCPAR_4 = -2.44
+PRIES_SECOMB_VISCPAR_5 = -0.06
+PRIES_SECOMB_VISCPAR_6 = 0.645
+PRIES_SECOMB_OPTW_UM = 1.1
+PRIES_SECOMB_VPLAS_CP = 1.0466
+PRIES_SECOMB_MCV_FL = 55.0
+PRIES_SECOMB_MCV_CORR = (92.0 / PRIES_SECOMB_MCV_FL) ** (1.0 / 3.0)
 
 # Sparse Kirchhoff solver selection.
 # Options: "auto" | "cg" | "spsolve" | "gmres_ilu".
@@ -452,7 +471,7 @@ GAUSSIAN_LOG_XMIN_UM = 1
 GAUSSIAN_COLORMAP_LOG10 = True
 SAVE_DNC_GAUSSIAN_FITS = False
 VIOLIN_DNC = False
-VIOLIN_CSV_NAME = "dnc_moredP_cont.csv"
+VIOLIN_CSV_NAME = "cascade_dnc_samples.csv"
 VIOLIN_BIN_WIDTH_UM = 10.0
 VIOLIN_MAX_UM = 10000.0
 VIOLIN_MIN_KEEP_UM = 0.1
@@ -467,7 +486,9 @@ USE_TRICOLOR_CMAP = False
 PLOT_CMAP = "jet"
 
 TRICOLOR_CMAP = None  # initialized lazily to avoid matplotlib dependency
-KRATIO_LUT_PATH = Path(__file__).with_name("besselks.npz")
+_NUMERICAL_ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "numerics"
+KRATIO_LUT_PATH = _NUMERICAL_ASSET_DIR / "bessel_k_v1.npz"
+GRAETZ_BASIS_PATH = _NUMERICAL_ASSET_DIR / "graetz_basis_8x4_v1.npz"
 
 CSV_FIELDNAMES = [
     "number_of_trees",

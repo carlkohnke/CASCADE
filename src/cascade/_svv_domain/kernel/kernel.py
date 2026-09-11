@@ -237,7 +237,8 @@ class Kernel:
                 x0_init = x0_init[:, 1:]
                 x0_init = x0_init.flatten()
                 x0.append(x0_init)
-                func = lambda x: cost(x, h_, self.n, self.d)
+                def func(x, h_value=h_):
+                    return cost(x, h_value, self.n, self.d)
                 funcs.append(func)
         self.x0 = x0
         self.h0 = h0

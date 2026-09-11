@@ -17,7 +17,7 @@ uses a sibling `CASCADE-workbench/projects/CASCADE_Project` directory when that
 workbench exists, keeping generated projects and GUI state out of the source
 tree.
 
-Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `--gpu` for CPU-only work). After an editable install, `cascade-gui` is equivalent. On WSL, double-click `GUI Launchers/launch_gui_windows.vbs` for a console-free launch; `GUI Launchers/launch_gui_windows.bat` is the visible diagnostic fallback. Both Windows launchers resolve the checkout containing their folder, so they do not depend on a user-specific path. Linux and macOS users can run `./GUI\ Launchers/launch_gui.sh` after making it executable.
+Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `--gpu` for CPU-only work). After an editable install, `cascade-gui` is equivalent. On WSL, double-click `GUI Launchers/launch_gui_windows_silent.vbs` for a console-free launch; `GUI Launchers/launch_gui_windows_shell.bat` is the visible diagnostic fallback. Both Windows launchers resolve the checkout containing their folder, so they do not depend on a user-specific path. Linux and macOS users can run `./GUI\ Launchers/launch_gui_linux.sh` after making it executable.
 
 ## Guided workflow
 

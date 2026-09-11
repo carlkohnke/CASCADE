@@ -9,8 +9,13 @@ from typing import Any
 import numpy as np
 
 from cascade.configuration.models import RunConfig
+from cascade.configuration import _legacy_state as _state
+from cascade.concentration.tissue.cache import build_tissue_cache_from_tree
+from cascade.concentration.tissue.geometry import _prepare_tissue_geometry, get_concentration_inlet
+from cascade.concentration.tissue.greens import compute_tissue_samples_greens
 from cascade.vessels.connectivity import collect_downstream_segment_ids
 from cascade.domain.grid import sample_grid_points
+from cascade.domain.sampling import compute_distance_to_nearest_channel, sample_domain_points
 from cascade.configuration.bridge import load_runtime_module
 from cascade.utils.resources import resolve_path
 from cascade.vessels.conditions import (
@@ -21,6 +26,8 @@ from cascade.vessels.conditions import (
 )
 from cascade.vessels.growth import _load_sample_points
 from cascade.vessels.simple import simple_details
+from cascade.workflows.flow_sources import tree_root_flow_cm3_s as _tree_root_flow_cm3_s
+from cascade.workflows.tree_simulation import run_tree_simulation
 
 DYN_PER_CM2_TO_PA = 0.1
 
@@ -121,9 +128,9 @@ def run_simulation(
                 tissue_cache = None
                 if not config.simulation.skip_tissue_oxygen and sample_points.size:
                     t_cache = perf_counter()
-                    tissue_cache = ts.build_tissue_cache_from_tree(tree, sample_points)
+                    tissue_cache = build_tissue_cache_from_tree(tree, sample_points)
                     timings[f"tree_{tree_id}_tissue_cache_s"] = perf_counter() - t_cache
-                summary, details = ts.summarize_tree(
+                summary, details = run_tree_simulation(
                     tree,
                     sample_points,
                     int(target_count),
@@ -204,7 +211,7 @@ def _sample_points(ts, domain, config: RunConfig, *, provided: np.ndarray | None
     n = int(config.simulation.distance_sample_count)
     if n <= 0:
         return np.empty((0, 3), dtype=float)
-    return np.asarray(ts.sample_domain_points(domain, n), dtype=float)
+    return np.asarray(sample_domain_points(domain, n), dtype=float)
 
 
 def _sample_meta_for_config(config: RunConfig, points: np.ndarray) -> dict[str, Any]:
@@ -226,20 +233,6 @@ def _sample_meta_for_config(config: RunConfig, points: np.ndarray) -> dict[str, 
         "requested_points": int(config.simulation.distance_sample_count),
         "points": int(np.asarray(points).shape[0]),
     }
-
-
-def _tree_root_flow_cm3_s(tree) -> float:
-    params = getattr(tree, "parameters", None)
-    if params is not None:
-        value = getattr(params, "root_flow", None)
-        if value is not None and np.isfinite(float(value)) and float(value) > 0.0:
-            return float(value)
-    data = np.asarray(tree.data[: int(getattr(tree, "segment_count", 0) or 0)])
-    if data.size:
-        value = float(data[0, 22])
-        if np.isfinite(value) and value > 0.0:
-            return value
-    return math.nan
 
 
 def _inlet_flow_for_tree(config: RunConfig, tree, tree_id: int, trees: list[Any]) -> float:
@@ -477,7 +470,7 @@ def _point_data(
     nearest_fields: dict[str, np.ndarray] = {}
     if config.outputs.include_tissue_nearest_fields and pts.size and segment_rows:
         starts, ends, radii = _segment_geometry_from_rows(segment_rows)
-        nearest = ts.compute_distance_to_nearest_channel(pts, starts, ends, radii)
+        nearest = compute_distance_to_nearest_channel(pts, starts, ends, radii)
         nearest_fields = _nearest_segment_fields(ts, pts, starts, ends, radii, segment_rows)
     finite_concentration = np.isfinite(vals)
     normalized = np.full(n_points, np.nan, dtype=float)
@@ -533,18 +526,18 @@ def _combined_tissue_points(ts, tree_results: list[TreeSimulation], sample_point
     radii_arr = np.concatenate(radii, axis=0)
     cin_arr = np.concatenate(cin, axis=0)
     flows_arr = np.concatenate(flows, axis=0)
-    mask, conc = ts.compute_tissue_samples_greens(
+    mask, conc = compute_tissue_samples_greens(
         sample_points,
         starts_arr,
         ends_arr,
         radii_arr,
         cin_arr,
         flows_arr,
-        diffusivity=float(ts.SOLUTE_DIFFUSIVITY),
-        vmax=float(ts.VMAX_MM),
-        km=float(ts.K_M_MM),
-        window_factor=float(ts.WINDOW_FACTOR),
-        inlet_concentration=float(ts.get_concentration_inlet()),
+        diffusivity=float(_state.SOLUTE_DIFFUSIVITY),
+        vmax=float(_state.VMAX_MM),
+        km=float(_state.K_M_MM),
+        window_factor=float(_state.WINDOW_FACTOR),
+        inlet_concentration=float(get_concentration_inlet()),
         tissue_cache=None,
     )
     return sample_points[np.asarray(mask, dtype=bool)], np.asarray(conc, dtype=float)[np.asarray(mask, dtype=bool)]
@@ -569,7 +562,7 @@ def _nearest_segment_fields(
         return {}
     try:
         max_nearby = min(int(getattr(ts, "NEAREST_TISSUE_VESSELS", 250)), int(starts.shape[0]))
-        cache = ts._prepare_tissue_geometry(pts, starts, ends, radii, max_nearby=max_nearby)
+        cache = _prepare_tissue_geometry(pts, starts, ends, radii, max_nearby=max_nearby)
         nearest_idx = np.asarray(cache["nearest_idx"])
         d_center = np.asarray(cache["d_center"], dtype=np.float64)
         valid = np.asarray(cache["valid_mask"], dtype=bool)

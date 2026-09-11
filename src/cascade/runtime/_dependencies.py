@@ -1,9 +1,11 @@
-"""
-Tree flow + Greens concentration script.
+# This module centralizes optional-runtime capability detection; many imports
+# therefore appear unused within this file itself.
+# ruff: noqa: F401
+"""Optional scientific-runtime and hardware capability detection.
 
-Computes Kirchhoff flows on a single tree, then solves intravascular
-concentration profiles and samples tissue points using the same Greens
-model as forest_test_greens.py.
+Scientific modules import ordinary dependencies directly. The central legacy
+settings bridge imports only the capability flags and optional runtime handles
+defined here so availability is detected once per process.
 """
 from __future__ import annotations
 
@@ -53,7 +55,7 @@ except NameError:  # pragma: no cover
         return func
 
 try:
-    from scipy.special import k0 as _bessel_k0, k1 as _bessel_k1
+    from scipy.special import k0 as _bessel_k0, k1 as _bessel_k1, kve as _bessel_kve
     _HAVE_SCIPY = True
 except Exception:  # pragma: no cover
     _HAVE_SCIPY = False

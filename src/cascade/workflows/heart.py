@@ -310,8 +310,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cext-max-candidates-per-target", type=int, default=CEXT_MAX_CANDIDATES_PER_TARGET_DEFAULT)
     parser.add_argument("--finite-radius-o2-terms", default=FINITE_RADIUS_O2_TERMS_DEFAULT, choices=("none", "monopole", "dipole", "both"))
     parser.add_argument("--lumen-wall-closure", default=LUMEN_WALL_CLOSURE_DEFAULT, choices=("wellmixed", "graetz"))
-    parser.add_argument("--graetz-n-radial", type=int, default=GRAETZ_N_RADIAL_DEFAULT)
-    parser.add_argument("--graetz-n-modes", type=int, default=GRAETZ_N_MODES_DEFAULT)
+    parser.add_argument("--graetz-n-radial", type=int, default=GRAETZ_N_RADIAL_DEFAULT, choices=(8,))
+    parser.add_argument("--graetz-n-modes", type=int, default=GRAETZ_N_MODES_DEFAULT, choices=(4,))
     parser.add_argument("--graetz-max-fp-iters", type=int, default=GRAETZ_MAX_FP_ITERS_DEFAULT)
     parser.add_argument("--graetz-profile", default=GRAETZ_VELOCITY_PROFILE_DEFAULT, choices=("poiseuille", "plug"))
     parser.add_argument("--lumen-diffusivity-cm2-s", type=float, default=None)
@@ -717,7 +717,8 @@ def main(argv: list[str] | None = None) -> int:
                         f"subtree size {blocked_count} set to zero effective radius for solves."
                     )
             try:
-                assert cext_ts is not None
+                if cext_ts is None:
+                    raise RuntimeError("The external-field runtime was not initialized.")
                 tree_solutions, cext_meta = _solve_forest_cext(
                     cext_ts,
                     ts,

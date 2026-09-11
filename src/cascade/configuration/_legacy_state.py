@@ -1,3 +1,5 @@
+# Legacy symbol names are bound by the temporary TissueSim compatibility facade.
+# ruff: noqa: F821
 """Temporary state bridge for the pre-refactor runtime settings.
 
 The compatibility facade writes here while the typed configuration objects

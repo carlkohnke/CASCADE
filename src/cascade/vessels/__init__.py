@@ -3,7 +3,7 @@
 from cascade.core.lazy import resolve_export
 
 _EXPORTS = {
-    "NetworkBuildResult": ("cascade.vessels.build", "NetworkBuildResult"),
+    "NetworkBuildResult": ("cascade.vessels.results", "NetworkBuildResult"),
     "SimpleNetwork": ("cascade.vessels.simple", "SimpleNetwork"),
     "build_or_load_network": ("cascade.vessels.build", "build_or_load_network"),
     "build_simple_network": ("cascade.vessels.simple", "build_simple_network"),

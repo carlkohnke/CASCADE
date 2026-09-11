@@ -17,7 +17,9 @@ import pyvista as pv
 
 from cascade import __version__
 from cascade.configuration.models import RunConfig
-from cascade.vessels.build import NetworkBuildResult, resolve_path, save_network_if_requested
+from cascade.utils.resources import resolve_path
+from cascade.vessels.cache import save_network_if_requested
+from cascade.vessels.results import NetworkBuildResult
 from cascade.workflows.simulation import SimulationResult
 from cascade.exporting.schema import CSV_FIELDNAMES
 

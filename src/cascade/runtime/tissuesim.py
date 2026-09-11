@@ -1,3 +1,5 @@
+# Legacy symbol names are bound by the temporary TissueSim compatibility facade.
+# ruff: noqa: F821
 """Compatibility facade for the modular CASCADE solver.
 
 New code should import from ``cascade.flow`` or ``cascade.concentration``.

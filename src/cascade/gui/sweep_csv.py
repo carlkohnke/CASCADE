@@ -78,7 +78,7 @@ def rebuild_combined_sweep_csv(jobs: Iterable[Any], output_path: str | Path) -> 
 @lru_cache(maxsize=1)
 def _tissuesim_csv_fieldnames() -> tuple[str, ...]:
     # Keep the GUI light until the user actually queues a combined sweep.
-    from cascade.runtime.tissuesim import CSV_FIELDNAMES
+    from cascade.exporting.schema import CSV_FIELDNAMES
 
     return tuple(CSV_FIELDNAMES)
 

@@ -11,19 +11,18 @@ import numpy as np
 from cascade.configuration.models import RunConfig, parse_config
 from cascade.exporting.run import _summary_fieldnames, _write_csv
 from cascade.utils.execution import release_completed_case_memory
-from cascade.vessels.build import (
-    NetworkBuildResult,
+from cascade.configuration.bridge import apply_runtime_settings, load_runtime_module
+from cascade.domain.workflow import build_domain
+from cascade.utils.resources import resolve_path
+from cascade.vessels.build import build_or_load_network
+from cascade.vessels.cache import save_network_if_requested
+from cascade.vessels.conditions import _make_forest
+from cascade.vessels.growth import (
     _build_configured_trees,
     _extend_trees_to_targets,
-    _make_forest,
     _pre_sample_points,
-    apply_runtime_settings,
-    build_or_load_network,
-    build_domain,
-    load_runtime_module,
-    resolve_path,
-    save_network_if_requested,
 )
+from cascade.vessels.results import NetworkBuildResult
 from .simulation import run_simulation
 
 

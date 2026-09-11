@@ -11,15 +11,15 @@ import numpy as np
 from cascade.configuration.models import RunConfig
 from cascade.vessels.connectivity import collect_downstream_segment_ids
 from cascade.domain.grid import sample_grid_points
-from cascade.vessels.build import (
+from cascade.configuration.bridge import load_runtime_module
+from cascade.utils.resources import resolve_path
+from cascade.vessels.conditions import (
     flow_for_tree,
     inlet_concentration_for_tree,
-    load_runtime_module,
-    _load_sample_points,
-    resolve_path,
     sync_tree_parameters_for_run,
     terminal_flow_for_target,
 )
+from cascade.vessels.growth import _load_sample_points
 from cascade.vessels.simple import simple_details
 
 DYN_PER_CM2_TO_PA = 0.1

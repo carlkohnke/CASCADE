@@ -13,11 +13,9 @@ from scipy.spatial import cKDTree
 from sklearn.neighbors import BallTree
 
 from cascade.configuration.models import load_config
-from cascade.vessels.build import (
-    build_or_load_network,
-    resolve_domain_path,
-    save_network_if_requested,
-)
+from cascade.utils.resources import resolve_domain_path
+from cascade.vessels.build import build_or_load_network
+from cascade.vessels.cache import save_network_if_requested
 from cascade._svv_domain.domain import Domain
 from cascade._svv_domain.routines.tetrahedralize import tetrahedralize
 

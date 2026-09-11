@@ -5,6 +5,7 @@ from cascade.core.lazy import resolve_export
 _EXPORTS = {
     "build_domain": ("cascade.domain.builders", "build_domain"),
     "build_domain_from_pyvista": ("cascade.domain.builders", "build_domain_from_pyvista"),
+    "build_domain_from_config": ("cascade.domain.workflow", "build_domain"),
     "compute_average_distance": ("cascade.domain.sampling", "compute_average_distance"),
     "compute_distance_to_nearest_channel": ("cascade.domain.sampling", "compute_distance_to_nearest_channel"),
     "sample_domain_points": ("cascade.domain.sampling", "sample_domain_points"),

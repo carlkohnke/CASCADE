@@ -21,6 +21,12 @@ The current version is `0.1.0rc3`. It preserves the locally qualified M2/M3 nume
 
 Repository publication and remote CI remain separate release gates and are not claimed here. Detailed maintainer records, release history, and machine-specific validation evidence are retained outside the public repository.
 
+The implementation is organized by scientific responsibility rather than by
+entry point: domain and vessel architecture, flow, vessel concentration, Cext,
+Green's Function Method tissue oxygen, exporting, workflows, and GUI code each
+have dedicated packages. See [docs/architecture.md](docs/architecture.md) for
+the package map and compatibility boundaries.
+
 ## Requirements
 
 - Linux or WSL2 on x86-64.

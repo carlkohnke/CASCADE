@@ -72,6 +72,9 @@ examples/.cascade_gui_test/
 CASCADE_Project/
 backups/
 
+# Local performance-development harnesses belong in the workbench, not GitHub.
+/benchmarks/
+
 # Maintainer-only material lives in the sibling CASCADE-workbench directory.
 /AGENTS.md
 /docs/internal/

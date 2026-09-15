@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, final exact artifact from `9dcbe34d8c63ac77e3bf515dd48272dae07d72b9` |
+| CASCADE candidate | `0.1.0rc5`, current corrective artifact from `0d97401c7e2203f32efe5135efb254ec4d84c35b` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -33,9 +33,9 @@ feature, WSL, or unrelated Python installation was changed.
 | 3 — compatibility fixes | Pass | Exact wheel installed on native NTFS; 18/18 focused filesystem, CUDA-bootstrap, host-memory, process-tree, atomic-state, and Studio lifecycle tests pass |
 | 4 — native CPU qualification | Pass | Exact installed wheel: fatal/static check passes and 62/62 tests pass; all documented CLI commands and the CPU self-test complete from native NTFS |
 | 5 — filesystem torture | Pass | Exact installed wheel: 66/66 tests pass from an NTFS-only test snapshot; deep space/Unicode paths, stale caches, mmap release, repeat writes, lock contention/recovery, and a read-only installed package pass |
-| 6 — Studio qualification | Pass | Exact installed wheel: 78 native CPU tests pass with 3 intentional GPU/offscreen skips; real desktop automation covers native dialogs, normal/diagnostic launchers, title-bar movement, resize, window states, Snap, Explorer/result-viewer launch, second-instance notice, and clean shutdown; 100%/125%/150%/200% scale-factor checks pass |
-| 7 — native CUDA qualification | Pass | Exact installed wheel: `doctor --require-gpu`, `self-test --require-gpu`, and 80 tests pass with one offscreen native-window skip; all CUDA kernel families, CPU/GPU comparisons, repeated persistent-worker jobs, cancellation/recovery, and memory stability are covered |
-| 8 — Linux regression | Pass | CPython 3.12 isolated environment: dependency integrity and static checks pass; 67 tests pass with 14 intentional Windows/GPU skips; installed-package CPU self-test passes and scientific outputs match Windows |
+| 6 — Studio qualification | Pass | Current installed wheel: 81 native CPU tests pass with 3 intentional GPU/offscreen skips; real desktop automation covers native dialogs, normal/diagnostic launchers, title-bar movement, resize, window states, Snap, Explorer/result-viewer launch, second-instance notice, and clean shutdown; 100%/125%/150%/200% scale-factor checks pass |
+| 7 — native CUDA qualification | Pass | Current installed wheel: `doctor --require-gpu`, `self-test --require-gpu`, and 83 tests pass with one offscreen native-window skip; all CUDA kernel families, CPU/GPU comparisons, repeated persistent-worker jobs, cancellation/recovery, and memory stability are covered |
+| 8 — Linux regression | Pass | CPython 3.12 isolated environment: dependency integrity and static checks pass; 70 tests pass with 14 intentional Windows/GPU skips; installed-package CPU self-test passes and scientific outputs match Windows |
 | 9 — clean install | Pass | Fresh CPU and CUDA environments installed the exact wheel and declared dependencies as binary wheels; version, doctor, self-test, Studio launch/project/run/cancel/recovery, exports, and GPU acceleration pass without source, compiler, WSL, PATH, or DLL workarounds |
 | 10 — user tooling/docs | Pass | Native CPU/CUDA wheel installation, console-free and diagnostic launchers, CLI use, state paths, troubleshooting, uninstall, and support boundaries are documented and validated against the clean-install workflow |
 | 11 — CI | Implemented, not hosted | Ubuntu 22.04 and Windows Python 3.12 installed-wheel CPU lanes plus a self-hosted native Windows/NVIDIA release gate are defined and locally validated; no remote is configured, so no GitHub run is claimed |
@@ -77,6 +77,12 @@ is large. Qualification intentionally honors that metadata; it does not use
   launcher and a separate console-subsystem diagnostic launcher.
 - The initial GPU extra omitted NVRTC and other required toolkit components;
   it now declares CuPy's complete wheel-provided CUDA toolkit extra.
+- The early CUDA preflight treated automatic acceleration as an explicit GPU
+  requirement. A CPU-only installation therefore rejected otherwise
+  CPU-compatible projects whose Studio defaults were `auto`. Automatic modes
+  now pin themselves to CPU after an unavailable CUDA preflight, while an
+  explicit GPU request and the GPU-only general-network hybrid solver still
+  fail rather than silently changing execution policy.
 - CUDA bootstrap now discovers wheel-provided headers and nested DLLs before
   CuPy is imported, retaining Windows DLL-directory handles for process life.
 - Runtime caches, configuration, state, logs, and Studio project defaults now
@@ -456,7 +462,7 @@ Linux and native Windows stages. With no Git remote configured, neither
 workflow has been submitted to or executed by GitHub; Stage 11 is therefore
 recorded as implemented rather than as a hosted CI pass.
 
-## Final exact-candidate gate
+## Original full exact-candidate gate
 
 The final wheel built from commit `9dcbe34d8c63ac77e3bf515dd48272dae07d72b9`
 has SHA-256
@@ -496,3 +502,31 @@ This closes the local release gates for the current candidate. The GitHub CPU
 and self-hosted GPU workflow definitions remain unexecuted because the
 repository has no remote and no `cascade-gpu` runner is configured; no hosted
 CI pass is claimed.
+
+## Current corrective artifact gate
+
+After the original qualification, an interactive CPU-only Studio run exposed
+that the early CUDA preflight interpreted the default `auto` acceleration
+policy as a strict GPU requirement. Commit
+`0d97401c7e2203f32efe5135efb254ec4d84c35b` corrects that policy and adds
+regressions for automatic CPU fallback, explicit-GPU failure, and the GPU-only
+general-network hybrid solver.
+
+The current wheel has SHA-256
+`5cf275a95406b19109f22a1d1a7e7efec59eb015479712e38c8c806f6d611a1b`.
+The matching sdist has SHA-256
+`b87cfe7da16a1ca73c5faf5cfb38b6ceaba482a66bda8e704ae1489dcbe18aa30`.
+Both artifacts passed Twine checks and were installed over the isolated CPU and
+CUDA environments with dependency integrity intact.
+
+The exact saved Studio settings that revealed the defect now select both Cext
+and tissue CPU paths in the CPU-only environment. Its installed-package CPU
+self-test passed in 10.165 seconds. The complete native Windows CPU suite then
+passed with 81 tests and three intentional GPU/offscreen skips in 130.07
+seconds. The CUDA environment still identified the RTX 3080 Laptop GPU,
+passed its installed-package GPU self-test in 10.002 seconds, and passed the
+complete opt-in GPU suite with 83 tests and one offscreen native-window skip in
+253.87 seconds. The Linux regression suite passed with 70 tests and 14
+intentional Windows/GPU skips. All imports resolved from the applicable
+environment's `site-packages`, and all new evidence remained within the native
+Windows sandbox.

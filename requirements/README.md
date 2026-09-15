@@ -19,11 +19,11 @@ Run requirement-file installs from the repository root, for example:
 python -m pip install -r requirements/dev.txt
 ```
 
-## Validated locks
+## Reproducible locks
 
-`locks/` contains the fully pinned Python 3.9 environments used for release
-qualification. Pass these files with pip's `-c` option; they are constraints,
-not standalone installation lists.
+`locks/` contains the fully pinned Python 3.9 environments used for reproducible
+CPU and CUDA installations. Pass these files with pip's `-c` option; they are
+constraints, not standalone installation lists.
 
 ```bash
 python -m pip install -c requirements/locks/py39-cpu.txt '.[dev,gui]'

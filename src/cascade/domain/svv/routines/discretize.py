@@ -31,7 +31,7 @@ def descritize(domain, **kwargs):
 
     Parameters
     ----------
-    domain : svtoolkit.Domain object
+    domain : cascade.domain.svv.Domain
         This is the domain object to be discretized.
 
     Return
@@ -255,8 +255,6 @@ def marching_squares(function, grid, origin, value=0.0):
     mesh = marching_squares_filter.GetOutput()
     return mesh
 
-#def marching_cubes(function, grid, origin, value=0.0):
-#    pass
 
 def contour(function, points, resolution, value=0.0, buffer=1.5):
     n_dim = points.shape[1]
@@ -288,7 +286,6 @@ def contour(function, points, resolution, value=0.0, buffer=1.5):
         ranges = (bounds[1] - bounds[0])*buffer
         spacing = ranges / resolution
         dimensions = [resolution, resolution, resolution]
-        #origin = np.array(origin) - np.array(ranges)/2
         mesh = pv.ImageData(spacing=spacing, dimensions=dimensions, origin=origin)
         grid = np.mgrid[origin[0] - ranges[0]/2:origin[0] + ranges[0]/2:resolution*1j,
                         origin[1] - ranges[1]/2:origin[1] + ranges[1]/2:resolution*1j,
@@ -297,7 +294,6 @@ def contour(function, points, resolution, value=0.0, buffer=1.5):
         values = function(grid)
         values = values.reshape(resolution, resolution, resolution)
         mesh.point_data["values"] = values.flatten()
-        #boundary = mesh.contour([value], method="flying_edges")
         verts, faces, normals, _ = marching_cubes(values, level=value, spacing=spacing,
                                                   allow_degenerate=False)
         offset = (verts.max(axis=0) + verts.min(axis=0)) / 2

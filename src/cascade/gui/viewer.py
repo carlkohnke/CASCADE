@@ -1,7 +1,9 @@
-"""Standalone, memory-isolated PyVista result viewer.
+"""Open exported CASCADE results in a standalone PyVista viewer.
 
 The viewer deliberately does not embed VTK in the main Qt application. That
 keeps graphics allocations out of CASCADE Studio and is more reliable on WSLg.
+Run ``cascade-viewer --manifest path/to/manifest.json`` after a simulation that
+enabled ParaView output; Studio can launch the same command from its results UI.
 """
 
 from __future__ import annotations

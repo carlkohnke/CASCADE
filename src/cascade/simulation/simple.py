@@ -7,8 +7,14 @@ from typing import Any
 
 import numpy as np
 
+from cascade.concentration.external_field.coupling_steps import (
+    _run_network_ext_frozen_step,
+)
+from cascade.concentration.external_field.geometry import _build_cext_geometry_context
 from cascade.concentration.properties import get_concentration_inlet
 from cascade.configuration.schema import RunConfig
+from cascade.flow import PressureDropProblem, solve_pressure_drop
+from cascade.flow.topology import _normalize_kirchhoff_bc_mode
 from cascade.vessels.simple import SimpleNetwork, _simple_tree_data
 
 
@@ -46,7 +52,10 @@ def solve_simple_network(
     diffusivity = float(raw.get("diffusivity", ts.SOLUTE_DIFFUSIVITY))
     vmax = float(raw.get("vmax", ts.VMAX_MM))
     km = float(raw.get("km", ts.K_M_MM))
+    pressure_pressure_mode = _normalize_kirchhoff_bc_mode() == "pressure_pressure"
     if (
+        not pressure_pressure_mode
+        and
         solve_separate
         and network.starts.shape[0] > 1
         and network.mode == "multichannel"
@@ -64,14 +73,39 @@ def solve_simple_network(
             km=km,
         )
     else:
-        _pressures, flows, *_ = ts.solve_kirchhoff(
-            network.prox_ids,
-            network.dist_ids,
-            resistances,
-            network.inlet_nodes,
-            q_inlet_cm3_s,
-            network.outlet_nodes,
-        )
+        if pressure_pressure_mode:
+            solver = str(getattr(ts, "KIRCHHOFF_SOLVER", "spsolve"))
+            if len(network.inlet_nodes) != 1:
+                solver = "spsolve"
+            pressure_result = solve_pressure_drop(
+                PressureDropProblem(
+                    proximal_nodes=network.prox_ids,
+                    distal_nodes=network.dist_ids,
+                    resistances=resistances,
+                    inlet_nodes=network.inlet_nodes,
+                    outlet_nodes=network.outlet_nodes,
+                    outlet_pressure=float(ts.TERMINAL_PRESSURE)
+                    * ts.PA_TO_DYN_PER_CM2,
+                    pressure_drop=(
+                        float(ts.ROOT_PRESSURE) - float(ts.TERMINAL_PRESSURE)
+                    )
+                    * ts.PA_TO_DYN_PER_CM2,
+                    solver=solver,
+                )
+            )
+            _pressures = pressure_result.pressures
+            flows = pressure_result.flows_cm3_s
+            q_inlet_cm3_s = pressure_result.inlet_flow_cm3_s
+            network.metadata["flow_ul_min"] = q_inlet_cm3_s * 60000.0
+        else:
+            _pressures, flows, *_ = ts.solve_kirchhoff(
+                network.prox_ids,
+                network.dist_ids,
+                resistances,
+                network.inlet_nodes,
+                q_inlet_cm3_s,
+                network.outlet_nodes,
+            )
         cin, cout, _node_conc, _history = ts.solve_network_concentrations(
             network.starts,
             network.ends,
@@ -91,6 +125,59 @@ def solve_simple_network(
         )
 
     network.flows = np.asarray(flows, dtype=float)
+    network.vessel_quadrature = None
+    if str(getattr(ts, "LUMEN_WALL_CLOSURE", "wellmixed")).strip().lower() == "graetz":
+        network_topology = {
+            "prox_ids": np.asarray(network.prox_ids, dtype=np.int64),
+            "dist_ids": np.asarray(network.dist_ids, dtype=np.int64),
+            "inlet_nodes": tuple(int(node) for node in network.inlet_nodes),
+            "outlet_nodes": tuple(int(node) for node in network.outlet_nodes),
+        }
+        context = _build_cext_geometry_context(
+            network,
+            network.flows,
+            network.starts,
+            network.ends,
+            network.radii,
+            network.lengths,
+            inlet_concentration=inlet_conc,
+            diffusivity=diffusivity,
+            vmax=vmax,
+            km=km,
+            build_candidate_index=False,
+            network_topology=network_topology,
+        )
+        chb_max = np.zeros_like(network.radii, dtype=float)
+        if str(fluid).lower() == "blood":
+            for segment_id, radius in enumerate(network.radii):
+                ht = ts.tube_hematocrit(radius, hd=ts.HD_DISCHARGE)
+                chb_max[segment_id] = ts.segment_O2_capacity_from_HT(ht)
+        ext_state = {
+            "c_ext_gl": np.zeros(
+                (network.segment_count, int(np.asarray(context["gl_t"]).size)),
+                dtype=np.float32,
+            )
+        }
+        cin, cout, _civ, _backend, _transfer = _run_network_ext_frozen_step(
+            context,
+            ext_state,
+            inlet_concentration=inlet_conc,
+            vmax=vmax,
+            km=km,
+            chb_max=chb_max,
+            fluid_mode=str(fluid).lower(),
+        )
+        network.vessel_quadrature = {
+            "solver": "simple_channel_graetz",
+            "gl_points_si": np.asarray(context["gl_points_si"], dtype=np.float32),
+            "c_iv_gl": np.asarray(ext_state["c_iv_gl"], dtype=np.float32),
+            "c_bulk_gl": np.asarray(ext_state["c_bulk_gl"], dtype=np.float32),
+            "c_wall_gl": np.asarray(ext_state["c_wall_gl"], dtype=np.float32),
+            "c_ext_gl": np.asarray(ext_state["c_ext_gl"], dtype=np.float32),
+        }
+    if "_pressures" in locals():
+        network.node_pressures = np.asarray(_pressures, dtype=float)
+        network.pressures = network.node_pressures[network.prox_ids]
     network.cin = np.asarray(cin, dtype=float)
     network.cout = np.asarray(cout, dtype=float)
     network.data = _simple_tree_data(
@@ -103,7 +190,11 @@ def solve_simple_network(
     network.parameters = SimpleNamespace(
         root_pressure=float(getattr(ts, "ROOT_PRESSURE", np.nan)),
         terminal_pressure=float(getattr(ts, "TERMINAL_PRESSURE", np.nan)),
-        root_flow=float(np.sum(np.abs(network.flows))),
+        root_flow=(
+            float(q_inlet_cm3_s)
+            if pressure_pressure_mode
+            else float(np.sum(np.abs(network.flows)))
+        ),
         terminal_flow=(
             float(np.mean(np.abs(network.flows))) if network.flows.size else np.nan
         ),
@@ -148,7 +239,11 @@ def simple_details(
     )
     conc_max = float(getattr(ts, "CONC_MAX_FOR_NORMALIZATION", np.nan))
     mean_tissue = float(np.nanmean(tissue_values)) if tissue_values.size else np.nan
-    total_flow = float(np.nansum(np.abs(network.flows)))
+    total_flow = (
+        float(network.metadata["flow_ul_min"]) / 60000.0
+        if _normalize_kirchhoff_bc_mode() == "pressure_pressure"
+        else float(np.nansum(np.abs(network.flows)))
+    )
     summary = {
         "target_terminals": int(network.n_terminals),
         "cube_side_length": float(config.domain.side_length),
@@ -198,11 +293,16 @@ def simple_details(
         "radii": network.radii,
         "lengths": network.lengths,
         "flows": network.flows,
+        "pressures": np.asarray(
+            getattr(network, "pressures", np.full(network.segment_count, np.nan)),
+            dtype=float,
+        ),
         "cin": network.cin,
         "cout": network.cout,
         "tissue_points": tissue_points,
         "tissue_values": tissue_values,
         "inlet_concentration": inlet_concentration,
+        "vessel_quadrature": getattr(network, "vessel_quadrature", None),
     }
     return summary, details
 
@@ -259,6 +359,8 @@ def _fluid_mu_base(ts, fluid: str) -> float:
         return rho * nu
     if fluid_mode == "blood":
         return float(getattr(ts, "MU_PLASMA_CGS", 0.012))
+    if fluid_mode == "custom":
+        return float(getattr(ts, "CUSTOM_FLUID_DYNAMIC_VISCOSITY_CP", 1.0)) / 100.0
     raise ValueError(f"Unsupported simple-network fluid: {fluid!r}")
 
 

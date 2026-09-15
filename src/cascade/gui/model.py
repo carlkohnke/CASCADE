@@ -16,12 +16,14 @@ import math
 import os
 from pathlib import Path
 import platform
+import re
+import shutil
 import subprocess
 from typing import Any, Iterable
 from uuid import uuid4
 
 from cascade.configuration.schema import example_config, parse_config
-from cascade.vessels.lattice import channel_count
+from cascade.vessels.lattice import channel_count, resolve_lattice_layout
 from cascade.utils.resources import resolve_domain_path
 
 from . import GUI_SCHEMA_VERSION
@@ -30,6 +32,7 @@ from . import GUI_SCHEMA_VERSION
 MMHG_TO_PA = 133.322387415
 ALPHA_MMHG = 0.001408
 QUEUE_FILENAME = "queue.json"
+PROJECT_FILENAME = ".cascade-project.json"
 
 
 @dataclass
@@ -190,6 +193,7 @@ def default_project() -> dict[str, Any]:
             "pressure_unit": "mmHg",
             "flow_unit": "µL/min",
         },
+        "rebuild_svv_for_pressure_drop": False,
         "oxygen_input_unit": "mmHg",
         "diffusivity_unit": "cm²/s",
         "solver_detail": "Guided",
@@ -231,6 +235,7 @@ def _deep_merge(target: dict[str, Any], source: dict[str, Any]) -> None:
 def save_project(path: str | Path, config: dict[str, Any]) -> Path:
     target = Path(path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
+    materialize_project_assets(config, target.parent)
     _atomic_json(target, config)
     return target
 
@@ -243,7 +248,52 @@ def load_project(path: str | Path) -> dict[str, Any]:
     return merge_project(raw)
 
 
-def validate_project(config: dict[str, Any]) -> ValidationReport:
+def materialize_project_assets(
+    config: dict[str, Any], project_dir: str | Path
+) -> None:
+    """Copy external domain/network inputs into the portable project folder."""
+    root = Path(project_dir).expanduser().resolve()
+    assets = root / "assets"
+    paths: list[tuple[dict[str, Any], str]] = []
+    domain = config.get("domain", {})
+    network = config.get("network", {})
+    simple = network.get("simple", {}) if isinstance(network, dict) else {}
+    if isinstance(domain, dict) and domain.get("path"):
+        paths.append((domain, "path"))
+    if isinstance(network, dict) and network.get("input_path"):
+        paths.append((network, "input_path"))
+    if isinstance(simple, dict):
+        for key in ("path", "geometry_path"):
+            if simple.get(key):
+                paths.append((simple, key))
+                break
+    for owner, key in paths:
+        source = Path(str(owner[key])).expanduser()
+        if not source.is_absolute():
+            source = (root / source).resolve()
+        else:
+            source = source.resolve()
+        if not source.is_file():
+            continue
+        try:
+            owner[key] = str(source.relative_to(root))
+            continue
+        except ValueError:
+            pass
+        stat = source.stat()
+        fingerprint = hashlib.sha256(
+            f"{source}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")
+        ).hexdigest()[:10]
+        destination = assets / f"{source.stem}-{fingerprint}{source.suffix}"
+        assets.mkdir(parents=True, exist_ok=True)
+        if not destination.is_file():
+            shutil.copy2(source, destination)
+        owner[key] = str(destination.relative_to(root))
+
+
+def validate_project(
+    config: dict[str, Any], base_dir: str | Path | None = None
+) -> ValidationReport:
     report = ValidationReport()
     try:
         parse_config(config)
@@ -256,6 +306,34 @@ def validate_project(config: dict[str, Any]) -> ValidationReport:
     flow = _float_at(config, "simulation.qin_target_ul_min", math.nan)
     settings = config.get("settings", {})
     hemo = settings.get("hemodynamics", settings.get("kirchhoff", {}))
+    runtime_bc_mode = config.get("simulation", {}).get("kirchhoff_bc_mode")
+    if runtime_bc_mode is None:
+        runtime_bc_mode = hemo.get(
+            "kirchhoff_bc_mode",
+            hemo.get(
+                "KIRCHHOFF_BC_MODE",
+                settings.get("kirchhoff", {}).get("bc_mode"),
+            ),
+        )
+    runtime_bc_mode = (
+        str(runtime_bc_mode).strip().lower().replace("-", "_")
+        if runtime_bc_mode is not None
+        else None
+    )
+    if runtime_bc_mode in {"pressure_pressure", "fixed_pressure_drop", "dirichlet"}:
+        bc_mode = "pressure_pressure"
+    elif runtime_bc_mode in {
+        "legacy_equal_terminal_flow",
+        "equal_terminal_flow",
+        "equal_terminal_flows",
+    }:
+        bc_mode = "legacy_equal_flow"
+    elif runtime_bc_mode in {
+        "terminal_pressure",
+        "mixed",
+        "pressure_terminals",
+    }:
+        bc_mode = "flow_pressure"
     root_p = float(hemo.get("root_pressure", hemo.get("ROOT_PRESSURE", math.nan)))
     outlet_p = float(
         hemo.get("terminal_pressure", hemo.get("TERMINAL_PRESSURE", math.nan))
@@ -274,15 +352,23 @@ def validate_project(config: dict[str, Any]) -> ValidationReport:
                 "Inlet pressure is not above outlet pressure; verify pressure units and flow direction."
             )
     elif bc_mode == "pressure_pressure":
-        report.errors.append(
-            "Pressure-only boundary conditions are not yet supported by the current CASCADE runtime. "
-            "Choose inlet flow + outlet pressure."
-        )
+        if not math.isfinite(root_p) or not math.isfinite(outlet_p):
+            report.errors.append(
+                "Pressure boundary conditions need finite inlet and outlet pressures."
+            )
+        elif root_p <= outlet_p:
+            report.errors.append(
+                "Inlet pressure must be above outlet pressure for forward flow."
+            )
+        else:
+            report.notes.append(
+                "Inlet flow will be calculated directly from the prescribed pressure drop."
+            )
     else:
         report.errors.append(f"Unknown boundary-condition mode: {bc_mode}")
 
     domain = config.get("domain", {})
-    if domain.get("type") not in {"cube", "box", "sphere"} and not domain.get("path"):
+    if domain.get("type") not in {"cube", "box", "sphere", "cylinder", "disk"} and not domain.get("path"):
         report.errors.append("An uploaded domain requires a readable domain file path.")
     domain_path = resolve_domain_path(domain.get("path"))
     if domain.get("path") and (domain_path is None or not domain_path.exists()):
@@ -300,21 +386,25 @@ def validate_project(config: dict[str, Any]) -> ValidationReport:
     ):
         report.errors.append(f"Vessel file does not exist: {network['input_path']}")
     simple = network.get("simple", {})
+    if str(simple.get("mode", "")).strip().lower() == "custom":
+        custom_value = simple.get("path", simple.get("geometry_path"))
+        if custom_value:
+            custom_path = Path(str(custom_value)).expanduser()
+            if not custom_path.is_absolute() and base_dir is not None:
+                custom_path = Path(base_dir).expanduser() / custom_path
+            if not custom_path.is_file():
+                report.errors.append(f"Custom geometry file does not exist: {custom_path}")
     if source == "lattice" or simple.get("mode") == "lattice":
         if domain.get("type") not in {"cube", "box"}:
             report.notes.append(
                 "The lattice will be generated across the domain bounding box; outside nodes and their incident edges will be removed."
             )
         lattice_type = str(simple.get("lattice_type", "cubic"))
-        cells = int(simple.get("cells", 1))
-        if lattice_type == "octet" and cells % 2:
-            report.errors.append(
-                "Octet lattices require an even number of cells per axis."
-            )
         try:
-            segments = channel_count(cells, lattice_type) * int(
-                simple.get("subdivisions", 1)
-            )
+            layout = _configured_lattice_layout(config, simple)
+            segments = channel_count(
+                int(layout["generator_cells"]), lattice_type
+            ) * max(int(simple.get("subdivisions", 1)), 1)
             if segments > 1_000_000:
                 report.warnings.append(
                     f"This lattice contains about {segments:,} vessel segments before export."
@@ -401,8 +491,10 @@ def estimate_resources(
     if source == "lattice" or network.get("simple", {}).get("mode") == "lattice":
         simple = network.get("simple", {})
         try:
+            layout = _configured_lattice_layout(config, simple)
             segments = channel_count(
-                int(simple.get("cells", 4)), str(simple.get("lattice_type", "cubic"))
+                int(layout["generator_cells"]),
+                str(simple.get("lattice_type", "cubic")),
             )
             segments *= max(int(simple.get("subdivisions", 1)), 1)
         except Exception:
@@ -415,7 +507,7 @@ def estimate_resources(
             or network.get("target_terminal_count")
             or 1
         )
-        segments = max(2 * int(targets) - 1, 1)
+        segments = max(2 * int(targets) + 1, 1)
 
     sim = config.get("simulation", {})
     if sim.get("geometry_only") or sim.get("skip_tissue_oxygen"):
@@ -515,6 +607,24 @@ def estimate_resources(
     return ResourceEstimate(segments, points, host, gpu, level, "; ".join(messages))
 
 
+def _configured_lattice_layout(
+    config: dict[str, Any], simple: dict[str, Any]
+) -> dict[str, Any]:
+    """Use the same domain dimensions and lattice resolution as the preview."""
+    from cascade.gui.visualization.geometry import _domain_dimensions
+
+    dims, _center = _domain_dimensions(config.get("domain", {}))
+    return resolve_lattice_layout(
+        tuple(float(value) for value in dims),
+        cells=int(simple.get("cells", simple.get("cells_per_axis", 4))),
+        sizing_mode=str(simple.get("sizing_mode", "cells")),
+        cell_spacing_cm=simple.get("cell_spacing_cm"),
+        anisotropy_yx=float(simple.get("anisotropy_yx", 1.0)),
+        anisotropy_zx=float(simple.get("anisotropy_zx", 1.0)),
+        lattice_type=str(simple.get("lattice_type", "cubic")),
+    )
+
+
 def expand_sweeps(config: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     sweeps = [
         item
@@ -585,9 +695,13 @@ def _sweep_affects_geometry(path: str) -> bool:
 
 def create_jobs(config: dict[str, Any], project_dir: str | Path) -> list[JobRecord]:
     root = Path(project_dir).expanduser().resolve()
-    jobs_dir = root / ".cascade_gui" / "jobs"
-    jobs_dir.mkdir(parents=True, exist_ok=True)
-    project_name = str(config.get("gui", {}).get("project_name", "CASCADE run"))
+    materialize_project_assets(config, root)
+    runs_dir = root / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    gui_config = config.get("gui", {})
+    project_name = str(gui_config.get("project_name", "CASCADE project"))
+    requested_name = str(gui_config.get("run_name") or "").strip()
+    run_name = requested_name or f"Run {len(list(runs_dir.glob('*')))+1:03d}"
     records: list[JobRecord] = []
     expanded = expand_sweeps(config)
     active_sweeps = [
@@ -623,22 +737,20 @@ def create_jobs(config: dict[str, Any], project_dir: str | Path) -> list[JobReco
 
     for (label, run), geometry_key in zip(expanded, geometry_keys):
         job_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:8]
-        job_dir = jobs_dir / job_id
-        job_dir.mkdir(parents=True, exist_ok=True)
-        output_base = Path(
-            str(run.get("outputs", {}).get("out_dir", "results"))
-        ).expanduser()
-        if not output_base.is_absolute():
-            output_base = root / output_base
-        output_dir = output_base.resolve() / job_id
+        display_name = run_name if label == "base" else f"{run_name} - {label}"
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "-", display_name).strip("-._")
+        slug = slug[:64] or "run"
+        output_dir = runs_dir / f"{job_id}-{slug}"
+        output_dir.mkdir(parents=True, exist_ok=True)
         combined_csv_path = (
-            output_base.resolve() / f"sweep-{geometry_batch}" / combined_filename
+            runs_dir / f"sweep-{geometry_batch}" / combined_filename
             if combined_enabled
             else None
         )
         run.setdefault("outputs", {})["out_dir"] = str(output_dir)
         gui = run.setdefault("gui", {})
         gui["job_id"] = job_id
+        gui["run_name"] = display_name
         sweep_parameters = [
             {
                 "path": str(item["path"]),
@@ -657,15 +769,15 @@ def create_jobs(config: dict[str, Any], project_dir: str | Path) -> list[JobReco
             gui["shared_geometry_cache_dir"] = str(
                 root / ".cascade_gui" / "geometry_cache" / geometry_batch / geometry_key
             )
-        settings_path = job_dir / "settings.json"
+        settings_path = output_dir / "settings.json"
         _atomic_json(settings_path, run)
         records.append(
             JobRecord(
                 id=job_id,
-                name=project_name if label == "base" else f"{project_name} — {label}",
+                name=display_name,
                 settings_path=str(settings_path),
                 output_dir=str(output_dir),
-                log_path=str(job_dir / "run.log"),
+                log_path=str(output_dir / "run.log"),
                 manifest_path=str(output_dir / "manifest.json"),
                 sweep_batch_id=geometry_batch
                 if combined_csv_path is not None
@@ -749,19 +861,33 @@ def _absolutize_input_paths(config: dict[str, Any], project_root: Path) -> None:
         path = Path(str(value)).expanduser()
         if not path.is_absolute():
             config[section][key] = str((project_root / path).resolve())
+    simple = config.get("network", {}).get("simple", {})
+    if str(simple.get("mode", "")).strip().lower() == "custom":
+        key = "path" if "path" in simple else "geometry_path"
+        value = simple.get(key)
+        if value:
+            path = Path(str(value)).expanduser()
+            if not path.is_absolute():
+                simple[key] = str((project_root / path).resolve())
 
 
 class QueueStore:
     def __init__(self, project_dir: str | Path):
         self.root = Path(project_dir).expanduser().resolve() / ".cascade_gui"
         self.path = self.root / QUEUE_FILENAME
+        self.results_path = self.root / "results.json"
 
     def load(self) -> list[JobRecord]:
         if not self.path.exists():
             return []
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
-            return [JobRecord.from_dict(item) for item in raw.get("jobs", [])]
+            jobs = [JobRecord.from_dict(item) for item in raw.get("jobs", [])]
+            for job in jobs:
+                if job.status == "Running":
+                    job.status = "Interrupted"
+                    job.stage = "Previous session ended during this run"
+            return jobs
         except Exception:
             backup = self.path.with_suffix(".corrupt.json")
             try:
@@ -777,6 +903,95 @@ class QueueStore:
             {
                 "schema_version": GUI_SCHEMA_VERSION,
                 "jobs": [job.to_dict() for job in jobs],
+            },
+        )
+
+    def archive_results(self, jobs: Iterable[JobRecord]) -> None:
+        archived = {job.id: job for job in self.load_results()}
+        for job in jobs:
+            if job.manifest_path and Path(job.manifest_path).is_file():
+                archived[job.id] = job
+        self.root.mkdir(parents=True, exist_ok=True)
+        _atomic_json(
+            self.results_path,
+            {
+                "schema_version": GUI_SCHEMA_VERSION,
+                "jobs": [job.to_dict() for job in archived.values()],
+            },
+        )
+
+    def load_results(self) -> list[JobRecord]:
+        archived: dict[str, JobRecord] = {}
+        if self.results_path.is_file():
+            try:
+                raw = json.loads(self.results_path.read_text(encoding="utf-8"))
+                archived.update(
+                    (job.id, job)
+                    for job in (
+                        JobRecord.from_dict(item) for item in raw.get("jobs", [])
+                    )
+                    if job.manifest_path and Path(job.manifest_path).is_file()
+                )
+            except Exception:
+                pass
+        for results_root in (self.root.parent / "runs", self.root.parent / "results"):
+            if not results_root.is_dir():
+                continue
+            for manifest_path in results_root.glob("*/manifest.json"):
+                try:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    settings = dict(manifest.get("settings", {}) or {})
+                    gui = dict(settings.get("gui", {}) or {})
+                    project = dict(manifest.get("project", {}) or {})
+                    job_id = str(project.get("job_id") or manifest_path.parent.name)
+                    if job_id in archived:
+                        continue
+                    archived[job_id] = JobRecord(
+                        id=job_id,
+                        name=str(
+                            gui.get("run_name")
+                            or gui.get("project_name")
+                            or job_id
+                        ),
+                        settings_path=str(manifest.get("settings_path") or ""),
+                        output_dir=str(manifest_path.parent),
+                        status="Completed",
+                        progress=100,
+                        stage="Finished",
+                        manifest_path=str(manifest_path),
+                    )
+                except Exception:
+                    continue
+        return list(archived.values())
+
+    def delete_results(self, jobs: Iterable[JobRecord]) -> None:
+        targets = list(jobs)
+        target_ids = {job.id for job in targets}
+        project = self.root.parent.resolve()
+        allowed_roots = tuple(
+            (project / name).resolve() for name in ("runs", "results", ".cascade_gui")
+        )
+        for job in targets:
+            candidates = [Path(job.output_dir)]
+            if job.settings_path:
+                candidates.append(Path(job.settings_path).parent)
+            for candidate in candidates:
+                resolved = candidate.expanduser().resolve()
+                if resolved in allowed_roots or not any(
+                    root in resolved.parents for root in allowed_roots
+                ):
+                    continue
+                if resolved.is_dir():
+                    shutil.rmtree(resolved)
+        remaining = [
+            job for job in self.load_results() if job.id not in target_ids
+        ]
+        self.root.mkdir(parents=True, exist_ok=True)
+        _atomic_json(
+            self.results_path,
+            {
+                "schema_version": GUI_SCHEMA_VERSION,
+                "jobs": [job.to_dict() for job in remaining],
             },
         )
 
@@ -883,34 +1098,34 @@ def human_bytes(value: int | float) -> str:
 def open_folder(path: str | Path) -> None:
     target = Path(path).expanduser().resolve()
     target.mkdir(parents=True, exist_ok=True)
-    if sys_platform() == "windows":
+    if sys_platform() == "win32":
         os.startfile(str(target))  # type: ignore[attr-defined]
     elif sys_platform() == "darwin":
         subprocess.Popen(["open", str(target)])
-    elif _is_wsl() and _command_exists("explorer.exe"):
+    elif _is_wsl() and (explorer := _command_path("explorer.exe")):
         converted = subprocess.check_output(
             ["wslpath", "-w", str(target)], text=True
         ).strip()
-        subprocess.Popen(["explorer.exe", converted])
+        subprocess.Popen([explorer, converted])
     else:
-        subprocess.Popen(["xdg-open", str(target)])
+        _open_linux_desktop_path(target)
 
 
 def open_path(path: str | Path) -> None:
     target = Path(path).expanduser().resolve()
     if not target.exists():
         raise FileNotFoundError(target)
-    if sys_platform() == "windows":
+    if sys_platform() == "win32":
         os.startfile(str(target))  # type: ignore[attr-defined]
     elif sys_platform() == "darwin":
         subprocess.Popen(["open", str(target)])
-    elif _is_wsl() and _command_exists("cmd.exe"):
+    elif _is_wsl() and (cmd := _command_path("cmd.exe")):
         converted = subprocess.check_output(
             ["wslpath", "-w", str(target)], text=True
         ).strip()
-        subprocess.Popen(["cmd.exe", "/c", "start", "", converted])
+        subprocess.Popen([cmd, "/c", "start", "", converted])
     else:
-        subprocess.Popen(["xdg-open", str(target)])
+        _open_linux_desktop_path(target)
 
 
 def sys_platform() -> str:
@@ -980,7 +1195,38 @@ def _is_wsl() -> bool:
         return False
 
 
-def _command_exists(name: str) -> bool:
+def _command_path(name: str) -> str | None:
     from shutil import which
 
-    return which(name) is not None
+    executable = which(name)
+    if executable or not _is_wsl():
+        return executable
+
+    # Desktop launchers intentionally use a small, predictable PATH. Windows
+    # interop still works in that environment, but its executables are no
+    # longer discoverable through ``which``. Probe the standard WSL mounts so
+    # folder/file actions do not incorrectly fall back to Linux desktop tools.
+    relative_paths = {
+        "explorer.exe": ("Windows", "explorer.exe"),
+        "cmd.exe": ("Windows", "System32", "cmd.exe"),
+    }
+    relative = relative_paths.get(name.lower())
+    if relative:
+        for drive in "cdefghijklmnopqrstuvwxyz":
+            candidate = Path("/mnt") / drive / Path(*relative)
+            if candidate.is_file():
+                return str(candidate)
+    return None
+
+
+def _open_linux_desktop_path(target: Path) -> None:
+    """Open a path with an available Linux desktop integration."""
+    for command, arguments in (("xdg-open", ()), ("gio", ("open",))):
+        if executable := _command_path(command):
+            subprocess.Popen([executable, *arguments, str(target)])
+            return
+    raise RuntimeError(
+        "No desktop opener is available. Install 'xdg-utils' (which provides "
+        "xdg-open) or GLib's 'gio' command. On WSL, also verify that Windows "
+        "interop is enabled."
+    )

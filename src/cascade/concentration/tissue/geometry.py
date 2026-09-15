@@ -58,14 +58,6 @@ def _process_tissue_chunk(
     gl_nodes = data["gl_nodes"]
     gl_weights = data["gl_weights"]
 
-    # ramp_params = (.33,3.1,0.,1.57,0.,.443) # min_r, max_r, cs_min, cr_min, cs_max, cr_max
-    # min_r_ratio=ramp_params[0],
-    # max_r_ratio=ramp_params[1],
-    # cs_mult_min=ramp_params[2],
-    # cr_mult_min=ramp_params[3],
-    # cs_mult_max=ramp_params[4],
-    # cr_mult_max=ramp_params[5],
-
     chunk = points_si[start_idx:end_idx]
     if chunk.size == 0:
         return start_idx, np.zeros((0,), dtype=float)
@@ -120,7 +112,6 @@ def _process_tissue_chunk(
 
             cc_s = cin_pos[seg_i] * np.exp(-alpha_edge[seg_i] * s)
             r_safe = np.where(valid_r, r, 1.0)
-            # denom_loc = np.maximum(km + np.maximum(cc_s / 2.0, 1e-12), 1e-30)
             denom_loc = np.maximum(km + np.maximum(cc_s, 1e-12), 1e-30)
 
             lam_loc = np.sqrt(diffusivity_si / np.maximum(vmax / denom_loc, 1e-30))
@@ -130,13 +121,6 @@ def _process_tissue_chunk(
             k0_den = _k0_lookup(phi_loc)
             Ci_R = cc_s * (k0_num / np.maximum(k0_den, 1e-300))
             denom_corr = np.maximum(km + np.minimum(Ci_R, cc_s), 1e-30)
-
-            # ramp_span = max(max_r_ratio - min_r_ratio, 1e-12)
-            # t_ramp = np.clip((r_over_lam - min_r_ratio) / ramp_span, 0.0, 1.0)
-            # c_low = cs_mult_min * cc_s + np.minimum(cr_mult_min * Ci_R,cc_s)
-            # c_high = cs_mult_max * cc_s + np.minimum( cr_mult_max * Ci_R,cc_s)
-            # c_eff = (1.0 - t_ramp) * c_low + t_ramp * c_high
-            # denom_corr = np.maximum(km + np.maximum(c_eff, 1e-12), 1e-30)
 
             lam_corr = np.sqrt(diffusivity_si / np.maximum(vmax / denom_corr, 1e-30))
             phi = np.maximum(radii_si[seg_i] / np.maximum(lam_corr, 1e-30), 1e-12)

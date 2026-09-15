@@ -7,12 +7,85 @@ and network concentration solvers.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Callable
 
 import numpy as np
 
 
 LATTICE_TYPES = ("cubic", "octet", "bcc", "diamond")
+
+
+def resolve_lattice_layout(
+    dimensions_cm: tuple[float, float, float],
+    *,
+    cells: int = 4,
+    sizing_mode: str = "cells",
+    cell_spacing_cm: float | None = None,
+    anisotropy_yx: float = 1.0,
+    anisotropy_zx: float = 1.0,
+    lattice_type: str = "cubic",
+) -> dict[str, Any]:
+    """Resolve lattice controls into one exact, domain-covering lattice box.
+
+    X is the baseline direction. In count mode its unit-cell spacing is the
+    domain X extent divided by ``cells``; in spacing mode it is supplied
+    directly. Y:X and Z:X scale that physical spacing. The returned generator
+    box is phased so the maximum number of whole cells fits inside each domain
+    axis, then is clipped with the simulation's domain predicate.
+    """
+    dims = np.asarray(dimensions_cm, dtype=float)
+    if dims.shape != (3,) or np.any(~np.isfinite(dims)) or np.any(dims <= 0.0):
+        raise ValueError("all lattice domain dimensions must be positive and finite")
+    mode = str(sizing_mode or "cells").strip().lower().replace("-", "_")
+    mode = {"cell_count": "cells", "spacing_cm": "spacing"}.get(mode, mode)
+    if mode not in {"cells", "spacing"}:
+        raise ValueError("lattice sizing_mode must be 'cells' or 'spacing'")
+    if mode == "cells":
+        x_cells = int(cells)
+        if x_cells < 1:
+            raise ValueError("lattice cells along X must be at least 1")
+        spacing_x = float(dims[0]) / x_cells
+    else:
+        if cell_spacing_cm is None:
+            raise ValueError("cell_spacing_cm is required in lattice spacing mode")
+        spacing_x = float(cell_spacing_cm)
+        if not math.isfinite(spacing_x) or spacing_x <= 0.0:
+            raise ValueError("lattice cell spacing must be positive and finite")
+    ratio_yx = float(anisotropy_yx)
+    ratio_zx = float(anisotropy_zx)
+    if not math.isfinite(ratio_yx) or ratio_yx <= 0.0:
+        raise ValueError("lattice Y:X anisotropy must be positive and finite")
+    if not math.isfinite(ratio_zx) or ratio_zx <= 0.0:
+        raise ValueError("lattice Z:X anisotropy must be positive and finite")
+
+    spacing = np.asarray(
+        [spacing_x, spacing_x * ratio_yx, spacing_x * ratio_zx], dtype=float
+    )
+    axis_cells = np.maximum(0, np.floor(dims / spacing + 1e-12).astype(np.int64))
+    generator_cells = max(int(np.max(axis_cells)), 1)
+    lattice_mode = _mode(lattice_type)
+    if lattice_mode == "octet":
+        if mode == "cells" and int(cells) % 2:
+            raise ValueError("octet lattices require an even X cell count")
+        if generator_cells % 2:
+            generator_cells += 1
+    lattice_dims = spacing * generator_cells
+    center_offset = (
+        ((generator_cells - axis_cells) % 2).astype(np.float64) * 0.5 * spacing
+    )
+    return {
+        "sizing_mode": mode,
+        "cells_along_x": int(axis_cells[0]),
+        "cell_spacing_cm": float(spacing_x),
+        "unit_cell_spacing_cm": spacing,
+        "anisotropy_yx": ratio_yx,
+        "anisotropy_zx": ratio_zx,
+        "axis_cells": axis_cells,
+        "generator_cells": generator_cells,
+        "generator_dimensions_cm": lattice_dims,
+        "generator_center_offset_cm": center_offset,
+    }
 
 
 def channel_count(cells: int, lattice_type: str) -> int:
@@ -43,19 +116,27 @@ def generate_lattice(
     subdivisions: int = 1,
     center_cm: tuple[float, float, float] | None = None,
     node_inside: Callable[[np.ndarray], np.ndarray] | None = None,
+    radius_reference_dimensions_cm: tuple[float, float, float] | None = None,
 ) -> dict[str, Any]:
     """Build one of the four lattice families used in the CASCADE paper.
 
     The lattice is generated over a bounding box centered at ``center_cm``. When
     ``node_inside`` is supplied, outside nodes and all edges incident to them are
     removed before boundary points are snapped. ``radius_expression`` is evaluated
-    at segment midpoints with numexpr and may use x, y, z, r0 and L. Subdivision
-    inserts graph nodes before clipping and radius evaluation.
+    at segment midpoints with numexpr and may use x, y, z, r0 and L. Its L value
+    can be tied to the clipped domain with ``radius_reference_dimensions_cm``.
+    Subdivision inserts graph nodes before clipping and radius evaluation.
     """
     mode = _mode(lattice_type)
     n = int(cells)
     dims = np.asarray(dimensions_cm, dtype=float)
     center = np.asarray(center_cm or (0.0, 0.0, 0.0), dtype=float)
+    radius_dims = np.asarray(
+        dimensions_cm
+        if radius_reference_dimensions_cm is None
+        else radius_reference_dimensions_cm,
+        dtype=float,
+    )
     r0 = float(radius_cm)
     if n < 1 or np.any(~np.isfinite(dims)) or np.any(dims <= 0.0):
         raise ValueError("lattice cells and all domain dimensions must be positive")
@@ -63,9 +144,14 @@ def generate_lattice(
         raise ValueError("lattice radius must be positive and finite")
     if center.shape != (3,) or np.any(~np.isfinite(center)):
         raise ValueError("lattice center must contain three finite coordinates")
+    if (
+        radius_dims.shape != (3,)
+        or np.any(~np.isfinite(radius_dims))
+        or np.any(radius_dims <= 0.0)
+    ):
+        raise ValueError("lattice radius-reference dimensions must be positive")
     if mode == "octet" and n % 2:
         raise ValueError("octet lattices require an even cell count")
-
     nodes, keys, key_to_id = _nodes(n, dims, mode, center)
     edges = _edges(n, mode, key_to_id)
     if mode == "diamond":
@@ -92,7 +178,18 @@ def generate_lattice(
     lower_corner = center - 0.5 * dims
     upper_corner = center + 0.5 * dims
     base_node_count = int(nodes.shape[0])
-    if inlet_points_cm:
+    if not inlet_points_cm and not outlet_points_cm:
+        inlet_nodes, outlet_nodes = _automatic_boundary_nodes(
+            nodes,
+            edge_nodes,
+            lower_corner,
+            upper_corner,
+        )
+        inlet_anchors = list(inlet_nodes)
+        outlet_anchors = list(outlet_nodes)
+        inlet_connections = 0
+        outlet_connections = 0
+    elif inlet_points_cm:
         nodes, edge_nodes, inlet_nodes, inlet_anchors, inlet_connections = (
             _attach_boundary_points(
                 nodes,
@@ -106,7 +203,9 @@ def generate_lattice(
         inlet_nodes = _snap_nodes(nodes, [lower_corner.tolist()])
         inlet_anchors = list(inlet_nodes)
         inlet_connections = 0
-    if outlet_points_cm:
+    if not inlet_points_cm and not outlet_points_cm:
+        pass
+    elif outlet_points_cm:
         nodes, edge_nodes, outlet_nodes, outlet_anchors, outlet_connections = (
             _attach_boundary_points(
                 nodes,
@@ -130,7 +229,7 @@ def generate_lattice(
     starts = nodes[edge_nodes[:, 0]]
     ends = nodes[edge_nodes[:, 1]]
     lengths = np.linalg.norm(ends - starts, axis=1)
-    radii = _radii(starts, ends, r0, dims, radius_expression)
+    radii = _radii(starts, ends, r0, radius_dims, radius_expression)
     return {
         "lattice_type": mode,
         "cells": n,
@@ -419,6 +518,42 @@ def _clip_to_domain(nodes, edges, node_inside):
     remap = np.full(nodes.shape[0], -1, dtype=np.int64)
     remap[used_nodes] = np.arange(used_nodes.size, dtype=np.int64)
     return np.asarray(nodes[used_nodes], dtype=float), remap[clipped_edges]
+
+
+def _automatic_boundary_nodes(nodes, edges, lower_corner, upper_corner):
+    """Place default boundaries in one connected retained component."""
+    parent = np.arange(nodes.shape[0], dtype=np.int64)
+
+    def find(index):
+        index = int(index)
+        while int(parent[index]) != index:
+            parent[index] = parent[int(parent[index])]
+            index = int(parent[index])
+        return index
+
+    for a, b in np.asarray(edges, dtype=np.int64):
+        root_a, root_b = find(a), find(b)
+        if root_a != root_b:
+            parent[root_b] = root_a
+    labels = np.asarray([find(i) for i in range(nodes.shape[0])], dtype=np.int64)
+    components, counts = np.unique(labels, return_counts=True)
+    component = int(components[int(np.argmax(counts))])
+    candidates = np.flatnonzero(labels == component)
+    inlet = int(
+        candidates[np.argmin(np.linalg.norm(nodes[candidates] - lower_corner, axis=1))]
+    )
+    outlet = int(
+        candidates[np.argmin(np.linalg.norm(nodes[candidates] - upper_corner, axis=1))]
+    )
+    if outlet == inlet:
+        outlet = int(
+            candidates[
+                np.argmax(np.linalg.norm(nodes[candidates] - nodes[inlet], axis=1))
+            ]
+        )
+    if outlet == inlet:
+        raise ValueError("the retained lattice component needs at least two nodes")
+    return [inlet], [outlet]
 
 
 def _keep_flow_components(nodes, edges, inlet_nodes, outlet_nodes):

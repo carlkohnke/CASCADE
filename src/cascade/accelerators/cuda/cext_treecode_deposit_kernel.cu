@@ -1,3 +1,5 @@
+// Deposit point-source mass and dipole moments into treecode leaf nodes.
+// treecode.py compiles this first stage of the GPU treecode pipeline.
 extern "C" __global__ void cext_treecode_deposit_kernel(
     const int* point_leaf_ids,
     const float* point_pos,

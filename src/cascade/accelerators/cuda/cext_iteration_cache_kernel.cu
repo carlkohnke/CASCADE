@@ -1,3 +1,5 @@
+// Refresh per-quadrature-node Cext source weights during nonlinear iteration.
+// state.py compiles this fused cache update to reduce Python/GPU round trips.
 extern "C" __device__ float cext_cache_interp_lut(float x, const float* xs, const float* ys, int n) {
     if (x <= xs[0]) return ys[0];
     if (x >= xs[n - 1]) return ys[n - 1];

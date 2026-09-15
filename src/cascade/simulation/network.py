@@ -38,10 +38,12 @@ from cascade.flow.kirchhoff import (
     _pressures_from_tree_flows_numba,
     solve_kirchhoff,
 )
+from cascade.flow import PressureDropProblem, solve_pressure_drop
 from cascade.flow.rheology import segment_viscosity_from_radius_hd
 from cascade.flow.topology import _normalize_kirchhoff_bc_mode
 
 from cascade.flow.tree import assemble_tree_segments
+from cascade.vessels.conditions import _tree_terminal_segments
 
 
 def run_tree_simulation(
@@ -70,7 +72,7 @@ def run_tree_simulation(
     if seg_count == 0:
         raise RuntimeError("Tree contains no segments; cannot summarize.")
 
-    n_terminals = max(int(getattr(tree, "n_terminals", 0)) - 1, 0)
+    n_terminals = _tree_terminal_segments(tree)
     flow_inlet = inlet_flow_cm3_s
     if flow_inlet is None or not np.isfinite(flow_inlet):
         q_scale = (
@@ -88,6 +90,11 @@ def run_tree_simulation(
         else get_concentration_inlet(analysis_fluid)
     )
     concentration_solver_mode = _resolve_concentration_solver(concentration_solver)
+    variable_hematocrit_flow = (
+        str(analysis_fluid).lower() == "blood"
+        and hematocrit_model == "pries_secomb"
+        and int(_state.HEMATOCRIT_FLOW_ITERATIONS) > 0
+    )
     # The hybrid Cext solver may retain one exact-match CPU/GPU geometry
     # context on a reused tree. Standard one-shot calls and intervention runs
     # continue to release it normally.
@@ -107,7 +114,10 @@ def run_tree_simulation(
         prox_ids,
         dist_ids,
     ) = assemble_tree_segments(
-        tree, analysis_fluid, reuse_geometry=bool(reuse_geometry)
+        tree,
+        analysis_fluid,
+        compute_viscosity=not variable_hematocrit_flow,
+        reuse_geometry=bool(reuse_geometry),
     )
     t_assemble = perf_counter() - t_assemble
 
@@ -118,6 +128,39 @@ def run_tree_simulation(
     pressure_in = float(tree.parameters.root_pressure)
     pressure_out = float(tree.parameters.terminal_pressure)
     pressure_drop = pressure_in - pressure_out
+    pressure_pressure_mode = _normalize_kirchhoff_bc_mode() == "pressure_pressure"
+
+    def solve_current_resistances(current_resistances):
+        nonlocal flow_inlet
+        if pressure_pressure_mode:
+            result = solve_pressure_drop(
+                PressureDropProblem(
+                    proximal_nodes=prox_ids,
+                    distal_nodes=dist_ids,
+                    resistances=current_resistances,
+                    inlet_nodes=inlet_nodes,
+                    outlet_nodes=outlet_nodes,
+                    outlet_pressure=float(tree.parameters.terminal_pressure)
+                    * _state.PA_TO_DYN_PER_CM2,
+                    pressure_drop=(
+                        float(tree.parameters.root_pressure)
+                        - float(tree.parameters.terminal_pressure)
+                    )
+                    * _state.PA_TO_DYN_PER_CM2,
+                    solver=str(_state.KIRCHHOFF_SOLVER),
+                )
+            )
+            flow_inlet = result.inlet_flow_cm3_s
+            return result.pressures, result.flows_cm3_s
+        solved_pressures, solved_flows, _, _, _ = solve_kirchhoff(
+            prox_ids,
+            dist_ids,
+            current_resistances,
+            inlet_nodes,
+            flow_inlet,
+            outlet_nodes,
+        )
+        return solved_pressures, solved_flows
 
     # Hemodynamics may be a single Kirchhoff solve or an outer hematocrit/
     # viscosity fixed point; both paths produce the same pressure/flow contract.
@@ -159,11 +202,7 @@ def run_tree_simulation(
                     "Kirchhoff diagnostics: solver_used=tree_fixed_equal_terminal_flow "
                     f"bc=legacy_equal_terminal_flow flow_time={fixed_flow_s:.3f}s terminals={int(fixed_term_count)}"
                 )
-        if (
-            str(analysis_fluid).lower() == "blood"
-            and hematocrit_model == "pries_secomb"
-            and int(_state.HEMATOCRIT_FLOW_ITERATIONS) > 0
-        ):
+        if variable_hematocrit_flow:
             t_hct_iter = perf_counter()
             hd_iter = np.full(
                 starts_arr.shape[0], float(_state.HD_DISCHARGE), dtype=float
@@ -178,22 +217,17 @@ def run_tree_simulation(
             for h_iter in range(iter_count):
                 if (h_iter + 1) % 5 == 0:
                     relax *= 0.8
-                mu_iter = segment_viscosity_from_radius_hd(
-                    radii_arr, mu_base, analysis_fluid, hd_iter
-                )
-                resistances_iter = (8.0 * mu_iter * lengths_arr) / (
-                    np.pi * radius_safe**4
-                )
                 if flows_fixed is not None:
                     flows_iter = flows_fixed
                 else:
-                    pressures_iter, flows_iter, _, _, _ = solve_kirchhoff(
-                        prox_ids,
-                        dist_ids,
-                        resistances_iter,
-                        inlet_nodes,
-                        flow_inlet,
-                        outlet_nodes,
+                    mu_iter = segment_viscosity_from_radius_hd(
+                        radii_arr, mu_base, analysis_fluid, hd_iter
+                    )
+                    resistances_iter = (8.0 * mu_iter * lengths_arr) / (
+                        np.pi * radius_safe**4
+                    )
+                    pressures_iter, flows_iter = solve_current_resistances(
+                        resistances_iter
                     )
                 hd_new, _ = compute_tree_hematocrit(
                     tree,
@@ -310,15 +344,8 @@ def run_tree_simulation(
                     f"bc=legacy_equal_terminal_flow solve_time={pressure_s:.3f}s true_rel_resid=0.000e+00"
                 )
         else:
-            pressures, flows, _, _, _ = solve_kirchhoff(
-                prox_ids,
-                dist_ids,
-                resistances,
-                inlet_nodes,
-                flow_inlet,
-                outlet_nodes,
-            )
-            if pressures.size and inlet_nodes:
+            pressures, flows = solve_current_resistances(resistances)
+            if pressures.size and inlet_nodes and not pressure_pressure_mode:
                 target = float(tree.parameters.root_pressure) * _state.PA_TO_DYN_PER_CM2
                 delta = target - float(pressures[inlet_nodes[0]])
                 pressures = pressures + delta

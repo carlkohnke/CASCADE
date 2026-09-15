@@ -65,7 +65,7 @@ def a_matrix(points, rbf_degree=3):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.a_matrix import a_matrix
+        from cascade.domain.svv.core.a_matrix import a_matrix
 
         # Define a set of points in 2D space
         points = np.array([
@@ -86,7 +86,7 @@ def a_matrix(points, rbf_degree=3):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.a_matrix import a_matrix
+        from cascade.domain.svv.core.a_matrix import a_matrix
 
         # Define a set of 3D points
         points = np.array([
@@ -108,7 +108,7 @@ def a_matrix(points, rbf_degree=3):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.a_matrix import a_matrix
+        from cascade.domain.svv.core.a_matrix import a_matrix
 
         # Define a set of 2D points
         points = np.array([
@@ -138,7 +138,7 @@ def a_matrix(points, rbf_degree=3):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.a_matrix import a_matrix
+        from cascade.domain.svv.core.a_matrix import a_matrix
         from scipy.linalg import solve
 
         # Define a set of 2D points
@@ -168,7 +168,7 @@ def a_matrix(points, rbf_degree=3):
 
     See Also
     --------
-    :func:`svtoolkit.domain.core.h_matrix.h_matrix` : Function to compute the H matrix for bending energy minimization.
+    :func:`cascade.domain.svv.core.h_matrix.h_matrix` : Function to compute the H matrix for bending energy minimization.
 
     """
     n = points.shape[0]

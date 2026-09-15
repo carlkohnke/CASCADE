@@ -1,3 +1,5 @@
+// Deposit moment weights while constructing the grid stencil in the kernel.
+// hybrid_geometry.py uses this lower-cache alternative to stored stencils.
 extern "C" __global__ void cext_fft_moment_deposit_runtime_stencil_kernel(
     const float* moment_weight_gl,
     const float* lambda_iv_gl,

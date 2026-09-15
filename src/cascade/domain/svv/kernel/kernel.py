@@ -13,7 +13,11 @@ class Kernel:
 
     This class defines the minimization kernel for the implicit domain object used in the construction of variational implicit point set surfaces, as described in Huang et al. [1]_.
 
-    The `Kernel` class sets up the optimization problem for energy minimization of an implicit surface defined by unstructured point cloud data. It computes the necessary matrices and provides methods to evaluate the cost function, its gradient, and Hessian for optimization algorithms.
+    The `Kernel` class sets up the optimization problem for energy minimization
+    of an implicit surface defined by unstructured point cloud data. It computes
+    the required matrices and cost functions and exposes the angular bounds used
+    by :class:`cascade.domain.svv.solver.solver.Solver`. Derivative hooks are
+    reserved for solvers that provide them, but the current cost setup does not.
 
     Parameters
     ----------
@@ -81,7 +85,7 @@ class Kernel:
 
     - Constructs the interpolation matrix \( \mathbf{A} \) using radial basis functions.
     - Computes the \( \mathbf{H} \) matrix used in the bending energy minimization.
-    - Provides methods to set initial values, define variable bounds, and evaluate the cost function and its derivatives.
+    - Provides methods to set initial values, define variable bounds, and evaluate the cost function.
 
     References
     ----------
@@ -94,7 +98,7 @@ class Kernel:
     .. code-block:: python
 
         import numpy as np
-        from your_package.kernel import Kernel
+        from cascade.domain.svv.kernel.kernel import Kernel
 
         # Generate sample point cloud data
         points = np.random.rand(100, 3)  # 100 points in 3D space
@@ -105,24 +109,17 @@ class Kernel:
         # Set initial values for optimization
         kernel.set_initial_values()
 
-        # Get the bounds for the optimization variables
-        bounds = kernel.get_bounds()
+        # Convert the separate lower/upper arrays to SciPy's pair format.
+        lower, upper = kernel.get_bounds()
+        bounds = list(zip(lower, upper))
 
-        # Define an optimization routine (e.g., using scipy.optimize)
         from scipy.optimize import minimize
 
-        # Use the first initial guess and cost function
+        # Each regularization candidate has a matching initial guess and cost.
         x0 = kernel.x0[0]
         cost_function = kernel.__costs__[0]
-
-        # Perform optimization
         result = minimize(cost_function, x0, bounds=bounds)
-
-        # Extract optimized parameters
-        optimized_params = result.x
-
-        # Evaluate the cost at the optimized parameters
-        final_cost = kernel.eval(optimized_params)
+        final_cost = cost_function(result.x)
         print("Final cost:", final_cost)
 
     See Also
@@ -316,9 +313,11 @@ class Kernel:
 
     def gradient(self, x):
         r"""
-        Evaluate the gradient of the cost function at a given point.
+        Evaluate a configured gradient of the cost function at a given point.
 
-        **Note:** This method is currently a placeholder and needs to be implemented.
+        The current implicit-domain cost does not configure a gradient callback,
+        so normal CASCADE use raises :class:`NotImplementedError` here and lets
+        SciPy approximate derivatives when required.
 
         Parameters
         ----------
@@ -328,7 +327,12 @@ class Kernel:
         Returns
         -------
         grad : ndarray
-            The gradient vector of the cost function at the given point.
+            The gradient vector returned by the configured callback.
+
+        Raises
+        ------
+        NotImplementedError
+            If no gradient callback has been configured.
 
         """
         if self.__grad__ is not None:
@@ -338,9 +342,10 @@ class Kernel:
 
     def hessian(self, x):
         r"""
-        Evaluate the Hessian of the cost function at a given point.
+        Evaluate a configured Hessian of the cost function at a given point.
 
-        **Note:** This method is currently a placeholder and needs to be implemented.
+        The current implicit-domain cost does not configure a Hessian callback;
+        this hook is reserved for alternative solver configurations.
 
         Parameters
         ----------
@@ -350,7 +355,7 @@ class Kernel:
         Returns
         -------
         hess : ndarray
-            The Hessian matrix of the cost function at the given point.
+            The Hessian matrix returned by the configured callback.
 
         """
         return self.__hess__(x)

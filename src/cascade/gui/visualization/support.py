@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+from functools import cache
 from typing import Any
 
 from PySide6.QtCore import QPointF, Qt
@@ -124,6 +125,18 @@ def _create_geometry_canvas(parent: QWidget) -> QWidget:
     """Select the retained GPU renderer with a deterministic software fallback."""
     requested = os.environ.get("CASCADE_RENDER_BACKEND", "auto").strip().lower()
     platform = QApplication.platformName().lower()
+    running_in_wsl = bool(
+        os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP")
+    )
+    # WSLg can advertise a valid OpenGL 3.3 offscreen context while its
+    # top-level-window shared-texture path has fallen back to RDP copy mode.
+    # In that state QOpenGLWidget commonly remains blank even though the
+    # preflight succeeds. The QPainter canvas has the same interaction and
+    # selection contract and is reliable in both VAIL and COPY MODE, so auto
+    # mode uses it on WSL. Users with a known-good WSLg GPU stack can still
+    # explicitly request CASCADE_RENDER_BACKEND=opengl.
+    if requested == "auto" and running_in_wsl:
+        requested = "software"
     use_gpu = requested in {"auto", "gpu", "opengl"} and platform not in {
         "offscreen",
         "minimal",
@@ -145,6 +158,7 @@ def _create_geometry_canvas(parent: QWidget) -> QWidget:
     return GeometryCanvas(parent)
 
 
+@cache
 def _opengl_33_available() -> bool:
     """Preflight the context version so auto mode can fall back before layout."""
     surface_format = QSurfaceFormat()

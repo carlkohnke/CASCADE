@@ -1,3 +1,5 @@
+// Exact fused tissue Green's-function path for dense all-segment evaluation.
+// concentration/tissue/gpu.py compiles this source when every segment is kept.
 extern "C" __device__ float interp_lut_dense(
     float x,
     const float* xs,
@@ -170,4 +172,3 @@ extern "C" __global__ void tissue_greens_dense_kernel(
     if (!(total >= 0.0f) || !isfinite(total)) total = 0.0f;
     out[row] = fminf(total, cap_max);
 }
-

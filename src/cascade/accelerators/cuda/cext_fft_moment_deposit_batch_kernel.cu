@@ -1,3 +1,5 @@
+// Deposit a batch of orientation moments into lambda-binned FFT source grids.
+// hybrid_deposit.py compiles this kernel for batched GPU deposition.
 extern "C" __global__ void cext_fft_moment_deposit_batch_kernel(
     const float* o2_weight_gl,
     const float* node_tx,

@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover - dependency validation reports this ear
 
 def _normalize_hematocrit_model(value: str | None = None) -> str:
     mode = str(value or _state.HEMATOCRIT_MODEL).strip().lower()
-    if mode in ("uniform", "uniform_tube", "diameter", "diameter_only"):
+    if mode in ("uniform", "uniform_tube", "constant", "diameter", "diameter_only"):
         return "uniform_tube"
     if mode in ("pries", "pries_secomb", "phase_separation", "plasma_skimming"):
         return "pries_secomb"

@@ -31,7 +31,7 @@ repository root. The codebase itself begins at `src/cascade/`.
 
 | Package | Responsibility |
 | --- | --- |
-| `cascade.configuration` | Typed run models, parsing/validation, examples, immutable runtime configuration, nested solver-setting sections, and the temporary legacy-state bridge |
+| `cascade.configuration` | Typed run models, parsing/validation, examples, immutable runtime configuration, nested solver-setting sections, and the runtime-state bridge |
 | `cascade.domain` | Domain construction, SVV-compatible geometry implementation, file-backed geometry, grids, and point sampling |
 | `cascade.vessels` | Simple/lattice geometry, connectivity, growth, caching, target allocation, and vessel result contracts |
 | `cascade.vessels.generation` | Public `svv` adapter and isolated compatibility implementations |
@@ -41,6 +41,7 @@ repository root. The codebase itself begins at `src/cascade/`.
 | `cascade.concentration.tissue` | Green's Function Method tissue oxygen, sampling caches, GPU execution, and viability metrics |
 | `cascade.exporting` | Output schemas, tables, statistics, plots, VTK construction, and run manifests |
 | `cascade.simulation` | End-to-end network/forest execution, sweeps, interventions, and result aggregation |
+| `cascade.runtime` | Metadata-only scale planning, cache fingerprints, and the compatibility runtime namespace |
 | `cascade.gui` | GUI pages, window coordination, preview geometry, rendering, workers, and widgets |
 | `cascade.commands` | Thin command-line parsing and dispatch |
 | `cascade.accelerators` | GPU availability, backend selection, and packaged CUDA kernels |
@@ -81,10 +82,10 @@ The finite-radius Green's-function kernels load a versioned Bessel table from
 scaled Bessel functions so the ratio remains stable at large arguments. The
 Graetz closure loads precomputed 8-radial-node, 4-mode bases for plug and
 Poiseuille profiles over `1e-8 <= Bi <= 1e6`, with 128 samples per decade. The
-reference-compatible 6-node, 3-mode, 16-sample profile remains packaged and
-selectable for reproducing the locked validation campaigns. These are fixed
-release assets, not per-run caches; unsupported discretizations and corrupt or
-missing assets fail immediately with a diagnostic.
+reference-compatible 6-node, 3-mode, 16-sample profile remains packaged for
+reproducing results made with that numerical profile. These are fixed package
+assets, not per-run caches; unsupported discretizations and corrupt or missing
+assets fail immediately with a diagnostic.
 
 `cascade.runtime.tissuesim` provides a unified runtime namespace, while each
 numerical implementation lives in its owning flow, concentration, domain, or
@@ -137,16 +138,23 @@ manifest. Relative inputs resolve from the settings file, not from the caller's
 current directory.
 
 The GUI sends serial simulations to one local child worker. That worker keeps
-at most one compatible geometry, one spatial context, and one compact summary
-result warm; incompatible state and detailed solver arrays are evicted after
-export. It retires when idle or when the GUI closes. Large output tables and
-VTK files can be disabled when only summary results are needed. The CLI exposes
-the same bounded reuse through `cascade batch`; one-shot `cascade run` performs
-hard cleanup at completion.
+at most one compatible geometry, one spatial context, and one result warm.
+Normal runs retain a compact summary; Studio may temporarily retain a bounded
+detailed result when preparing a small case. Incompatible state is evicted
+before the next solve, and the worker retires when idle or when the GUI closes.
+Large output tables and VTK files can be disabled when only summary results are
+needed. The CLI exposes the same bounded reuse through `cascade batch`;
+one-shot `cascade run` performs hard cleanup at completion.
 
-## Validation boundary
+Large saved trees may also have a dtype-specific prepared representation under
+the user cache directory. Preparation streams the compressed archive in bounded
+chunks and publishes the cache atomically. Simulation loads it copy-on-write,
+keeps topology in exact integer arrays, and rejects stale, incomplete, or
+header-incompatible entries without touching the source archive.
 
-The public package contains a bounded installed-package self-test. Detailed
-numerical-equivalence fixtures, frozen legacy oracles, performance campaigns,
-and internal regression tests live in the separate CASCADE workbench and are
-not shipped in source or binary releases.
+## Self-test boundary
+
+The installed-package self-test deliberately uses a small deterministic case
+to verify imports, solver dispatch, export, manifests, and (when requested) the
+CUDA path. It is an installation check, not a substitute for validating a
+study's geometry, boundary conditions, numerical settings, and convergence.

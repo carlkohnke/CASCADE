@@ -1,3 +1,5 @@
+// Propagate frozen-field vessel oxygen by tree level with the Graetz closure.
+// frozen.py compiles this kernel for the GPU top-down Cext solver.
 extern "C" __device__ float interp_lut_graetz(float x, const float* xs, const float* ys, int n) {
     if (x <= xs[0]) return ys[0];
     if (x >= xs[n - 1]) return ys[n - 1];

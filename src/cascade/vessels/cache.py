@@ -175,6 +175,10 @@ def save_network_if_requested(
             flows=np.asarray(simple.flows, dtype=np.float64),
             cin=np.asarray(simple.cin, dtype=np.float64),
             cout=np.asarray(simple.cout, dtype=np.float64),
+            prox_ids=np.asarray(simple.prox_ids, dtype=np.int64),
+            dist_ids=np.asarray(simple.dist_ids, dtype=np.int64),
+            inlet_nodes=np.asarray(simple.inlet_nodes, dtype=np.int64),
+            outlet_nodes=np.asarray(simple.outlet_nodes, dtype=np.int64),
             metadata=json.dumps(simple.metadata),
         )
         saved = path.resolve()
@@ -182,6 +186,27 @@ def save_network_if_requested(
         path = save_path or (out_dir / f"{config.prefix}.tree.npz")
         saved = Path(result.trees[0].save(str(path), include_domain=False)).resolve()
     result.network_path = saved
+    try:
+        from cascade.vessels.metadata import write_network_sidecar
+
+        write_network_sidecar(
+            saved,
+            result.trees,
+            kind=(
+                "forest"
+                if result.forest is not None
+                else (
+                    "simple-network"
+                    if result.trees
+                    and getattr(result.trees[0], "_cascade_simple_network", False)
+                    else "tree"
+                )
+            ),
+        )
+    except Exception as exc:
+        # The manifest is an optimization and must never invalidate a completed
+        # scientific save.  Header inspection remains available as a fallback.
+        print(f"Warning: could not save network metadata sidecar ({exc}).", flush=True)
     return saved
 
 

@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -106,7 +105,7 @@ class OutputsPage(Page):
             labeled("Grid points in Y", self.grid_y),
             labeled("Grid points in Z", self.grid_z),
         )
-        self.sample_controls = QStackedWidget()
+        self.sample_controls = CompactStack()
         self.sample_controls.addWidget(
             labeled("Number of random points", self.sample_points)
         )
@@ -166,7 +165,7 @@ class OutputsPage(Page):
             [("Int32 indices", "int32"), ("Int64 indices", "int64")]
         )
         self.vessel_resolution = _spin(2, 2, 32)
-        output.add(self.out_dir)
+        output.add(labeled("Result base folder", self.out_dir))
         output.add(labeled("File prefix", self.prefix))
         output.add(checks)
         output.add(labeled("Combined sweep filename", self.combined_sweep_filename))
@@ -209,7 +208,7 @@ class OutputsPage(Page):
         row.setContentsMargins(0, 0, 0, 0)
         row.addStretch()
         self.job_count = QLabel("1 simulation")
-        self.job_count.setStyleSheet("font-weight:800;color:#285b6c;")
+        self.job_count.setStyleSheet("font-weight:800;color:#61C7A4;")
         row.addWidget(self.job_count)
         sweep.add(self.sweep_rows_panel)
         sweep.add(footer)
@@ -226,6 +225,7 @@ class OutputsPage(Page):
             field.valueChanged.connect(self._update_grid_total)
             field.valueChanged.connect(lambda *_: self.preview_changed.emit())
         self._update_grid_total()
+        self._sampling_changed()
         self._update_combined_sweep_controls()
         self.finish()
 
@@ -575,3 +575,6 @@ class OutputsPage(Page):
 
 
 __all__ = ("OutputsPage",)
+
+# Constructors resolve these shared layout helpers at runtime.
+from cascade.gui.property_grid import Card, CompactStack, labeled, row_of

@@ -1,3 +1,6 @@
+// Direct local Cext evaluation over a uniform-cell candidate index.
+// frozen.py loads and JIT-compiles this source with CuPy/NVRTC; it is a
+// packaged solver resource, not a standalone CUDA program.
 extern "C" __global__ void cext_direct_kernel(
     const int* target_seg_ids,
     const float* gl_points_si,

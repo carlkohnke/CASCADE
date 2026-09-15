@@ -57,6 +57,12 @@ def grow_tree(
         tree.parameters.kinematic_viscosity = (
             mu_plasma_cgs / tree.parameters.fluid_density
         )
+    elif fluid_mode == "custom":
+        density = float(_state.CUSTOM_FLUID_DENSITY_G_CM3)
+        tree.parameters.fluid_density = density
+        tree.parameters.kinematic_viscosity = (
+            float(_state.CUSTOM_FLUID_DYNAMIC_VISCOSITY_CP) / 100.0 / density
+        )
     n_vessels = max(int(vessels_to_add), 1)
     total_terminals = max(n_vessels + 1, 1)
     if terminal_flow_override is not None:
@@ -65,14 +71,6 @@ def grow_tree(
         tree.parameters.terminal_flow = (
             _state.QIN_TARGET * 0.00001666666666 / total_terminals
         )
-    # tree.set_dlp(
-    #     enable=dlp_enable,
-    #     build_dir=(-1, 1, 1),
-    #     min_adv=0.0001,
-    #     min_angle_deg=min_theta,
-    #     parent_below=True,
-    #     build_cap_frac=None,
-    # )
     scale = (
         float(side_length)
         if side_length is not None
@@ -248,6 +246,12 @@ def set_tree_fluid(tree, fluid: str) -> None:
         mu_plasma_cgs = 0.012
         tree.parameters.kinematic_viscosity = (
             mu_plasma_cgs / tree.parameters.fluid_density
+        )
+    elif fluid_mode == "custom":
+        density = float(_state.CUSTOM_FLUID_DENSITY_G_CM3)
+        tree.parameters.fluid_density = density
+        tree.parameters.kinematic_viscosity = (
+            float(_state.CUSTOM_FLUID_DYNAMIC_VISCOSITY_CP) / 100.0 / density
         )
 
 

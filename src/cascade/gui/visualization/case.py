@@ -42,6 +42,7 @@ from cascade.gui.visualization.geometry import (
     _mesh_triangles,
     _mesh_wireframe,
     _requested_tissue_count,
+    domain_display_rotation,
     domain_surface_triangles,
     domain_wireframe,
     network_geometry,
@@ -165,8 +166,10 @@ class CasePreview(QFrame):
         self.vessel_count = QLineEdit("5000", panel)
         self.vessel_count.setObjectName("viewerVesselCount")
         self.vessel_count.setValidator(QIntValidator(1, 10_000_000, self.vessel_count))
-        self.vessel_count.setAccessibleName("Maximum vessels shown")
-        self.vessel_count.setToolTip("Maximum number of vessels drawn in the viewer")
+        self.vessel_count.setAccessibleName("Vessel display limit")
+        self.vessel_count.setToolTip(
+            "Display at most this many existing vessels; this does not create vessels"
+        )
 
         self.tissue_selection = ChoiceComboBox(panel)
         self.tissue_selection.setObjectName("viewerTissueSelection")
@@ -180,9 +183,9 @@ class CasePreview(QFrame):
         self.tissue_count = QLineEdit("10000", panel)
         self.tissue_count.setObjectName("viewerTissueCount")
         self.tissue_count.setValidator(QIntValidator(1, 10_000_000, self.tissue_count))
-        self.tissue_count.setAccessibleName("Maximum tissue points shown")
+        self.tissue_count.setAccessibleName("Tissue display limit")
         self.tissue_count.setToolTip(
-            "Maximum number of tissue points drawn in the viewer"
+            "Display at most this many existing tissue points; simulation sample count is set under Outputs"
         )
 
         def field(label: str, widget: QWidget) -> QWidget:
@@ -197,9 +200,9 @@ class CasePreview(QFrame):
             return container
 
         rows.addWidget(field("Vessel selection", self.vessel_selection), 0, 0)
-        rows.addWidget(field("Maximum vessels", self.vessel_count), 0, 1)
+        rows.addWidget(field("Vessel display limit", self.vessel_count), 0, 1)
         rows.addWidget(field("Tissue selection", self.tissue_selection), 1, 0)
-        rows.addWidget(field("Maximum tissue points", self.tissue_count), 1, 1)
+        rows.addWidget(field("Tissue display limit", self.tissue_count), 1, 1)
         rows.setColumnStretch(0, 2)
         rows.setColumnStretch(1, 1)
         outer.addLayout(rows)
@@ -375,6 +378,7 @@ class CasePreview(QFrame):
         domain_triangles = domain_surface_triangles(domain_config)
         starts = ends = radii = alpha = inlet_points = outlet_points = None
         tissue_points = tissue_alpha = None
+        placeholder = False
         total_vessels = total_tissue = 0
         status = "Domain ready"
         if include_network:
@@ -388,6 +392,7 @@ class CasePreview(QFrame):
                     alpha,
                     detail,
                 ) = network_geometry(config)
+                placeholder = detail.startswith("Preparing the exact hydraulic SVV seed")
                 total_vessels = len(starts)
                 vessel_mode, vessel_limit = self._layer_policy("vessel", total_vessels)
                 vessel_ids = select_vessel_indices(
@@ -429,6 +434,7 @@ class CasePreview(QFrame):
                 total_tissue,
             )
         self.canvas.tissue_opacity = 0.52
+        self.canvas.set_vessel_placeholder(placeholder)
         self.canvas.set_geometry(
             domain_lines=domain_lines,
             domain_triangles=domain_triangles,
@@ -440,6 +446,7 @@ class CasePreview(QFrame):
             outlet_points=outlet_points,
             tissue_points=tissue_points,
             tissue_alpha=tissue_alpha,
+            model_rotation=domain_display_rotation(domain_config),
         )
         self.status.setText(status)
         self.status.setVisible(include_network or include_tissue)
@@ -452,6 +459,7 @@ class CasePreview(QFrame):
         *,
         include_tissue: bool = False,
     ) -> None:
+        self.canvas.set_vessel_placeholder(False)
         with np.load(geometry_path) as data:
             starts = np.asarray(data["starts"], dtype=np.float32)
             ends = np.asarray(data["ends"], dtype=np.float32)
@@ -461,13 +469,18 @@ class CasePreview(QFrame):
                 if "radii" in data.files
                 else None
             )
+        loaded_vessels = len(starts)
         roots = config.get("network", {}).get("roots") or []
         inlets = np.asarray(
             [root.get("start", [0, 0, 0]) for root in roots], dtype=float
         )
         segments = response.get("segments", [])
         requested_segments = response.get("requested_segments", segments)
-        total_vessels = sum(int(value) for value in requested_segments)
+        total_vessels = (
+            sum(int(value) for value in requested_segments)
+            if bool(response.get("preview_limited", False))
+            else loaded_vessels
+        )
         vessel_mode, vessel_limit = self._layer_policy("vessel", total_vessels)
         vessel_ids = select_vessel_indices(
             starts,
@@ -502,6 +515,7 @@ class CasePreview(QFrame):
             inlet_points=inlets,
             tissue_points=tissue_points,
             tissue_alpha=tissue_alpha,
+            model_rotation=domain_display_rotation(config.get("domain", {})),
         )
         vessel_count = len(starts)
         status = _seed_count_status(
@@ -515,6 +529,7 @@ class CasePreview(QFrame):
         self.status.setVisible(True)
 
     def show_result(self, manifest_path: str, options: dict[str, Any]) -> None:
+        self.canvas.set_vessel_placeholder(False)
         if not manifest_path:
             self.canvas.clear("no result selected")
             self.status.setText("no result selected")
@@ -602,11 +617,32 @@ class CasePreview(QFrame):
                 if radius_source is not None
                 else None
             )
+            if not bool(options.get("show_vessels", True)):
+                self._visible_result_indices = np.empty((0,), dtype=int)
+                starts = np.empty((0, 3), dtype=np.float32)
+                ends = np.empty((0, 3), dtype=np.float32)
+                values = None
+                visible_radii = None
+                shown_vessels = 0
+            if not bool(options.get("show_tissue", True)):
+                self._visible_tissue_indices = np.empty((0,), dtype=int)
+                visible_tissue_points = np.empty((0, 3), dtype=np.float32)
+                tissue_values = None
+                tissue_alpha = np.empty((0,), dtype=np.float32)
             self.canvas.colormap = str(options.get("colormap", "plasma"))
+            self.canvas.vessel_colormap = str(
+                options.get("vessel_colormap", self.canvas.colormap)
+            )
+            self.canvas.tissue_colormap = str(
+                options.get("tissue_colormap", self.canvas.vessel_colormap)
+            )
             self.canvas.vessel_opacity = float(options.get("vessel_opacity", 1.0))
             self.canvas.tissue_opacity = float(options.get("tissue_opacity", 0.35))
             self.canvas.vessel_range = tuple(options.get("vessel_range", (None, None)))
             self.canvas.tissue_range = tuple(options.get("tissue_range", (None, None)))
+            self.canvas.tissue_range_inherit = tuple(
+                options.get("tissue_range_inherit", (False, False))
+            )
             self.canvas.vessel_scale = str(options.get("vessel_scale", "linear"))
             self.canvas.tissue_scale = str(options.get("tissue_scale", "linear"))
             self.canvas.vessel_label = _layer_field_label("Vessels", vessel_label)
@@ -621,6 +657,9 @@ class CasePreview(QFrame):
                 tissue_points=visible_tissue_points,
                 tissue_values=tissue_values,
                 tissue_alpha=tissue_alpha,
+                model_rotation=domain_display_rotation(
+                    cache["settings"].get("domain", {})
+                ),
             )
             shown_tissue = len(visible_tissue_points)
             total_tissue = len(cache["tissue_points"])
@@ -673,7 +712,13 @@ class CasePreview(QFrame):
         domain_kind = str(
             configured_domain.get("type", configured_domain.get("kind", ""))
         ).lower()
-        if domain_kind in {"cube", "box", "rectangular", "rectangular_box"}:
+        if domain_kind in {
+            "cube",
+            "box",
+            "rectangular",
+            "rectangular_box",
+            "sphere",
+        }:
             domain_lines = domain_wireframe(configured_domain)
             domain_triangles = domain_surface_triangles(configured_domain)
         else:

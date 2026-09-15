@@ -35,6 +35,7 @@ from .visualization.fields import (
     _point_array,
     _scientific,
     _triangle_array,
+    _value_pairs,
     _values,
 )
 from .shaders import load_shader_source
@@ -63,7 +64,7 @@ _SOLID_VERTEX = load_shader_source("solid.vert")
 _SOLID_FRAGMENT = load_shader_source("solid.frag")
 
 
-def _color_lut(name: str, size: int = 256) -> np.ndarray:
+def _color_lut(name: str, size: int = 4096) -> np.ndarray:
     stops = np.asarray(_MAP_STOPS.get(name, _MAP_STOPS["viridis"]), dtype=np.float32)
     positions = np.linspace(0.0, 1.0, len(stops))
     samples = np.linspace(0.0, 1.0, size)
@@ -90,11 +91,20 @@ def _rgba_values(
             np.asarray(default_rgb, dtype=np.float32) / 255.0, (count, 3)
         )
     else:
-        indexes = np.rint(np.clip(normalized, 0.0, 1.0) * 255.0).astype(np.uint8)
-        rgb = _color_lut(colormap)[indexes]
-    rgba = np.empty((count, 4), dtype=np.float32)
-    rgba[:, :3] = rgb
-    rgba[:, 3] = np.clip(np.asarray(alpha, dtype=np.float32) * float(opacity), 0.0, 1.0)
+        table = _color_lut(colormap)
+        indexes = np.rint(
+            np.clip(normalized, 0.0, 1.0) * float(len(table) - 1)
+        ).astype(np.int32)
+        rgb = table[indexes]
+    shape = tuple(rgb.shape[:-1])
+    rgba = np.empty((*shape, 4), dtype=np.float32)
+    rgba[..., :3] = rgb
+    alpha_values = np.clip(
+        np.asarray(alpha, dtype=np.float32) * float(opacity), 0.0, 1.0
+    )
+    if len(shape) > 1:
+        alpha_values = alpha_values[:, None]
+    rgba[..., 3] = alpha_values
     return rgba, actual_limits
 
 
@@ -132,15 +142,26 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         self.tissue_values: np.ndarray | None = None
         self.tissue_alpha = np.empty((0,), dtype=np.float32)
         self.colormap = "plasma"
+        self.vessel_colormap = "plasma"
+        self.tissue_colormap = "plasma"
         self.vessel_range: tuple[float | None, float | None] = (None, None)
         self.tissue_range: tuple[float | None, float | None] = (None, None)
+        self.tissue_range_inherit = (False, False)
         self.vessel_scale = "linear"
         self.tissue_scale = "linear"
         self.vessel_label = "Vessels"
         self.tissue_label = "Tissue"
         self.vessel_opacity = 1.0
         self.tissue_opacity = 0.38
+        self.vessel_placeholder = False
+        self._placeholder_epoch = 0.0
+        from PySide6.QtCore import QTimer
+
+        self._placeholder_timer = QTimer(self)
+        self._placeholder_timer.setInterval(45)
+        self._placeholder_timer.timeout.connect(self._advance_placeholder_animation)
         self._rotation = self._home_rotation()
+        self._model_rotation = np.eye(3, dtype=float)
         self._zoom = 0.82
         self._last_mouse = QPoint()
         self._press_mouse = QPoint()
@@ -155,6 +176,38 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         self._counts: dict[str, int] = {}
         self._gpu_dirty = True
         self._selection_dirty = True
+
+    def set_vessel_placeholder(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self.vessel_placeholder:
+            return
+        self.vessel_placeholder = enabled
+        if enabled:
+            from time import monotonic
+
+            self._placeholder_epoch = monotonic()
+            self._placeholder_timer.start()
+        else:
+            self._placeholder_timer.stop()
+        self._gpu_dirty = True
+        self.update()
+
+    def _advance_placeholder_animation(self) -> None:
+        self._gpu_dirty = True
+        self.update()
+
+    def _display_vessel_alpha(self) -> np.ndarray:
+        base = np.asarray(self.vessel_alpha, dtype=np.float32)
+        if not self.vessel_placeholder:
+            return base
+        from time import monotonic
+
+        depth = np.maximum((1.0 - base) / 0.18, 0.0)
+        phase = ((monotonic() - self._placeholder_epoch) * 2.0) % 6.0
+        separation = np.abs(depth - phase)
+        separation = np.minimum(separation, 6.0 - separation)
+        pulse = np.exp(-1.8 * separation * separation)
+        return np.clip(base * (0.38 + 0.62 * pulse), 0.05, 1.0)
         self._vessel_limits: tuple[float, float] | None = None
         self._tissue_limits: tuple[float, float] | None = None
         self.renderer_info = "OpenGL context pending"
@@ -214,6 +267,7 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         tissue_points: np.ndarray | None = None,
         tissue_values: np.ndarray | None = None,
         tissue_alpha: np.ndarray | None = None,
+        model_rotation: np.ndarray | None = None,
         message: str = "",
     ) -> None:
         self.domain_lines = _line_array(domain_lines)
@@ -223,7 +277,7 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         count = min(len(self.vessel_starts), len(self.vessel_ends))
         self.vessel_starts = self.vessel_starts[:count]
         self.vessel_ends = self.vessel_ends[:count]
-        self.vessel_values = _values(vessel_values, count)
+        self.vessel_values = _value_pairs(vessel_values, count)
         self.vessel_radii = _values(vessel_radii, count)
         self.vessel_alpha = np.clip(_values(vessel_alpha, count, fill=1.0), 0.05, 1.0)
         self.inlet_points = _point_array(inlet_points)
@@ -232,6 +286,11 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         self.tissue_values = _values(tissue_values, len(self.tissue_points))
         self.tissue_alpha = np.clip(
             _values(tissue_alpha, len(self.tissue_points), fill=1.0), 0.0, 1.0
+        )
+        self._model_rotation = (
+            np.eye(3, dtype=float)
+            if model_rotation is None
+            else np.asarray(model_rotation, dtype=float).reshape(3, 3).copy()
         )
         self._selected_vessel = -1
         self._selected_tissue = -1
@@ -280,7 +339,7 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         if not len(points):
             return np.empty((0, 2)), np.empty((0,))
         normalized = (np.asarray(points, dtype=float) - self._center) / self._span
-        rotated = normalized @ self._rotation.T
+        rotated = normalized @ (self._rotation @ self._model_rotation).T
         x, y, depth = rotated[:, 0], rotated[:, 1], rotated[:, 2]
         perspective = 1.0 / np.clip(1.55 - 0.42 * depth, 0.75, 2.2)
         scale = min(self.width(), self.height()) * self._zoom
@@ -394,36 +453,49 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         vessel_colors, self._vessel_limits = _rgba_values(
             self.vessel_values,
             vessel_count,
-            colormap=self.colormap,
+            colormap=self.vessel_colormap,
             limits=self.vessel_range,
             scale=self.vessel_scale,
-            alpha=self.vessel_alpha,
+            alpha=self._display_vessel_alpha(),
             opacity=self.vessel_opacity,
-            default_rgb=(185, 181, 190),
+            default_rgb=(190, 100, 238) if self.vessel_placeholder else (185, 181, 190),
         )
+        if vessel_colors.ndim == 2:
+            vessel_colors = np.repeat(vessel_colors[:, None, :], 2, axis=1)
         radii = (
             np.asarray(self.vessel_radii, dtype=np.float32)
             if self.vessel_radii is not None
             else np.full(vessel_count, -1.0, dtype=np.float32)
         )
         vessel_data = np.column_stack(
-            (self.vessel_starts, self.vessel_ends, vessel_colors, radii)
+            (
+                self.vessel_starts,
+                self.vessel_ends,
+                vessel_colors[:, 0],
+                vessel_colors[:, 1],
+                radii,
+            )
         ).astype(np.float32, copy=False)
         self._upload_buffer(
             "vessels",
             vessel_data,
-            ((0, 3, 0), (1, 3, 3), (2, 4, 6), (3, 1, 10)),
-            stride_floats=11,
+            ((0, 3, 0), (1, 3, 3), (2, 4, 6), (3, 4, 10), (4, 1, 14)),
+            stride_floats=15,
             instances=True,
         )
         self._counts["vessels"] = vessel_count
 
         tissue_count = len(self.tissue_points)
+        tissue_range = list(self.tissue_range)
+        if self._vessel_limits is not None:
+            for index, inherit in enumerate(self.tissue_range_inherit):
+                if inherit:
+                    tissue_range[index] = self._vessel_limits[index]
         tissue_colors, self._tissue_limits = _rgba_values(
             self.tissue_values,
             tissue_count,
-            colormap=self.colormap,
-            limits=self.tissue_range,
+            colormap=self.tissue_colormap,
+            limits=tuple(tissue_range),
             scale=self.tissue_scale,
             alpha=self.tissue_alpha,
             opacity=self.tissue_opacity,
@@ -489,18 +561,22 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
                         0.722,
                         0.290,
                         1.0,
+                        0.965,
+                        0.722,
+                        0.290,
+                        1.0,
                         radius,
                     ]
                 ],
                 dtype=np.float32,
             )
         else:
-            values = np.empty((0, 11), dtype=np.float32)
+            values = np.empty((0, 15), dtype=np.float32)
         self._upload_buffer(
             "selection",
             values,
-            ((0, 3, 0), (1, 3, 3), (2, 4, 6), (3, 1, 10)),
-            stride_floats=11,
+            ((0, 3, 0), (1, 3, 3), (2, 4, 6), (3, 4, 10), (4, 1, 14)),
+            stride_floats=15,
             instances=True,
         )
         self._counts["selection"] = len(values)
@@ -533,8 +609,9 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         height = max(float(self.height() * self.devicePixelRatioF()), 1.0)
         minimum = min(width, height)
         self._set_uniform(program, "u_center", *map(float, self._center))
+        display_rotation = self._rotation @ self._model_rotation
         for index, name in enumerate(("u_rotation_0", "u_rotation_1", "u_rotation_2")):
-            self._set_uniform(program, name, *map(float, self._rotation[index]))
+            self._set_uniform(program, name, *map(float, display_rotation[index]))
         self._set_uniform(program, "u_span", float(self._span))
         self._set_uniform(
             program,
@@ -652,6 +729,7 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
                 self._vessel_limits,
                 side="left",
                 scale=self.vessel_scale,
+                colormap=self.vessel_colormap,
             )
         if self.tissue_values is not None and self._tissue_limits is not None:
             self._draw_scalar_legend(
@@ -660,6 +738,7 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
                 self._tissue_limits,
                 side="right",
                 scale=self.tissue_scale,
+                colormap=self.tissue_colormap,
             )
         self._draw_boundary_labels(painter)
         if self._has_geometry():
@@ -691,6 +770,7 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         *,
         side: str,
         scale: str,
+        colormap: str,
     ) -> None:
         margin, top = 13.0, 13.0
         width = max(
@@ -707,7 +787,7 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         painter.setPen(QColor(224, 226, 232, 235))
         painter.drawText(QRectF(left, top, width, 14), Qt.AlignLeft, label)
         gradient = QLinearGradient(left, top + 20.0, left + width, top + 20.0)
-        stops = _MAP_STOPS.get(self.colormap, _MAP_STOPS["viridis"])
+        stops = _MAP_STOPS.get(colormap, _MAP_STOPS["viridis"])
         for index, color in enumerate(stops):
             gradient.setColorAt(index / max(len(stops) - 1, 1), QColor(*color))
         painter.setBrush(gradient)
@@ -807,7 +887,6 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         if event.button() == Qt.LeftButton:
             self._last_mouse = event.position().toPoint()
             self._press_mouse = self._last_mouse
-            self.setCursor(Qt.ClosedHandCursor)
 
     def mouseMoveEvent(self, event) -> None:
         if event.buttons() & Qt.LeftButton:
@@ -818,7 +897,6 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
             self.update()
 
     def mouseReleaseEvent(self, event) -> None:
-        self.unsetCursor()
         if (
             event.button() == Qt.LeftButton
             and (event.position().toPoint() - self._press_mouse).manhattanLength() <= 5

@@ -9,7 +9,6 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QCheckBox,
     QLineEdit,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -53,10 +52,6 @@ class PhysicsPage(Page):
         self.bc_mode = _combo(
             [
                 ("Inlet flow + outlet pressure", "flow_pressure"),
-                (
-                    "Equal outlet flows + pressure reference (legacy)",
-                    "legacy_equal_flow",
-                ),
                 ("Inlet pressure + outlet pressure", "pressure_pressure"),
             ]
         )
@@ -70,21 +65,25 @@ class PhysicsPage(Page):
             ["mmHg", "Pa"], 300.0, minimum=-1e9, maximum=1e9, decimals=5
         )
         bc.add(labeled("Boundary-condition mode", self.bc_mode, important=True))
+        self.inlet_pressure_row = labeled(
+            "Nominal inlet pressure",
+            self.inlet_pressure,
+            "Prescribed in pressure-pressure mode or used to rebuild an svVascularize network according to pressure drop.",
+        )
         bc.add(
             row_of(
                 labeled("Shared inlet flow", self.flow, important=True),
                 labeled(
                     "Outlet / reference pressure", self.outlet_pressure, important=True
                 ),
-                labeled(
-                    "Nominal inlet pressure",
-                    self.inlet_pressure,
-                    "Used for reporting and growth; current flow solves are driven by inlet flow.",
-                ),
+                self.inlet_pressure_row,
             )
         )
-        self.bc_banner = Banner()
-        bc.add(self.bc_banner)
+        self.rebuild_network = QCheckBox(
+            "Rebuild vessel network according to pressure drop"
+        )
+        self.rebuild_network.toggled.connect(self._update_bc)
+        bc.add(self.rebuild_network)
         self.column.addWidget(bc)
 
         self.inlet_card = Card(
@@ -95,7 +94,7 @@ class PhysicsPage(Page):
             "Set conditions separately for each inlet"
         )
         self.inlet_selector = _combo([])
-        self.inlet_condition_stack = QStackedWidget()
+        self.inlet_condition_stack = CompactStack()
         self._inlet_widgets: list[dict[str, UnitValue]] = []
         self._inlet_count = 1
         self.inlet_card.add(self.use_inlet_conditions)
@@ -111,8 +110,8 @@ class PhysicsPage(Page):
         self.inlet_card.setVisible(False)
 
         oxy = Card("Diffusion and consumption")
-        # TODO(M2+): expose a validated custom tissue oxygen-consumption law.
-        # M0 preserves the current Michaelis-Menten Vmax/Km contract.
+        # CASCADE currently exposes the validated Michaelis-Menten Vmax/Km
+        # contract; custom consumption laws remain disabled in the interface.
         self.diffusivity = UnitValue(
             ["cm²/s", "m²/s"], 2.41e-5, minimum=0, maximum=1e6, decimals=10
         )
@@ -133,21 +132,21 @@ class PhysicsPage(Page):
         self.viability_enabled.toggled.connect(self.viability.setEnabled)
         oxy.add(
             row_of(
-                labeled("Tissue diffusivity", self.diffusivity, important=True),
-                labeled("Inlet concentration", self.inlet_o2, important=True),
+                labeled("Tissue diffusivity D", self.diffusivity, important=True),
+                labeled("Inlet concentration C<sub>0</sub>", self.inlet_o2, important=True),
             )
         )
         oxy.add(
             row_of(
-                labeled("Vmax", self.vmax, important=True),
-                labeled("Km", self.km, important=True),
+                labeled("Maximum uptake rate V<sub>max</sub>", self.vmax, important=True),
+                labeled("Michaelis-Menten constant K<sub>M</sub>", self.km, important=True),
             )
         )
         oxy.add(
             row_of(
                 self.viability_enabled,
                 labeled(
-                    "Viability threshold",
+                    "Viability threshold C<sup>*</sup>",
                     self.viability,
                     "Optional; used in tissue point exports.",
                 ),
@@ -155,41 +154,74 @@ class PhysicsPage(Page):
         )
         self.column.addWidget(oxy)
 
-        blood = Card("Fluid and blood model")
-        self.fluid = _combo([("Blood", "blood"), ("Water / cell media", "water")])
+        blood = Card("Fluid model")
+        self.fluid = _combo(
+            [
+                ("Blood", "blood"),
+                ("Water / cell media", "water"),
+                ("Custom constant-viscosity fluid", "custom"),
+            ]
+        )
         self.hematocrit_model = _combo(
             [
                 ("Pries–Secomb phase separation", "pries_secomb"),
-                ("Uniform discharge hematocrit", "constant"),
+                ("Uniform discharge hematocrit", "uniform_tube"),
             ]
         )
         self.hematocrit = _double(0.42, 0, 0.95, 4, 0.01)
         self.hb_capacity = _double(20.3, 0, 1000, 4, 0.1)
+        self.vessel_diffusivity = UnitValue(
+            ["cm²/s", "m²/s"], 2.41e-5, minimum=0, maximum=1e6, decimals=10
+        )
+        self.hematocrit_model_display = CompactStack()
+        self.hematocrit_display = CompactStack()
+        self.hb_capacity_display = CompactStack()
+        for stack, control in (
+            (self.hematocrit_model_display, self.hematocrit_model),
+            (self.hematocrit_display, self.hematocrit),
+            (self.hb_capacity_display, self.hb_capacity),
+        ):
+            unavailable = QLineEdit("N/a")
+            unavailable.setEnabled(False)
+            stack.addWidget(control)
+            stack.addWidget(unavailable)
         blood.add(
             row_of(
                 labeled("Perfusate", self.fluid, important=True),
-                labeled("Hematocrit model", self.hematocrit_model),
+                labeled(
+                    "Vessel fluid diffusivity D<sub>v</sub>",
+                    self.vessel_diffusivity,
+                    important=True,
+                ),
+                labeled("Hematocrit model", self.hematocrit_model_display),
             )
         )
         blood.add(
             row_of(
-                labeled("Discharge hematocrit", self.hematocrit, important=True),
+                labeled(
+                    "Discharge hematocrit", self.hematocrit_display, important=True
+                ),
                 labeled(
                     "Hemoglobin O₂ capacity per Hct",
-                    self.hb_capacity,
+                    self.hb_capacity_display,
                     "Oxygen-carrying capacity normalized by hematocrit.",
                 ),
             )
         )
-        density = QLineEdit("Derived by the selected blood/media model")
-        density.setEnabled(False)
-        blood.add(
-            labeled(
-                "Density and viscosity",
-                density,
-                "The selected microvascular hematocrit model determines effective segment viscosity.",
-            )
+        self.custom_density = _double(1.0, 1e-6, 100.0, 6, 0.01)
+        self.custom_viscosity = _double(1.0, 1e-6, 1e6, 6, 0.1)
+        self.custom_fluid_controls = row_of(
+            labeled("Density (g/cm³)", self.custom_density, important=True),
+            labeled("Dynamic viscosity (cP)", self.custom_viscosity, important=True),
         )
+        blood.add(self.custom_fluid_controls)
+        self.preset_fluid_properties = labeled(
+            "Density and viscosity",
+            QLineEdit("Derived by the selected blood/media model"),
+            "Blood uses radius-dependent rheology; water/media uses fixed preset properties.",
+        )
+        self.preset_fluid_properties.findChild(QLineEdit).setEnabled(False)
+        blood.add(self.preset_fluid_properties)
         self.column.addWidget(blood)
         self.fluid.currentIndexChanged.connect(self._update_blood_controls)
         self._bind_units(self.flow, flow_to_ul_min, flow_from_ul_min)
@@ -208,6 +240,11 @@ class PhysicsPage(Page):
             lambda value, unit: value * (1e4 if unit == "m²/s" else 1.0),
             lambda value, unit: value / (1e4 if unit == "m²/s" else 1.0),
         )
+        self._bind_units(
+            self.vessel_diffusivity,
+            lambda value, unit: value * (1e4 if unit == "m²/s" else 1.0),
+            lambda value, unit: value / (1e4 if unit == "m²/s" else 1.0),
+        )
         self.set_inlet_count(1)
         self.bc_mode.currentIndexChanged.connect(self._update_bc)
         self._update_bc()
@@ -217,8 +254,17 @@ class PhysicsPage(Page):
     def _update_blood_controls(self, *_):
         """Blood-specific parameters do not apply to water or cell media."""
         is_blood = self.fluid.currentData() == "blood"
+        is_custom = self.fluid.currentData() == "custom"
         for widget in (self.hematocrit_model, self.hematocrit, self.hb_capacity):
             widget.setEnabled(is_blood)
+        for display in (
+            self.hematocrit_model_display,
+            self.hematocrit_display,
+            self.hb_capacity_display,
+        ):
+            display.setCurrentIndex(0 if is_blood else 1)
+        self.custom_fluid_controls.setVisible(is_custom)
+        self.preset_fluid_properties.setVisible(not is_custom)
 
     @staticmethod
     def _bind_units(widget, to_base, from_base):
@@ -238,21 +284,14 @@ class PhysicsPage(Page):
         mode = self.bc_mode.currentData()
         pressure_only = mode == "pressure_pressure"
         self.flow.setEnabled(not pressure_only)
-        if pressure_only:
-            self.bc_banner.set_message(
-                "Inlet flow is required. Choose “Inlet flow + outlet pressure.”",
-                "danger",
-            )
-        elif mode == "legacy_equal_flow":
-            self.bc_banner.set_message(
-                "Fully specified  │  equal outlet flow",
-                "warning",
-            )
-        else:
-            self.bc_banner.set_message(
-                "Fully specified",
-                "success",
-            )
+        self.inlet_pressure_row.setEnabled(
+            pressure_only or self.rebuild_network.isChecked()
+        )
+        for fields in self._inlet_widgets:
+            fields["flow"].setEnabled(not pressure_only)
+
+    def set_network_source(self, source: str) -> None:
+        self.rebuild_network.setVisible(source == "svv_generated")
 
     def _make_inlet_condition_panel(self, index: int) -> dict[str, UnitValue]:
         panel = QWidget()
@@ -355,6 +394,9 @@ class PhysicsPage(Page):
         self.inlet_selector.clear()
         for index in range(count):
             fields = self._make_inlet_condition_panel(index)
+            fields["flow"].setEnabled(
+                self.bc_mode.currentData() != "pressure_pressure"
+            )
             self._inlet_widgets.append(fields)
             self.inlet_condition_stack.addWidget(fields["panel"])
             self.inlet_selector.addItem(f"Inlet {index + 1}", index)
@@ -397,8 +439,38 @@ class PhysicsPage(Page):
 
     def load(self, config):
         gui = config.get("gui", {})
+        self.rebuild_network.setChecked(
+            bool(gui.get("rebuild_svv_for_pressure_drop", False))
+        )
         bc = gui.get("boundary_conditions", {})
-        _set_combo(self.bc_mode, bc.get("mode", "flow_pressure"))
+        mode = bc.get("mode", "flow_pressure")
+        settings = config.get("settings", {})
+        hemo = settings.get("hemodynamics", settings.get("kirchhoff", {}))
+        runtime_mode = config.get("simulation", {}).get("kirchhoff_bc_mode")
+        if runtime_mode is None:
+            runtime_mode = hemo.get(
+                "kirchhoff_bc_mode",
+                hemo.get(
+                    "KIRCHHOFF_BC_MODE",
+                    settings.get("kirchhoff", {}).get("bc_mode"),
+                ),
+            )
+        runtime_mode = (
+            str(runtime_mode).strip().lower().replace("-", "_")
+            if runtime_mode is not None
+            else None
+        )
+        if runtime_mode in {"pressure_pressure", "fixed_pressure_drop", "dirichlet"}:
+            mode = "pressure_pressure"
+        elif runtime_mode in {
+            "legacy_equal_terminal_flow",
+            "equal_terminal_flow",
+            "equal_terminal_flows",
+        }:
+            mode = "legacy_equal_flow"
+        elif runtime_mode in {"terminal_pressure", "mixed", "pressure_terminals"}:
+            mode = "flow_pressure"
+        _set_combo(self.bc_mode, mode)
         self._update_bc()
         pressure_unit = bc.get("pressure_unit", "mmHg")
         flow_unit = bc.get("flow_unit", "µL/min")
@@ -426,6 +498,11 @@ class PhysicsPage(Page):
             {"blood": 0.14, "water": 0.2211, "cell media": 0.2211, "media": 0.2211},
         )
         fluid = config.get("simulation", {}).get("fluid", "blood")
+        if not isinstance(fluid, str) or self.fluid.findData(fluid) < 0:
+            raise ValueError(
+                f"CASCADE Studio cannot edit unsupported fluid {fluid!r}. "
+                "Use Blood, Water / cell media, or Custom constant-viscosity fluid."
+            )
         inlet_c = (
             float(inlet_map.get(fluid, 0.14))
             if isinstance(inlet_map, dict)
@@ -436,6 +513,16 @@ class PhysicsPage(Page):
         diff_unit = gui.get("diffusivity_unit", "cm²/s")
         self.diffusivity.setUnit(diff_unit)
         self.diffusivity.setValue(diff / 1e4 if diff_unit == "m²/s" else diff)
+        vessel_diff = _value(config, "oxygen", "lumen_diffusivity_cm2_s", None)
+        if vessel_diff is None:
+            vessel_diff = 3.2e-5 if fluid == "water" else 2.41e-5
+        vessel_diff_unit = gui.get("vessel_diffusivity_unit", "cm²/s")
+        self.vessel_diffusivity.setUnit(vessel_diff_unit)
+        self.vessel_diffusivity.setValue(
+            float(vessel_diff) / 1e4
+            if vessel_diff_unit == "m²/s"
+            else float(vessel_diff)
+        )
         vmax_unit = _concentration_unit(gui.get("vmax_unit", "mol/m³/s"), rate=True)
         km_unit = _concentration_unit(gui.get("km_unit", "mol/m³"))
         self.vmax.setUnit(vmax_unit)
@@ -451,14 +538,23 @@ class PhysicsPage(Page):
             )
         )
         _set_combo(self.fluid, fluid)
+        hematocrit_model = _value(config, "hematocrit", "model", "pries_secomb")
+        if str(hematocrit_model).strip().lower() == "constant":
+            hematocrit_model = "uniform_tube"
         _set_combo(
-            self.hematocrit_model, _value(config, "hematocrit", "model", "pries_secomb")
+            self.hematocrit_model, hematocrit_model
         )
         self.hematocrit.setValue(
             float(_value(config, "hematocrit", "hd_discharge", 0.42))
         )
         self.hb_capacity.setValue(
             float(_value(config, "oxygen", "o2_cap_per_hct", 20.3))
+        )
+        self.custom_density.setValue(
+            float(_value(config, "hemodynamics", "custom_fluid_density_g_cm3", 1.0))
+        )
+        self.custom_viscosity.setValue(
+            float(_value(config, "hemodynamics", "custom_fluid_dynamic_viscosity_cp", 1.0))
         )
         threshold = config.get("simulation", {}).get("viability_threshold")
         self.viability_enabled.setChecked(threshold is not None)
@@ -482,6 +578,7 @@ class PhysicsPage(Page):
 
     def write(self, config):
         gui = config.setdefault("gui", {})
+        gui["rebuild_svv_for_pressure_drop"] = self.rebuild_network.isChecked()
         bc = gui.setdefault("boundary_conditions", {})
         bc.update(
             {
@@ -495,6 +592,7 @@ class PhysicsPage(Page):
         gui["km_unit"] = self.km.unit()
         gui["viability_unit"] = self.viability.unit()
         gui["diffusivity_unit"] = self.diffusivity.unit()
+        gui["vessel_diffusivity_unit"] = self.vessel_diffusivity.unit()
         sim = config.setdefault("simulation", {})
         sim["qin_target_ul_min"] = flow_to_ul_min(self.flow.value(), self.flow.unit())
         if self.use_inlet_conditions.isChecked() and self._inlet_count > 1:
@@ -513,6 +611,7 @@ class PhysicsPage(Page):
         )
         settings = config.setdefault("settings", {})
         hemo = settings.setdefault("hemodynamics", {})
+        mode = self.bc_mode.currentData()
         hemo.update(
             {
                 "root_pressure": pressure_to_pa(
@@ -521,9 +620,15 @@ class PhysicsPage(Page):
                 "terminal_pressure": pressure_to_pa(
                     self.outlet_pressure.value(), self.outlet_pressure.unit()
                 ),
-                "kirchhoff_bc_mode": "legacy_equal_terminal_flow"
-                if self.bc_mode.currentData() == "legacy_equal_flow"
-                else "terminal_pressure",
+                "kirchhoff_bc_mode": (
+                    "legacy_equal_terminal_flow"
+                    if mode == "legacy_equal_flow"
+                    else "pressure_pressure"
+                    if mode == "pressure_pressure"
+                    else "terminal_pressure"
+                ),
+                "custom_fluid_density_g_cm3": self.custom_density.value(),
+                "custom_fluid_dynamic_viscosity_cp": self.custom_viscosity.value(),
             }
         )
         oxygen = settings.setdefault("oxygen", {})
@@ -535,10 +640,13 @@ class PhysicsPage(Page):
                     "water": inlet,
                     "cell media": inlet,
                     "media": inlet,
+                    "custom": inlet,
                 },
                 "conc_max_for_normalization": inlet,
                 "solute_diffusivity": self.diffusivity.value()
                 * (1e4 if self.diffusivity.unit() == "m²/s" else 1.0),
+                "lumen_diffusivity_cm2_s": self.vessel_diffusivity.value()
+                * (1e4 if self.vessel_diffusivity.unit() == "m²/s" else 1.0),
                 "vmax_mm": oxygen_to_concentration(self.vmax.value(), self.vmax.unit()),
                 "k_m_mm": oxygen_to_concentration(self.km.value(), self.km.unit()),
                 "o2_cap_per_hct": self.hb_capacity.value(),
@@ -553,3 +661,6 @@ class PhysicsPage(Page):
 
 
 __all__ = ("PhysicsPage",)
+
+# Constructors resolve these shared layout helpers at runtime.
+from cascade.gui.property_grid import Card, CompactStack, labeled, row_of

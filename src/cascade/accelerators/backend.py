@@ -1,4 +1,9 @@
-"""Discover available CPU/GPU capabilities and select the requested execution backend."""
+"""Discover CPU/GPU capabilities and select the requested execution backend.
+
+Application code uses this module before entering a CUDA solver. Users should
+run ``cascade doctor`` for the same compiled-kernel and cuFFT readiness check;
+executing this module directly is a minimal GPU-only diagnostic.
+"""
 
 from __future__ import annotations
 

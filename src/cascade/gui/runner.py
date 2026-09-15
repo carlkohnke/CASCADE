@@ -36,6 +36,9 @@ class JobRunner(QObject):
         self._worker_ready = False
         self._worker_buffer = ""
         self._job_dispatched = False
+        self._pending_prepare: tuple[str, str] | None = None
+        self._preparing_id: str | None = None
+        self._preparing_job_id: str | None = None
         self._state_dirty = False
         self._state_timer = QTimer(self)
         self._state_timer.setSingleShot(True)
@@ -61,6 +64,19 @@ class JobRunner(QObject):
         """Start scientific imports in the background before the first Run click."""
         if self.current is None:
             self._ensure_worker()
+            if self._pending_prepare is None and self._preparing_id is None:
+                first = next((job for job in self.jobs if job.status == "Queued"), None)
+                if first is not None:
+                    self._queue_preparation(first)
+
+    def prepare(self, settings_path: str | Path, cache_id: str) -> None:
+        """Prepare the latest stable Studio setup without starting a queue row."""
+        if self.current is not None:
+            return
+        self._pending_prepare = (str(cache_id), str(settings_path))
+        self._idle_timer.stop()
+        self._ensure_worker()
+        self._dispatch_preparation()
 
     def replace_project(self, project_dir: str | Path) -> None:
         if self.running:
@@ -78,21 +94,54 @@ class JobRunner(QObject):
         self.jobs.extend(records)
         self._refresh_combined_sweep_csvs(records)
         self._save_emit()
+        if (
+            self.current is None
+            and self._pending_prepare is None
+            and self._preparing_id is None
+        ):
+            first = next((job for job in records if job.status == "Queued"), None)
+            if first is not None:
+                self._queue_preparation(first)
 
     def remove(self, job_ids: Iterable[str]) -> None:
         ids = set(job_ids)
         if self.current and self.current.id in ids:
             raise RuntimeError("cancel the active job before removing it")
+        removed = [job for job in self.jobs if job.id in ids]
+        self.store.archive_results(removed)
+        self.jobs = [job for job in self.jobs if job.id not in ids]
+        if self._pending_prepare is not None and self._pending_prepare[0] in ids:
+            self._pending_prepare = None
+        self._save_emit()
+
+    def delete(self, job_ids: Iterable[str]) -> None:
+        ids = set(job_ids)
+        if self.current and self.current.id in ids:
+            raise RuntimeError("cancel the active job before deleting it")
+        removed = [job for job in self.jobs if job.id in ids]
+        self.store.delete_results(removed)
         self.jobs = [job for job in self.jobs if job.id not in ids]
         self._save_emit()
 
     def clear_finished(self) -> None:
+        self.store.archive_results(
+            job
+            for job in self.jobs
+            if job.status in {"Completed", "Failed", "Cancelled"}
+        )
         self.jobs = [
             job
             for job in self.jobs
             if job.status not in {"Completed", "Failed", "Cancelled"}
         ]
         self._save_emit()
+
+    def result_jobs(self) -> list[JobRecord]:
+        results = {job.id: job for job in self.store.load_results()}
+        for job in self.jobs:
+            if job.manifest_path and Path(job.manifest_path).is_file():
+                results[job.id] = job
+        return sorted(results.values(), key=lambda job: job.created_at)
 
     def run(self, job_ids: Iterable[str] | None = None) -> None:
         if self.running:
@@ -102,7 +151,7 @@ class JobRunner(QObject):
         self._scheduled_ids = [
             job.id
             for job in self.jobs
-            if job.status in {"Queued", "Failed", "Cancelled"}
+            if job.status in {"Queued", "Failed", "Cancelled", "Interrupted"}
             and (allowed is None or job.id in allowed)
         ]
         for job in self.jobs:
@@ -215,6 +264,30 @@ class JobRunner(QObject):
             ["-m", "cascade.commands.main", "worker"],
         )
 
+    def _queue_preparation(self, job: JobRecord) -> None:
+        """Prepare the first immutable queued case while Studio is idle."""
+        self.prepare(job.settings_path, job.id)
+
+    def _dispatch_preparation(self) -> None:
+        if (
+            self.process is None
+            or not self._worker_ready
+            or self._pending_prepare is None
+            or self._preparing_id is not None
+        ):
+            return
+        job_id, settings_path = self._pending_prepare
+        self._pending_prepare = None
+        request_id = f"studio-prepare:{job_id}"
+        request = {
+            "command": "prepare",
+            "id": request_id,
+            "settings": settings_path,
+        }
+        self.process.write((json.dumps(request) + "\n").encode("utf-8"))
+        self._preparing_id = request_id
+        self._preparing_job_id = job_id
+
     def _dispatch_current(self) -> None:
         if (
             self.process is None
@@ -223,6 +296,20 @@ class JobRunner(QObject):
             or self._job_dispatched
         ):
             return
+        if self._preparing_id is not None:
+            self.current.stage = "Preparing queued case"
+            self._persist_job_update(self.current.id)
+            return
+        if (
+            self._pending_prepare is not None
+            and self._pending_prepare[0] == self.current.id
+        ):
+            self._dispatch_preparation()
+            self.current.stage = "Preparing queued case"
+            self._persist_job_update(self.current.id)
+            return
+        # A Run selection supersedes an idle preparation that has not started.
+        self._pending_prepare = None
         request = {
             "command": "run",
             "id": self.current.id,
@@ -255,8 +342,13 @@ class JobRunner(QObject):
         for line in lines:
             if line.startswith("CASCADE_WORKER_READY "):
                 self._worker_ready = True
+                self._dispatch_preparation()
                 self._dispatch_current()
-                if self.current is None:
+                if (
+                    self.current is None
+                    and self._preparing_id is None
+                    and self._pending_prepare is None
+                ):
                     self._idle_timer.start()
                 continue
             if line.startswith("CASCADE_WORKER_RESULT "):
@@ -282,7 +374,17 @@ class JobRunner(QObject):
             if self.current is not None:
                 self.current.error = f"Invalid worker response: {exc}"
             return
-        if self.current is None or str(result.get("id", "")) != self.current.id:
+        result_id = str(result.get("id", ""))
+        if result_id == self._preparing_id:
+            self._preparing_id = None
+            self._preparing_job_id = None
+            self._dispatch_current()
+            if self.current is None:
+                self._dispatch_preparation()
+                if self._preparing_id is None:
+                    self._idle_timer.start()
+            return
+        if self.current is None or result_id != self.current.id:
             return
         self._complete_current(
             int(result.get("exit_code", 1)),
@@ -348,6 +450,8 @@ class JobRunner(QObject):
                     job.error = (
                         f"Simulation worker exited with code {exit_code}. See run.log."
                     )
+        if job is not None and job.status == "Completed":
+            self.store.archive_results([job])
         self.current = None
         self._job_dispatched = False
         self._schedule_combined_sweep_csvs([job] if job is not None else None)
@@ -362,6 +466,8 @@ class JobRunner(QObject):
         self.process = None
         self._worker_ready = False
         self._worker_buffer = ""
+        self._preparing_id = None
+        self._preparing_job_id = None
         self._idle_timer.stop()
         if process is not None:
             process.deleteLater()

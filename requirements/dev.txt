@@ -1,4 +1,5 @@
-# Developer/test install.
+# Core runtime plus test and lint tools. Install from the repository root with:
+#   python -m pip install -r requirements/dev.txt
 -r base.txt
 pytest>=8
 ruff>=0.16

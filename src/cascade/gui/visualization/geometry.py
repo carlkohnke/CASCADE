@@ -9,7 +9,11 @@ from typing import Any
 import numpy as np
 
 from cascade.utils.resources import resolve_domain_path
-from cascade.vessels.lattice import channel_count, generate_lattice
+from cascade.vessels.lattice import (
+    channel_count,
+    generate_lattice,
+    resolve_lattice_layout,
+)
 
 from cascade.gui.visualization.fields import (
     _mesh_line_segments,
@@ -17,6 +21,29 @@ from cascade.gui.visualization.fields import (
     _polyline_data,
     _values,
 )
+
+
+# Display-only rotation that brings the packaged bivent3 coordinate frame into
+# CASCADE Studio's ordinary home camera.  It never changes solver coordinates.
+_BIVENT3_DISPLAY_ROTATION = np.asarray(
+    (
+        (-0.961013694169, 0.242651846526, -0.132562291004),
+        (0.023633505460, 0.549759394977, 0.834988661632),
+        (0.275488905473, 0.799302626677, -0.534061020811),
+    ),
+    dtype=float,
+)
+
+_MAX_EXACT_LATTICE_PREVIEW_STRUTS = 1_000_000
+
+
+def domain_display_rotation(domain: dict[str, Any]) -> np.ndarray:
+    """Return the preview-only model rotation for a configured domain."""
+    kind = str(domain.get("type", domain.get("kind", ""))).lower()
+    path_name = Path(str(domain.get("path", ""))).name.lower()
+    if kind == "bivent3" or (kind == "file" and path_name == "bivent3.stl"):
+        return _BIVENT3_DISPLAY_ROTATION.copy()
+    return np.eye(3, dtype=float)
 
 
 def domain_wireframe(domain: dict[str, Any]) -> np.ndarray:
@@ -42,6 +69,22 @@ def domain_wireframe(domain: dict[str, Any]) -> np.ndarray:
             )
             lines.extend(np.stack((arc[:-1], arc[1:]), axis=1))
         return np.asarray(lines, dtype=np.float32)
+    if kind in {"cylinder", "disk"}:
+        radius = float(domain.get("radius", 0.5))
+        height = float(domain.get("height", domain.get("z_length", 1.0)))
+        center = np.asarray(domain.get("center", [0.0, 0.0, 0.0]), dtype=float)
+        theta = np.linspace(0.0, 2.0 * np.pi, 49)
+        rings = []
+        for z in (-0.5 * height, 0.5 * height):
+            ring = center + np.column_stack(
+                (radius * np.cos(theta), radius * np.sin(theta), np.full_like(theta, z))
+            )
+            rings.extend(np.stack((ring[:-1], ring[1:]), axis=1))
+        for angle in np.linspace(0.0, 2.0 * np.pi, 12, endpoint=False):
+            bottom = center + [radius * np.cos(angle), radius * np.sin(angle), -0.5 * height]
+            top = center + [radius * np.cos(angle), radius * np.sin(angle), 0.5 * height]
+            rings.append(np.stack((bottom, top)))
+        return np.asarray(rings, dtype=np.float32)
     if kind == "file" and domain.get("path"):
         try:
             path = resolve_domain_path(domain["path"])
@@ -116,6 +159,30 @@ def domain_surface_triangles(domain: dict[str, Any]) -> np.ndarray:
                 d = c + 1
                 triangles.extend((points[[a, c, b]], points[[b, c, d]]))
         return np.asarray(triangles, dtype=np.float32)
+    if kind in {"cylinder", "disk"}:
+        radius = float(domain.get("radius", 0.5))
+        height = float(domain.get("height", domain.get("z_length", 1.0)))
+        center = np.asarray(domain.get("center", [0.0, 0.0, 0.0]), dtype=float)
+        angles = np.linspace(0.0, 2.0 * np.pi, 49)
+        bottom_center = center + [0.0, 0.0, -0.5 * height]
+        top_center = center + [0.0, 0.0, 0.5 * height]
+        bottom = center + np.column_stack(
+            (radius * np.cos(angles), radius * np.sin(angles), np.full_like(angles, -0.5 * height))
+        )
+        top = center + np.column_stack(
+            (radius * np.cos(angles), radius * np.sin(angles), np.full_like(angles, 0.5 * height))
+        )
+        triangles = []
+        for index in range(len(angles) - 1):
+            triangles.extend(
+                (
+                    np.asarray([bottom[index], top[index], bottom[index + 1]]),
+                    np.asarray([bottom[index + 1], top[index], top[index + 1]]),
+                    np.asarray([bottom_center, bottom[index + 1], bottom[index]]),
+                    np.asarray([top_center, top[index], top[index + 1]]),
+                )
+            )
+        return np.asarray(triangles, dtype=np.float32)
 
     dims, center = _domain_dimensions(domain)
     corners = (
@@ -144,32 +211,69 @@ def network_geometry(config: dict[str, Any]):
     network = config.get("network", {})
     source = config.get("gui", {}).get("network_source", "svv_generated")
     simple = network.get("simple", {})
-    if source == "lattice" or simple.get("mode") == "lattice":
-        cells = int(simple.get("cells", 4))
-        lattice_type = str(simple.get("lattice_type", "cubic"))
-        estimated = channel_count(cells, lattice_type) * max(
-            int(simple.get("subdivisions", 1)), 1
+    if source == "custom" or simple.get("mode") == "custom":
+        from cascade.vessels.simple import _load_custom_geometry
+
+        raw_path = simple.get("path", simple.get("geometry_path"))
+        if not raw_path:
+            raise ValueError("Choose a CSV or NPZ vessel network to preview")
+        starts, ends, radii, _lengths, inlets, outlets, prox, dist = (
+            _load_custom_geometry(
+                Path(str(raw_path)).expanduser(),
+                default_radius_cm=float(simple.get("radius_cm", 0.015)),
+                inlet_nodes=simple.get("inlet_nodes"),
+                outlet_nodes=simple.get("outlet_nodes"),
+            )
         )
-        preview_cells = cells
-        simplified = False
-        if estimated > 120_000:
-            preview_cells = min(cells, 12)
-            if lattice_type == "octet" and preview_cells % 2:
-                preview_cells -= 1
-            simplified = True
+        inlet_mask = np.isin(prox, np.asarray(inlets, dtype=np.int64))
+        outlet_mask = np.isin(dist, np.asarray(outlets, dtype=np.int64))
+        return (
+            starts,
+            ends,
+            radii,
+            starts[inlet_mask],
+            ends[outlet_mask],
+            None,
+            f"{len(starts):,} imported vessels shown",
+        )
+    if source == "lattice" or simple.get("mode") == "lattice":
+        lattice_type = str(simple.get("lattice_type", "cubic"))
+        subdivisions = max(int(simple.get("subdivisions", 1)), 1)
         dims, center = _domain_dimensions(config.get("domain", {}))
+        layout = resolve_lattice_layout(
+            tuple(float(value) for value in dims),
+            cells=int(simple.get("cells", simple.get("cells_per_axis", 4))),
+            sizing_mode=str(simple.get("sizing_mode", "cells")),
+            cell_spacing_cm=simple.get("cell_spacing_cm"),
+            anisotropy_yx=float(simple.get("anisotropy_yx", 1.0)),
+            anisotropy_zx=float(simple.get("anisotropy_zx", 1.0)),
+            lattice_type=lattice_type,
+        )
+        estimated = (
+            channel_count(int(layout["generator_cells"]), lattice_type) * subdivisions
+        )
+        if estimated > _MAX_EXACT_LATTICE_PREVIEW_STRUTS:
+            raise ValueError(
+                f"exact lattice preview requires {estimated:,} struts, above the "
+                f"{_MAX_EXACT_LATTICE_PREVIEW_STRUTS:,}-strut interactive limit; "
+                "no lower-resolution substitute is shown"
+            )
         inside = _analytic_inside(config.get("domain", {}))
         lattice = generate_lattice(
-            preview_cells,
-            tuple(dims),
+            int(layout["generator_cells"]),
+            tuple(float(value) for value in layout["generator_dimensions_cm"]),
             float(simple.get("radius_cm", 0.0005)),
             lattice_type=lattice_type,
             inlet_points_cm=simple.get("inlet_points_cm"),
             outlet_points_cm=simple.get("outlet_points_cm"),
             radius_expression=simple.get("radius_expression"),
-            subdivisions=int(simple.get("subdivisions", 1)),
-            center_cm=tuple(center),
+            subdivisions=subdivisions,
+            center_cm=tuple(
+                float(center[axis] + layout["generator_center_offset_cm"][axis])
+                for axis in range(3)
+            ),
             node_inside=inside,
+            radius_reference_dimensions_cm=tuple(float(value) for value in dims),
         )
         inlet_connections = int(lattice.get("inlet_connection_count", 0))
         outlet_connections = int(lattice.get("outlet_connection_count", 0))
@@ -182,8 +286,6 @@ def network_geometry(config: dict[str, Any]):
             detail += (
                 f"  │  {inlet_connections + outlet_connections} boundary connections"
             )
-        if simplified:
-            detail += f"  │  preview simplified from ~{estimated:,}"
         return (
             lattice["segment_starts_cm"],
             lattice["segment_ends_cm"],
@@ -566,13 +668,18 @@ def _sample_preview_domain_points(
 
 
 def _points_inside_surface(points: np.ndarray, surface) -> np.ndarray:
+    mask = _surface_inside_mask(points, surface)
+    return np.asarray(points)[mask]
+
+
+def _surface_inside_mask(points: np.ndarray, surface) -> np.ndarray:
+    """Return one containment flag per point for a closed mesh surface."""
     import pyvista as pv
 
     selected = pv.PolyData(points).select_enclosed_points(
         surface, tolerance=1.0e-6, check_surface=False
     )
-    mask = np.asarray(selected["SelectedPoints"], dtype=bool)
-    return np.asarray(points)[mask]
+    return np.asarray(selected["SelectedPoints"], dtype=bool)
 
 
 def _bounded_grid_shape(shape: np.ndarray | None, maximum: int) -> np.ndarray:
@@ -591,9 +698,21 @@ def _bounded_grid_shape(shape: np.ndarray | None, maximum: int) -> np.ndarray:
 
 
 def _domain_dimensions(domain):
+    kind = str(domain.get("type", domain.get("kind", "cube"))).lower()
+    if kind == "file" and domain.get("path"):
+        surface = _file_domain_surface(domain)
+        bounds = np.asarray(surface.bounds, dtype=float).reshape(3, 2)
+        return bounds[:, 1] - bounds[:, 0], bounds.mean(axis=1)
+
     side = float(domain.get("side_length", 1.0))
-    if str(domain.get("type", "cube")) == "sphere":
+    if kind == "sphere":
         side = 2.0 * float(domain.get("radius", side / 2.0))
+    elif kind in {"cylinder", "disk"}:
+        radius = float(domain.get("radius", side / 2.0))
+        height = float(domain.get("height", domain.get("z_length", side)))
+        return np.asarray([2.0 * radius, 2.0 * radius, height]), np.asarray(
+            domain.get("center", [0, 0, 0]), dtype=float
+        )
     dims = np.asarray(
         [
             domain.get("x_length", side),
@@ -607,7 +726,7 @@ def _domain_dimensions(domain):
 
 
 def _analytic_inside(domain):
-    kind = str(domain.get("type", "cube")).lower()
+    kind = str(domain.get("type", domain.get("kind", "cube"))).lower()
     dims, center = _domain_dimensions(domain)
     if kind == "sphere":
         radius = float(domain.get("radius", dims[0] / 2.0))
@@ -615,11 +734,33 @@ def _analytic_inside(domain):
             np.linalg.norm(np.asarray(points) - center, axis=1)
             <= radius * (1.0 + 1e-10)
         )
+    if kind in {"cylinder", "disk"}:
+        radius = float(domain.get("radius", dims[0] / 2.0))
+        half_height = 0.5 * float(domain.get("height", dims[2]))
+        return lambda points: (
+            np.sum((np.asarray(points)[:, :2] - center[:2]) ** 2, axis=1)
+            <= radius * radius * (1.0 + 1e-10)
+        ) & (
+            np.abs(np.asarray(points)[:, 2] - center[2])
+            <= half_height * (1.0 + 1e-10)
+        )
     if kind in {"cube", "box"}:
         return lambda points: np.all(
             np.abs(np.asarray(points) - center) <= 0.5 * dims + 1e-10, axis=1
         )
+    if kind == "file" and domain.get("path"):
+        surface = _file_domain_surface(domain)
+        return lambda points: _surface_inside_mask(points, surface)
     return None
+
+
+def _file_domain_surface(domain: dict[str, Any]):
+    """Resolve and cache the triangulated surface for a file-backed domain."""
+    path = resolve_domain_path(domain.get("path"))
+    if path is None or not path.exists():
+        raise FileNotFoundError(domain.get("path"))
+    stat = path.stat()
+    return _cached_domain_surface(str(path), int(stat.st_mtime_ns), int(stat.st_size))
 
 
 def _simple_geometry(config):
@@ -768,6 +909,7 @@ def _cached_domain_surface(path: str, _modified_ns: int, _file_size: int):
 
 
 __all__ = (
+    "domain_display_rotation",
     "domain_wireframe",
     "domain_surface_triangles",
     "network_geometry",

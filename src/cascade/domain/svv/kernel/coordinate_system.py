@@ -73,7 +73,7 @@ def cart2sph(cart):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.kernel.coordinate_system import cart2sph
+        from cascade.domain.svv.kernel.coordinate_system import cart2sph
 
         cart = np.array([[1, 1, 1], [0, 0, 1]])
         sph = cart2sph(cart)
@@ -87,7 +87,7 @@ def cart2sph(cart):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.kernel.coordinate_system import cart2sph
+        from cascade.domain.svv.kernel.coordinate_system import cart2sph
 
         cart = np.array([[1, 1], [0, 1]])
         sph = cart2sph(cart)
@@ -172,7 +172,7 @@ def sph2cart(sph):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.kernel.coordinate_system import sph2cart
+        from cascade.domain.svv.kernel.coordinate_system import sph2cart
 
         sph = np.array([[1.41421356, 0.78539816], [1.0, 0.0]])
         cart = sph2cart(sph)
@@ -186,7 +186,7 @@ def sph2cart(sph):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.kernel.coordinate_system import sph2cart
+        from cascade.domain.svv.kernel.coordinate_system import sph2cart
 
         sph = np.array([[1.73205081, 0.95531662, 0.78539816], [1.0, 0.0, 0.0]])
         cart = sph2cart(sph)

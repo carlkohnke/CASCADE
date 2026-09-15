@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import gc
-import hashlib
-import json
 import os
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from cascade.concentration.tissue.cache import build_tissue_cache_from_tree
+from cascade.runtime.fingerprints import geometry_fingerprint, simulation_fingerprint
 from cascade.vessels.build import build_or_load_network
 
 
@@ -44,8 +41,54 @@ class InteractiveRunWorkspace:
             "exact_result_array_bytes": _array_bytes(self._simulation),
         }
 
+    def should_presolve(self, config) -> bool:
+        """Return whether an immutable GUI case is small enough to solve ahead.
+
+        Pre-solving is deliberately bounded independently of the result byte
+        cap.  This prevents merely queueing a very large production case from
+        unexpectedly occupying the accelerator for a long time.
+        """
+        if self._build is None:
+            return False
+        max_segments = max(
+            int(os.environ.get("CASCADE_INTERACTIVE_PRESOLVE_MAX_SEGMENTS", "100000")),
+            0,
+        )
+        max_points = max(
+            int(os.environ.get("CASCADE_INTERACTIVE_PRESOLVE_MAX_POINTS", "1000000")),
+            0,
+        )
+        segments = sum(
+            int(getattr(tree, "segment_count", 0) or 0) for tree in self._build.trees
+        )
+        points = int(
+            np.asarray(
+                self._build.sample_points
+                if self._build.sample_points is not None
+                else np.empty((0, 3))
+            ).shape[0]
+        )
+        return segments <= max_segments and points <= max_points
+
+    @staticmethod
+    def should_prepare(config) -> bool:
+        """Bound implicit preloading before any domain or growth work begins."""
+        from cascade.runtime.planning import (
+            automatic_growth_limit_reason,
+            decide_implicit_preparation,
+        )
+
+        if automatic_growth_limit_reason(config) is not None:
+            return False
+        # Raw-only configuration doubles can still exercise the inexpensive
+        # growth guard without fabricating every typed configuration section.
+        required = ("domain", "network", "simulation")
+        if not all(hasattr(config, name) for name in required):
+            return True
+        return decide_implicit_preparation(config).allowed
+
     def resolve_build(self, config):
-        key = _interactive_geometry_key(config)
+        key = geometry_fingerprint(config)
         if key == self._key and self._build is not None:
             print("Reusing interactive geometry and sample points", flush=True)
             return self._build, True
@@ -89,7 +132,7 @@ class InteractiveRunWorkspace:
 
     def resolve_simulation(self, config):
         """Return the last exact result, or evict it before a changed solve."""
-        key = _interactive_simulation_key(config)
+        key = simulation_fingerprint(config)
         if key == self._simulation_key and self._simulation is not None:
             print("Reusing exact interactive simulation result", flush=True)
             return self._simulation, key
@@ -97,50 +140,60 @@ class InteractiveRunWorkspace:
         self._simulation_key = None
         return None, key
 
-    def store_simulation(self, config, key: str, simulation) -> None:
-        """Retain a lightweight exact result when output shape permits it.
+    def store_simulation(
+        self, config, key: str, simulation, *, allow_detailed: bool = False
+    ) -> bool:
+        """Retain an exact result when its array payload fits the byte cap.
 
         Solver details contain point fields, quadrature arrays, and references
-        back to the tree.  Summary-only replay needs none of those, so keeping
-        the original result would pin an entire completed solve in memory.
+        back to the tree.  Normal batch runs compact summary-only results;
+        Studio may retain a bounded detailed result prepared for immediate VTK
+        export, but only when explicitly requested by its preload path.
         """
         outputs = config.outputs
-        if (
+        detailed_outputs = (
             outputs.write_points_csv
             or outputs.write_segments_csv
             or outputs.write_paraview
-        ):
-            return
-        from cascade.simulation.engine import SimulationResult, TreeSimulation
-
-        compact_trees = [
-            TreeSimulation(
-                tree_id=int(item.tree_id),
-                tree=None,
-                target_count=int(item.target_count),
-                summary=dict(item.summary),
-                details={},
-                elapsed_s=float(item.elapsed_s),
-            )
-            for item in simulation.tree_results
-        ]
-        compact = SimulationResult(
-            tree_results=compact_trees,
-            summary_rows=[dict(row) for row in simulation.summary_rows],
-            segment_rows=[],
-            point_rows=[],
-            sample_points=np.empty((0, 3), dtype=float),
-            point_data={},
-            sample_meta=dict(simulation.sample_meta),
-            timings=dict(simulation.timings),
-            interventions=list(simulation.interventions),
-            external_field=simulation.external_field,
         )
-        limit = max(float(os.environ.get("CASCADE_INTERACTIVE_RESULT_CACHE_MB", "256")), 0.0)
+        if detailed_outputs:
+            if not allow_detailed:
+                return False
+            compact = simulation
+        else:
+            from cascade.simulation.engine import SimulationResult, TreeSimulation
+
+            compact_trees = [
+                TreeSimulation(
+                    tree_id=int(item.tree_id),
+                    tree=None,
+                    target_count=int(item.target_count),
+                    summary=dict(item.summary),
+                    details={},
+                    elapsed_s=float(item.elapsed_s),
+                )
+                for item in simulation.tree_results
+            ]
+            compact = SimulationResult(
+                tree_results=compact_trees,
+                summary_rows=[dict(row) for row in simulation.summary_rows],
+                segment_rows=[],
+                point_rows=[],
+                sample_points=np.empty((0, 3), dtype=float),
+                point_data={},
+                sample_meta=dict(simulation.sample_meta),
+                timings=dict(simulation.timings),
+                interventions=list(simulation.interventions),
+                external_field=simulation.external_field,
+            )
+        limit = max(
+            float(os.environ.get("CASCADE_INTERACTIVE_RESULT_CACHE_MB", "256")), 0.0
+        )
         if _array_bytes(compact) > int(limit * 1024 * 1024):
-            return
+            return False
         self._simulation_key = key
         self._simulation = compact
+        return True
 
     def enforce_memory_budget(self, snapshot: dict[str, Any]) -> str | None:
         """Evict reusable state before host RAM headroom becomes dangerous."""
@@ -150,9 +203,7 @@ class InteractiveRunWorkspace:
         minimum_fraction = min(
             max(
                 float(
-                    os.environ.get(
-                        "CASCADE_INTERACTIVE_MIN_FREE_RAM_FRACTION", "0.15"
-                    )
+                    os.environ.get("CASCADE_INTERACTIVE_MIN_FREE_RAM_FRACTION", "0.15")
                 ),
                 0.01,
             ),
@@ -161,7 +212,9 @@ class InteractiveRunWorkspace:
         max_rss_mb = max(
             float(os.environ.get("CASCADE_INTERACTIVE_MAX_RSS_MB", "0")), 0.0
         )
-        rss_over = bool(max_rss_mb and isinstance(rss, int) and rss > max_rss_mb * 1024 * 1024)
+        rss_over = bool(
+            max_rss_mb and isinstance(rss, int) and rss > max_rss_mb * 1024 * 1024
+        )
         low = bool(
             isinstance(available, int)
             and isinstance(total, int)
@@ -198,115 +251,6 @@ class InteractiveRunWorkspace:
         gc.collect()
 
 
-def _interactive_geometry_key(config) -> str:
-    """Hash settings that can change domain, samples, or vessel geometry."""
-    payload = deepcopy(config.raw)
-    payload.pop("outputs", None)
-    payload.pop("gui", None)
-    payload.pop("sweep", None)
-
-    network = payload.get("network")
-    if isinstance(network, dict):
-        network.pop("save_path", None)
-
-    simulation = payload.get("simulation")
-    if isinstance(simulation, dict):
-        # These are solve-time conditions for SVV trees.  A simple network can
-        # inherit its flow from qin, so retain qin in that mode unless the
-        # simple geometry declares its own flow explicitly.
-        simulation.pop("fluid", None)
-        if _qin_is_solve_only(config):
-            simulation.pop("qin_target_ul_min", None)
-            simulation.pop("qin_target", None)
-            simulation.pop("total_qin_ul_min", None)
-
-    payload["_source_files"] = _source_file_signatures(config)
-    encoded = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=_json_default,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _interactive_simulation_key(config) -> str:
-    """Hash all scientific and output-shape settings for exact replay."""
-    payload = deepcopy(config.raw)
-    payload.pop("gui", None)
-    payload.pop("sweep", None)
-    outputs = payload.get("outputs")
-    if isinstance(outputs, dict):
-        outputs.pop("out_dir", None)
-        outputs.pop("prefix", None)
-    payload["_source_files"] = _source_file_signatures(config)
-    encoded = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=_json_default,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _qin_is_solve_only(config) -> bool:
-    if config.network_mode != "simple":
-        return True
-    simple = dict(config.network.simple or {})
-    return "flow_ul_min" in simple or "qin_ul_min" in simple
-
-
-def _source_file_signatures(config) -> dict[str, dict[str, Any]]:
-    values = {
-        "domain": config.domain.path,
-        "network": config.network.input_path,
-        "sample_points": config.simulation.sample_points_path,
-        "growth_checkpoint": (
-            config.growth.checkpoint_path
-            if config.growth.resume_from_checkpoint
-            else None
-        ),
-        "simple_geometry": dict(config.network.simple or {}).get(
-            "path", dict(config.network.simple or {}).get("geometry_path")
-        ),
-    }
-    base = (
-        config.settings_path.parent if config.settings_path is not None else Path.cwd()
-    )
-    signatures: dict[str, dict[str, Any]] = {}
-    for name, raw_path in values.items():
-        if raw_path is None:
-            continue
-        path = Path(str(raw_path)).expanduser()
-        if not path.is_absolute():
-            path = base / path
-        path = path.resolve()
-        signature: dict[str, Any] = {"path": str(path)}
-        try:
-            stat = path.stat()
-        except OSError:
-            signature["missing"] = True
-        else:
-            signature.update(
-                {
-                    "size": int(stat.st_size),
-                    "mtime_ns": int(stat.st_mtime_ns),
-                }
-            )
-        signatures[name] = signature
-    return signatures
-
-
-def _json_default(value: Any) -> Any:
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    return repr(value)
-
-
 def _array_bytes(value: Any, seen: set[int] | None = None) -> int:
     """Count unique NumPy storage in a small cache candidate."""
     seen = set() if seen is None else seen
@@ -326,4 +270,3 @@ def _array_bytes(value: Any, seen: set[int] | None = None) -> int:
 
 
 __all__ = ["InteractiveRunWorkspace"]
-

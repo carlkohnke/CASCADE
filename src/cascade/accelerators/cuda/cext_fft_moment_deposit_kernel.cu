@@ -1,3 +1,5 @@
+// Deposit precomputed moment weights through stored interpolation stencils.
+// hybrid_deposit.py JIT-compiles this source for FFT Cext preparation.
 extern "C" __global__ void cext_fft_moment_deposit_kernel(
     const float* moment_weight_gl,
     const float* lambda_iv_gl,

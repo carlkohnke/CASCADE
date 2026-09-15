@@ -1,4 +1,5 @@
 #version 330 core
+// Project domain-boundary line vertices for the retained Studio preview.
 layout(location = 0) in vec3 a_position;
 
 uniform vec3 u_center;

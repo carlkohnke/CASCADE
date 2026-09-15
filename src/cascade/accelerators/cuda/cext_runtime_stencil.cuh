@@ -1,3 +1,5 @@
+// Shared cloud-in-cell and triangular-shaped-cloud axis assignment helpers.
+// hybrid_geometry.py prepends this header to runtime-stencil CUDA kernels.
 extern "C" __device__ float cext_tsc_weight(float dist) {
     dist = fabsf(dist);
     if (dist < 0.5f) return 0.75f - dist * dist;

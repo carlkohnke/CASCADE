@@ -1,8 +1,11 @@
 #version 330 core
+// Expand each vessel segment into a radius-aware screen-space capsule.
+// vessel.frag rounds the capsule ends; Studio draws one instance per segment.
 layout(location = 0) in vec3 a_start;
 layout(location = 1) in vec3 a_end;
-layout(location = 2) in vec4 a_color;
-layout(location = 3) in float a_radius;
+layout(location = 2) in vec4 a_start_color;
+layout(location = 3) in vec4 a_end_color;
+layout(location = 4) in float a_radius;
 
 uniform vec2 u_pixel_scale;
 uniform float u_min_viewport;
@@ -10,7 +13,8 @@ uniform float u_zoom;
 uniform float u_max_radius;
 uniform float u_width_boost;
 
-out vec4 v_color;
+out vec4 v_start_color;
+out vec4 v_end_color;
 out vec2 v_capsule;
 out float v_length;
 out float v_half_width;
@@ -60,7 +64,8 @@ void main() {
     position.xy += (normal * c.y * half_width + direction * end_sign * half_width)
                    * u_pixel_scale;
     gl_Position = position;
-    v_color = a_color;
+    v_start_color = a_start_color;
+    v_end_color = a_end_color;
     v_capsule = vec2(mix(-half_width, line_length + half_width, c.x),
                      c.y * half_width);
     v_length = line_length;

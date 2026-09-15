@@ -1,3 +1,5 @@
+# Minimal CPU development environment. From the repository root, run:
+#   conda env create -f requirements/conda.yml
 name: cascade
 channels:
   - conda-forge

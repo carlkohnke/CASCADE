@@ -23,11 +23,10 @@ This repository targets the public `svv==0.0.48` API. CASCADE-owned compatibilit
 
 ## Status
 
-The current version is `0.1.0rc4`. It preserves the qualified M2/M3 numerical
-baseline and adds the modular solver layout, bounded interactive execution,
-accelerated CPU/GPU tissue paths, and release-boundary cleanup.
-
-Repository publication and remote CI remain separate release gates and are not claimed here. Detailed maintainer records, release history, and machine-specific validation evidence are retained outside the public repository.
+The current version is `0.1.0rc4`. This is a release candidate: configuration
+and output formats may still change before the first stable release. See
+[known issues](docs/known-issues.md) for current platform and scientific
+limitations.
 
 The implementation is organized by scientific responsibility rather than by
 entry point: domain and vessel architecture, flow, vessel concentration, Cext,
@@ -38,30 +37,28 @@ the package map and compatibility boundaries.
 ## Requirements
 
 - Linux or WSL2 on x86-64.
-- Python 3.9. The release candidate is validated on Python 3.9.20.
-- An NVIDIA driver compatible with CUDA 13 for the optional GPU configuration.
+- Python 3.9 (Python 3.9.20 is the tested release environment).
+- For GPU execution, an NVIDIA driver compatible with the selected CUDA package.
 - ParaView is optional and is used only to inspect exported VTK files.
 
 ## Install
 
-Create a CPU environment from the repository root:
+Create a CPU environment with Studio from the repository root:
 
 ```bash
 python setup_env.py \
   --venv .venv \
-  --dev \
   --gui \
   --constraints requirements/locks/py39-cpu.txt
 source .venv/bin/activate
 cascade doctor --no-gpu-probe
 ```
 
-For the CUDA 13 configuration used by the development workstation:
+For a CUDA 13 environment:
 
 ```bash
 python setup_env.py \
   --venv .venv \
-  --dev \
   --gui \
   --gpu cu13 \
   --constraints requirements/locks/py39-cu13.txt \
@@ -87,6 +84,8 @@ python -m pip install '.[gui,gpu-cu13]'
 cascade run --settings case.json
 cascade batch --settings case-001.json case-002.json case-003.json
 cascade sweep --settings sweep.json
+cascade inspect --settings case.json
+cascade prepare --settings case.json
 cascade init-settings case.json
 cascade doctor
 cascade self-test
@@ -101,15 +100,11 @@ cascade run --settings case.json
 ```
 
 The generated starter is CPU-safe. `cascade self-test` verifies a bounded
-loaded-tree solve, VTK/CSV export, manifest provenance, and the qualified public
+loaded-tree solve, VTK/CSV export, manifest provenance, and the required public
 `svv` dependency using only installed package contents. Add `--require-gpu` to
-exercise an actual CUDA Cext solve and GPU tissue calculation. Full M2/M3 legacy
-equivalence campaigns require a separate maintainer workbench containing the
-external, hash-frozen multi-gigabyte fixtures and oracle environment; those
-scientific inputs and internal campaign records are intentionally not bundled
-with the source repository or wheel.
+exercise an actual CUDA Cext solve and GPU tissue calculation.
 
-Settings use five principal sections:
+Settings use six principal sections:
 
 ```json
 {
@@ -117,6 +112,7 @@ Settings use five principal sections:
   "network": {},
   "growth": {},
   "simulation": {},
+  "settings": {},
   "outputs": {}
 }
 ```
@@ -156,9 +152,35 @@ Unknown top-level and core-section settings are rejected so spelling mistakes ca
 }
 ```
 
+For a pressure-driven run, prescribe the inlet and outlet pressures and select
+the pressure-pressure Kirchhoff mode. The inlet flow is then a solved output;
+CASCADE does not sweep or iterate over candidate flow rates:
+
+```json
+{
+  "simulation": {
+    "fluid": "blood",
+    "kirchhoff_bc_mode": "pressure_pressure"
+  },
+  "settings": {
+    "hemodynamics": {
+      "root_pressure": 7080.254371993,
+      "terminal_pressure": 5999.51,
+      "scale_dp_by_volume": false
+    },
+    "kirchhoff": {"solver": "tree"}
+  }
+}
+```
+
+Pressures in settings JSON are pascals. The solved inlet flow is reported in
+`summary.csv`, and segment pressures and flows are written to `segments.csv`
+and `vessels.vtp` when those outputs are enabled. The same mode is available in
+Studio as **Inlet pressure + outlet pressure**.
+
 ## Custom domains
 
-File-backed domains use surface/volume meshes readable by PyVista. CASCADE Studio also includes the packaged `bivent3.stl` heart surface. Legacy `.dmn` loading remains available for frozen internal inputs, but `.dmn` is not a supported cross-version interchange format:
+File-backed domains use surface/volume meshes readable by PyVista. CASCADE Studio also includes the packaged `bivent3.stl` heart surface. Historical `.dmn` files can be loaded for compatibility, but `.dmn` is not a supported cross-version interchange format:
 
 ```json
 {
@@ -238,7 +260,10 @@ Use a frozen coordinate fixture when two runs must evaluate identical tissue poi
 
 NPZ files contain `points` or `sample_points` with shape `(N, 3)`. NPY files contain the array directly. CSV files use `x,y,z` headers. Coordinates are in centimetres, paths resolve relative to the settings file, and the manifest records the resolved path and SHA-256.
 
-CASCADE permits one memory-intensive CLI simulation per user at a time. A second `run` or `sweep` command exits with a clear active-owner error instead of risking two resident simulations. Studio already processes its queue sequentially.
+CASCADE permits one memory-intensive simulation or preparation job per user at
+a time. A competing CLI or Studio job exits with an active-owner error instead
+of risking two resident simulations. Studio processes its own queue
+sequentially.
 
 For several related cases, `cascade batch` keeps one compatible network,
 spatial context, and compiled accelerator state warm while still running cases
@@ -313,7 +338,29 @@ result visualization. Its persistent local worker reuses compatible geometry
 and accelerator state between serial jobs, evicts incompatible state before
 the next solve, and retires after an idle interval or when Studio closes.
 
+For a saved large tree, inspect its scale without loading scientific arrays and
+optionally prepare its one-time memory-mapped representation:
+
+```bash
+cascade inspect --settings case.json
+cascade prepare --settings case.json
+```
+
+`cascade run`, `cascade batch`, and Studio automatically use a fresh prepared
+tree whose configured float/index dtypes match. The original archive remains
+the fallback and source of truth. If `--cache-dir` is supplied to `prepare`, set
+`CASCADE_PREPARED_CACHE_DIR` to that directory for later runs.
+
 See [docs/gui.md](docs/gui.md).
+
+## Documentation
+
+- [CASCADE Studio guide](docs/gui.md)
+- [Custom vascular geometry format](docs/custom-geometry.md)
+- [Architecture and package map](docs/architecture.md)
+- [Public svVascularize compatibility](docs/svv-compatibility.md)
+- [Known issues and limitations](docs/known-issues.md)
+- [Dependency and lock files](requirements/README.md)
 
 ## Development
 
@@ -323,8 +370,6 @@ python -m ruff check --select E9,F63,F7,F82,F601,F811,E741 src setup_env.py
 python -m build
 cascade self-test
 ```
-
-Legacy equivalence is run as an isolated, file-based comparison: install the CASCADE wheel in one clean environment and run the frozen external oracle in its own environment. CASCADE does not import or bundle legacy scripts, private fixtures, or internal validation records.
 
 ## Reproducibility
 

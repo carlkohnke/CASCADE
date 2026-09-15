@@ -1,3 +1,5 @@
+// Deposit active vessel sources while computing their grid stencils in-kernel.
+// hybrid_geometry.py compiles this variant when stencil caching is disabled.
 extern "C" __global__ void cext_hybrid_deposit_runtime_stencil_kernel(
     const float* q_weighted_gl,
     const float* lambda_iv_gl,

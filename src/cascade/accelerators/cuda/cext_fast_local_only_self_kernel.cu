@@ -1,3 +1,5 @@
+// Evaluate the local-only Cext self/near field using cell-binned source nodes.
+// hybrid_deposit.py compiles this kernel at runtime for the GPU hybrid solver.
 extern "C" __global__ void cext_fast_local_only_self_kernel(
     const float* gl_points,
     const float* segment_vectors,

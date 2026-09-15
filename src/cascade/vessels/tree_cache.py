@@ -69,6 +69,16 @@ def _fluid_properties(fluid: str) -> dict[str, float]:
             "fluid_density": 1.06,
             "kinematic_viscosity": mu_plasma_cgs / 1.06,
         }
+    if mode == "custom":
+        density = float(_state.CUSTOM_FLUID_DENSITY_G_CM3)
+        return {
+            "fluid_density": density,
+            "kinematic_viscosity": float(
+                _state.CUSTOM_FLUID_DYNAMIC_VISCOSITY_CP
+            )
+            / 100.0
+            / density,
+        }
     raise ValueError(f"Unknown fluid mode for cache config: {mode}")
 
 

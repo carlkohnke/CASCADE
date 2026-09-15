@@ -1,3 +1,5 @@
+// Reduce active source decay lengths to one conservative maximum per grid cell.
+// hybrid_deposit.py uses the result to bound local-only source searches.
 extern "C" __device__ int atomicMaxFloatBits(float* address, float val) {
     int* address_as_i = (int*)address;
     int old = *address_as_i;

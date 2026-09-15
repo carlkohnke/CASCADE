@@ -47,7 +47,7 @@ def m00(points, rbf_degree=3):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.m_matrix import m00
+        from cascade.domain.svv.core.m_matrix import m00
 
         points = np.array([[0, 0], [1, 0], [0, 1]])
         m00_submatrix = m00(points, rbf_degree=3)
@@ -100,7 +100,7 @@ def m01(points, rbf_degree=3):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.m_matrix import m01
+        from cascade.domain.svv.core.m_matrix import m01
 
         points = np.array([[0, 0], [1, 0], [0, 1]])
         m01_submatrix = m01(points, rbf_degree=3)
@@ -172,7 +172,7 @@ def m11(points, rbf_degree=3):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.m_matrix import m11
+        from cascade.domain.svv.core.m_matrix import m11
 
         points = np.array([[0, 0], [1, 0], [0, 1]])
         m11_submatrix = m11(points, rbf_degree=3)
@@ -262,7 +262,7 @@ def m_matrix(points, rbf_degree=3):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.m_matrix import m_matrix
+        from cascade.domain.svv.core.m_matrix import m_matrix
 
         points = np.array([[0, 0], [1, 0], [0, 1]])
         m_full = m_matrix(points, rbf_degree=3)

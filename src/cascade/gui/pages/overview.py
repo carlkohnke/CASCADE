@@ -16,6 +16,7 @@ from cascade.gui.widgets import (
     Card,
     labeled,
 )
+from cascade.gui.widgets import Card as LegacyCard
 
 from cascade.gui.pages.base import (
     Page,
@@ -29,16 +30,13 @@ class OverviewPage(Page):
             "",
             parent,
         )
-        intro = Card("Study")
+        intro = Card("")
         self.name = QLineEdit()
         self.name.setPlaceholderText("e.g. Perfused construct oxygen sweep")
         intro.add(labeled("Project name", self.name, important=True))
         self.column.addWidget(intro)
 
-        hw = Card("Available compute")
-        self.vtk_memory_note = QLabel("VTK export can increase peak RAM.")
-        self.vtk_memory_note.setObjectName("muted")
-        hw.add(self.vtk_memory_note)
+        hw = LegacyCard("System specifications")
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(10)
@@ -81,9 +79,6 @@ class OverviewPage(Page):
 
     def load(self, config):
         self.name.setText(str(config.get("gui", {}).get("project_name", "")))
-        self.vtk_memory_note.setVisible(
-            bool(config.get("outputs", {}).get("write_paraview", True))
-        )
 
     def write(self, config):
         config.setdefault("gui", {})["project_name"] = (
@@ -92,3 +87,6 @@ class OverviewPage(Page):
 
 
 __all__ = ("OverviewPage",)
+
+# Constructors resolve these shared layout helpers at runtime.
+from cascade.gui.property_grid import Card, labeled, row_of

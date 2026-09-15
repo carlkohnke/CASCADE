@@ -1,3 +1,6 @@
+// Native Windows folder-picker bridge used by CASCADE Studio under WSL.
+// The GUI compiles and loads this helper through PowerShell when available;
+// users do not build or invoke it directly.
 using System;
 using System.Runtime.InteropServices;
 public static class CascadePickerNative {

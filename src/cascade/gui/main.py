@@ -1,4 +1,9 @@
-"""CASCADE desktop GUI entry point."""
+"""Start the CASCADE Studio desktop application.
+
+Users normally invoke this module with ``cascade-gui`` or
+``python -m cascade.gui`` after installing the ``gui`` dependency extra. The
+platform launchers under ``GUI Launchers/`` resolve the same entry point.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +28,7 @@ from cascade.gui.helpers import (
     _json_safe,
     _parse_jsonish,
 )
+from cascade.gui.cursor import apply_wsl_windows_pointer
 
 from cascade.gui.window import (
     MainWindow,
@@ -74,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setStyle("Fusion")
     app.setStyleSheet(APP_STYLE)
     window = MainWindow()
+    apply_wsl_windows_pointer(window)
     window.show()
     return app.exec()
 

@@ -88,6 +88,19 @@ def _target_counts_for_config(
 
 
 def _tree_terminal_segments(tree: Any) -> int:
+    outlet_nodes = getattr(tree, "outlet_nodes", None)
+    if outlet_nodes is not None:
+        try:
+            return max(len(outlet_nodes), 1)
+        except TypeError:
+            pass
+    vessel_map = getattr(tree, "vessel_map", {}) or {}
+    if vessel_map:
+        leaves = sum(
+            1 for vessel in vessel_map.values() if not vessel.get("downstream")
+        )
+        if leaves:
+            return leaves
     return max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 1)
 
 
@@ -198,11 +211,10 @@ def _flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
 def _terminal_flow_for_target(
     config: RunConfig, qin_cm3_s: float, target_count: int
 ) -> float | None:
-    # Match the legacy scaled-flow convention: target_count is the
-    # number passed to n_add, so terminal sinks are target_count + 1.
+    # Public target_count is the final number of terminal vessel segments.
     if not getattr(load_runtime_module(), "SCALE_Q_BY_VOLUME", True):
         return None
-    return float(qin_cm3_s) / float(max(int(target_count), 1) + 1)
+    return float(qin_cm3_s) / float(max(int(target_count), 1))
 
 
 def flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:

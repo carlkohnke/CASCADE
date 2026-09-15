@@ -1,3 +1,5 @@
+// Accumulate leaf source moments upward through one level of the Cext treecode.
+// treecode.py launches this kernel level by level before field evaluation.
 extern "C" __global__ void cext_treecode_upsweep_kernel(
     const int* level_node_ids,
     const int* node_children,

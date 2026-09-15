@@ -7,6 +7,7 @@ import html
 import math
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 import uuid
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
@@ -41,6 +43,22 @@ from .theme import Tokens
 _ACTIVE_NATIVE_PICKERS: set[subprocess.Popen] = set()
 _CANCELLED_NATIVE_PICKERS: set[subprocess.Popen] = set()
 _NATIVE_PICKER_SOURCE = Path(__file__).with_name("native") / "CascadePickerNative.cs"
+
+
+def _windows_powershell_executable() -> str:
+    """Locate Windows PowerShell even when WSL omits Windows paths from PATH."""
+    discovered = shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+    if discovered:
+        return discovered
+    for candidate in (
+        Path("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"),
+        Path("/mnt/C/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"),
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    raise FileNotFoundError(
+        "Windows PowerShell was not found in PATH or under the mounted Windows directory."
+    )
 
 
 class ChoiceComboBox(QComboBox):
@@ -276,7 +294,6 @@ class InfoTip(QLabel):
         self.setAccessibleName(accessible_name)
         self.setAlignment(Qt.AlignCenter)
         self.setFixedSize(15, 15)
-        self.setCursor(Qt.ArrowCursor)
 
     def _show_tip(self) -> None:
         window = self.window()
@@ -405,6 +422,7 @@ class PathPicker(QWidget):
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.mode, self.caption, self.file_filter = mode, caption, file_filter
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -461,13 +479,16 @@ def choose_native_path(
                 start=start,
                 file_filter=file_filter,
             )
-        except (OSError, subprocess.SubprocessError, UnicodeError):
-            if parent is not None and not parent.window().isVisible():
-                return ""
-            # Let Qt request the desktop-native chooser as the fallback too.
-            # Forcing Qt's built-in dialog here produced the unfamiliar,
-            # application-styled file browser this bridge is meant to avoid.
-            options = QFileDialog.Options()
+        except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+            if parent is not None and parent.window().isVisible():
+                QMessageBox.critical(
+                    parent,
+                    "Windows file picker unavailable",
+                    "CASCADE could not open the Windows file picker. The Linux/Qt "
+                    "fallback was not opened because CASCADE is running under WSL.\n\n"
+                    f"{exc}",
+                )
+            return ""
     else:
         options = QFileDialog.Options()
     if mode == "directory":
@@ -484,7 +505,15 @@ def choose_native_path(
 
 
 def _running_in_wsl() -> bool:
-    return bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    for marker in (Path("/proc/sys/kernel/osrelease"), Path("/proc/version")):
+        try:
+            if "microsoft" in marker.read_text(encoding="utf-8").lower():
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def _windows_native_picker(
@@ -501,19 +530,9 @@ def _windows_native_picker(
     initial_windows = _to_windows_path(str(initial))
     title = _ps_quote(caption)
     initial_ps = _ps_quote(initial_windows)
-    heartbeat_name = f"cascade-picker-{os.getpid()}-{uuid.uuid4().hex}.heartbeat"
-    windows_temp = _windows_temp_directory().rstrip("\\/")
-    heartbeat_windows_raw = windows_temp + "\\" + heartbeat_name
-    heartbeat = Path(_to_wsl_path(heartbeat_windows_raw))
-    heartbeat.write_text(str(time.time()), encoding="utf-8")
-    heartbeat_windows = _ps_quote(heartbeat_windows_raw)
-
-    native_source_windows = _ps_quote(_to_windows_path(str(_NATIVE_PICKER_SOURCE)))
-
     owner_setup = f"""
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-Add-Type -Path '{native_source_windows}'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $owner = New-Object System.Windows.Forms.Form
 $owner.Text = 'CASCADE Studio file selection'
@@ -524,45 +543,31 @@ $owner.Size = New-Object System.Drawing.Size(2, 2)
 $owner.Opacity = 0.01
 $owner.Show()
 $owner.Activate()
-$heartbeat = '{heartbeat_windows}'
-$watchdog = New-Object System.Windows.Forms.Timer
-$watchdog.Interval = 500
-$watchdog.Add_Tick({{
-    if (-not (Test-Path -LiteralPath $heartbeat)) {{
-        [CascadePickerNative]::CloseWindows($owner.Handle)
-        return
-    }}
-    $stamp = 0.0
-    $content = Get-Content -LiteralPath $heartbeat -Raw -ErrorAction SilentlyContinue
-    $valid = [double]::TryParse(
-        $content,
-        [System.Globalization.NumberStyles]::Float,
-        [System.Globalization.CultureInfo]::InvariantCulture,
-        [ref]$stamp
-    )
-    $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
-    $age = $now - $stamp
-    if ((-not $valid) -or $age -gt 3.0) {{
-        [CascadePickerNative]::CloseWindows($owner.Handle)
-    }} else {{
-        [CascadePickerNative]::FocusDialog($owner.Handle)
-    }}
-}})
-$watchdog.Start()
 """
     owner_cleanup = """
-$watchdog.Stop()
-$watchdog.Dispose()
 $owner.Close()
 $owner.Dispose()
 """
 
     if mode == "directory":
+        native_source = base64.b64encode(
+            _NATIVE_PICKER_SOURCE.read_bytes()
+        ).decode("ascii")
         script = (
             owner_setup
             + f"""
-$selectedFolder = [CascadePickerNative]::PickFolder($owner.Handle, '{title}', '{initial_ps}')
-if ($selectedFolder) {{ [Console]::Write($selectedFolder) }}
+$nativeSource = [System.Text.Encoding]::UTF8.GetString(
+    [System.Convert]::FromBase64String('{native_source}')
+)
+Add-Type -TypeDefinition $nativeSource -Language CSharp
+$selected = [CascadePickerNative]::PickFolder(
+    $owner.Handle,
+    '{title}',
+    '{initial_ps}'
+)
+if (-not [String]::IsNullOrWhiteSpace($selected)) {{
+    [Console]::Write($selected)
+}}
 """
             + owner_cleanup
         )
@@ -592,22 +597,20 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{
         )
     encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     process = subprocess.Popen(
-        ["powershell.exe", "-NoProfile", "-STA", "-EncodedCommand", encoded],
+        [
+            _windows_powershell_executable(),
+            "-NoProfile",
+            "-STA",
+            "-EncodedCommand",
+            encoded,
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
     _ACTIVE_NATIVE_PICKERS.add(process)
     try:
         app = QApplication.instance()
-        heartbeat_updated = 0.0
         while process.poll() is None:
-            now = time.monotonic()
-            if now - heartbeat_updated >= 0.25:
-                try:
-                    heartbeat.write_text(str(time.time()), encoding="utf-8")
-                    heartbeat_updated = now
-                except OSError:
-                    pass
             if app is not None:
                 app.processEvents()
             if parent is not None and not parent.window().isVisible():
@@ -629,10 +632,6 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{
     finally:
         _ACTIVE_NATIVE_PICKERS.discard(process)
         _CANCELLED_NATIVE_PICKERS.discard(process)
-        try:
-            heartbeat.unlink(missing_ok=True)
-        except OSError:
-            pass
 
 
 def cancel_native_pickers() -> None:
@@ -658,7 +657,7 @@ def _to_windows_path(path: str) -> str:
 def _windows_temp_directory() -> str:
     result = subprocess.run(
         [
-            "powershell.exe",
+            _windows_powershell_executable(),
             "-NoProfile",
             "-Command",
             "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);"
@@ -751,7 +750,6 @@ class StatusPill(QLabel):
         super().__init__(text, parent)
         self.setAlignment(Qt.AlignCenter)
         self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setAccessibleName("Setup status and issues")
         self.set_tone(tone)

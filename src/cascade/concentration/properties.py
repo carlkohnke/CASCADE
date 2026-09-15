@@ -9,9 +9,9 @@ def get_analysis_fluids() -> tuple[str, ...]:
     mode = str(_state.FLUID).lower()
     if mode == "both":
         return ("water", "blood")
-    if mode in {"water", "blood"}:
+    if mode in {"water", "blood", "custom"}:
         return (mode,)
-    raise ValueError('FLUID must be "water", "blood", or "both".')
+    raise ValueError('FLUID must be "water", "blood", "custom", or "both".')
 
 
 def get_concentration_inlet(fluid: str | None = None) -> float:

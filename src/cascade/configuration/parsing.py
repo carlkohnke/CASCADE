@@ -80,6 +80,14 @@ def load_config(path: str | Path) -> RunConfig:
         raise ValueError("Settings JSON must contain an object at the top level.")
     config = parse_config(raw)
     config.settings_path = settings_path
+    if config.network_mode == "simple":
+        simple = dict(config.network.simple or {})
+        if str(simple.get("mode", "")).strip().lower() == "custom":
+            custom_path = Path(str(simple["path"])).expanduser()
+            if not custom_path.is_absolute():
+                custom_path = settings_path.parent / custom_path
+            if not custom_path.is_file():
+                raise FileNotFoundError(f"Custom geometry file not found: {custom_path}")
     return config
 
 
@@ -139,6 +147,8 @@ def _parse_domain(raw: Any) -> DomainConfig:
             "box_z_cm",
             "radius",
             "sphere_radius",
+            "height",
+            "cylinder_height",
             "center",
             "theta_resolution",
             "sphere_theta_resolution",
@@ -163,6 +173,10 @@ def _parse_domain(raw: Any) -> DomainConfig:
     radius = None if radius_raw is None else float(radius_raw)
     if radius is not None and radius <= 0.0:
         raise ValueError("domain.radius must be positive.")
+    height_raw = data.get("height", data.get("cylinder_height"))
+    height = None if height_raw is None else float(height_raw)
+    if height is not None and height <= 0.0:
+        raise ValueError("domain.height must be positive.")
     center_raw = data.get("center")
     center = (
         None
@@ -192,6 +206,7 @@ def _parse_domain(raw: Any) -> DomainConfig:
         if data.get("z_length", data.get("box_z_cm", z_len)) is None
         else float(data.get("z_length", data.get("box_z_cm", z_len))),
         radius=radius,
+        height=height,
         center=center,
         theta_resolution=theta_resolution,
         phi_resolution=phi_resolution,
@@ -269,7 +284,9 @@ def _parse_network(raw: Any) -> NetworkConfig:
         data.get("target_terminal_counts", data.get("target_counts")),
         name="network.target_terminal_counts",
     )
-    target_single = data.get("target_terminal_count", data.get("target_count"))
+    target_single = data.get(
+        "target_terminal_count", data.get("target_count", 100)
+    )
     target_total = data.get(
         "target_total_terminal_count", data.get("target_total_terminals")
     )
@@ -455,13 +472,17 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
     ):
         if key in data:
             tissuesim[key] = data[key]
+    fluid = _parse_fluid(data.get("fluid", "blood"), "simulation.fluid", allow_both=True)
+    build_fluid = _parse_fluid(
+        data.get("build_fluid", "blood" if fluid == "both" else fluid),
+        "simulation.build_fluid",
+        allow_both=False,
+    )
     return SimulationConfig(
-        fluid=str(data.get("fluid", "blood")).strip().lower(),
-        build_fluid=str(data.get("build_fluid", data.get("fluid", "blood")))
-        .strip()
-        .lower(),
+        fluid=fluid,
+        build_fluid=build_fluid,
         qin_target_ul_min=float(
-            data.get("qin_target_ul_min", data.get("qin_target", 900.0))
+            data.get("qin_target_ul_min", data.get("qin_target", 100.0))
         ),
         total_qin_ul_min=(
             None
@@ -471,7 +492,7 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
         concentration_solver=str(data.get("concentration_solver", "network_ext"))
         .strip()
         .lower(),
-        distance_sample_count=int(data.get("distance_sample_count", 1000)),
+        distance_sample_count=int(data.get("distance_sample_count", 10000)),
         flow_source=str(data.get("flow_source", "per_tree")).strip().lower(),
         inlet_conditions=_parse_inlet_conditions(data.get("inlet_conditions", [])),
         sample_mode=str(
@@ -486,7 +507,7 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
         compute_avg_distance_to_channel=_as_bool(
             data.get("compute_avg_distance_to_channel"), False
         ),
-        tissue_accel=data.get("tissue_accel"),
+        tissue_accel=data.get("tissue_accel", "gpu"),
         tissue_gpu_validate_points=(
             None
             if data.get("tissue_gpu_validate_points") is None
@@ -632,6 +653,7 @@ def _parse_outputs(raw: Any) -> OutputsConfig:
             "vessel_resolution",
             "write_combined_sweep_csv",
             "combined_sweep_filename",
+            "overwrite",
         },
         "outputs",
     )
@@ -659,6 +681,7 @@ def _parse_outputs(raw: Any) -> OutputsConfig:
         combined_sweep_filename=str(
             data.get("combined_sweep_filename", "sweep_summary.csv")
         ),
+        overwrite=_as_bool(data.get("overwrite"), False),
     )
 
 
@@ -675,8 +698,31 @@ def _parse_runtime_settings(raw: Any) -> dict[str, dict[str, Any]]:
             continue
         if not isinstance(values, dict):
             raise ValueError(f"settings.{section} must be an object.")
-        parsed[str(section)] = dict(values)
+        parsed_values = dict(values)
+        if str(section).lower() == "hematocrit":
+            key = "model" if "model" in parsed_values else "HEMATOCRIT_MODEL"
+            if str(parsed_values.get(key, "")).strip().lower() == "constant":
+                parsed_values[key] = "uniform_tube"
+        parsed[str(section)] = parsed_values
     return parsed
+
+
+def _parse_fluid(value: Any, name: str, *, allow_both: bool) -> str:
+    if not isinstance(value, str):
+        raise ValueError(
+            f"{name} must be a fluid name string; custom fluid objects are not supported."
+        )
+    mode = value.strip().lower().replace("_", " ")
+    mode = {"cellmedia": "cell media", "media": "cell media"}.get(mode, mode)
+    allowed = {"blood", "water", "cell media", "custom"}
+    if allow_both:
+        allowed.add("both")
+    if mode not in allowed:
+        choices = ", ".join(sorted(allowed))
+        raise ValueError(
+            f"Unsupported {name}: {value!r}. Supported fluids are {choices}."
+        )
+    return mode
 
 
 def _validate(
@@ -687,6 +733,36 @@ def _validate(
 ) -> None:
     if network.mode not in {"tree", "forest", "simple"}:
         raise ValueError("network.mode must be 'tree', 'forest', or 'simple'.")
+    if network.mode in {"tree", "forest"} and network.input_path is None:
+        if (
+            network.target_terminal_count is not None
+            and network.target_terminal_count < 2
+        ):
+            raise ValueError(
+                "Generated SVV trees require at least 2 final terminal vessels."
+            )
+        if any(value < 2 for value in network.target_terminal_counts):
+            raise ValueError(
+                "Every generated SVV tree requires at least 2 final terminal vessels."
+            )
+        if (
+            network.target_total_terminal_count is not None
+            and network.target_total_terminal_count < 2 * len(network.roots)
+        ):
+            raise ValueError(
+                "A generated SVV forest requires at least 2 final terminal vessels "
+                "per tree."
+            )
+    if network.mode == "simple":
+        simple_mode = str(network.simple.get("mode", "onechannel")).strip().lower()
+        if simple_mode == "custom":
+            custom_path = network.simple.get("path", network.simple.get("geometry_path"))
+            if not custom_path:
+                raise ValueError(
+                    "network.simple.path is required when network.simple.mode='custom'."
+                )
+            if Path(str(custom_path)).suffix.lower() not in {".csv", ".npz"}:
+                raise ValueError("Custom geometry must be a .csv or .npz file.")
     if (
         network.mode == "tree"
         and len(network.roots) != 1

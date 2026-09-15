@@ -1,3 +1,13 @@
+"""Create and verify a repository-local CASCADE Python environment.
+
+Run this script from the repository root, for example
+``python setup_env.py --venv .venv --gui``.  Optional flags add development or
+CUDA dependencies, and ``--constraints`` applies one of the reproducible lock
+files under ``requirements/``.  The script records the selected Python and
+CUDA toolkit paths for the GUI launchers; ``--recreate`` also removes and
+rebuilds the requested virtual-environment directory.
+"""
+
 from __future__ import annotations
 
 import argparse

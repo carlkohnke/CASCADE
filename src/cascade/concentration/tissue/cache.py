@@ -135,6 +135,22 @@ def build_tissue_cache_from_tree(
     )
 
 
+def tissue_cache_is_point_independent(tree: _state.Tree, n_points: int) -> bool:
+    """Return whether one cache can serve different point sets and prefixes."""
+    nseg = int(getattr(tree, "segment_count", 0) or 0)
+    if nseg <= 0:
+        return False
+    if _resolve_tissue_accel_mode() == "gpu":
+        return True
+    max_nearby = min(int(_state.NEAREST_TISSUE_VESSELS), nseg)
+    if _state._HAVE_NUMBA and _state.TISSUE_USE_NUMBA and max_nearby == nseg:
+        return True
+    return bool(
+        _state.TISSUE_STREAMING_ENABLED
+        and int(n_points) >= int(_state.TISSUE_STREAMING_MIN_POINTS)
+    )
+
+
 def _compute_tissue_samples_greens_streaming(
     points: np.ndarray,
     starts: np.ndarray,
@@ -341,7 +357,8 @@ def _compute_tissue_samples_greens_streaming(
 
 __all__ = [
     "_segment_decay_factor",
-    "normalize_tree_inlet_flow",
     "build_tissue_cache_from_tree",
+    "normalize_tree_inlet_flow",
+    "tissue_cache_is_point_independent",
     "_compute_tissue_samples_greens_streaming",
 ]

@@ -12,7 +12,10 @@ from typing import Any
 import numpy as np
 
 from cascade.configuration.schema import RunConfig, parse_config
-from cascade.concentration.tissue.cache import build_tissue_cache_from_tree
+from cascade.concentration.tissue.cache import (
+    build_tissue_cache_from_tree,
+    tissue_cache_is_point_independent,
+)
 from cascade.exporting.run import _summary_fieldnames
 from cascade.utils.execution import release_completed_case_memory
 from cascade.configuration.bridge import apply_runtime_settings, load_runtime_module
@@ -59,19 +62,24 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         sweep.get("qin_target_ul_min_values", sweep.get("qin_target_values")),
         fallback=[
             _simulation_section(raw).get(
-                "qin_target_ul_min", _simulation_section(raw).get("qin_target", 900.0)
+                "qin_target_ul_min", _simulation_section(raw).get("qin_target", 100.0)
             )
         ],
         name="sweep.qin_target_ul_min_values",
     )
     distance_counts = _int_values(
         sweep.get("distance_sample_counts"),
-        fallback=[_simulation_section(raw).get("distance_sample_count", 1000)],
+        fallback=[_simulation_section(raw).get("distance_sample_count", 10000)],
         name="sweep.distance_sample_counts",
     )
     distance_counts = [max(int(v), 0) for v in distance_counts]
 
     output_csv = _output_csv_path(raw, sweep, path)
+    overwrite = _as_bool(_outputs_section(raw).get("overwrite"), False)
+    if output_csv.exists() and not overwrite:
+        raise FileExistsError(
+            f"{output_csv} already exists; set outputs.overwrite=true to replace it."
+        )
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     work_dir = resolve_path(
         sweep.get(
@@ -84,7 +92,10 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         raise ValueError("sweep.work_dir must identify a working directory.")
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    write_network = _as_bool(sweep.get("save_final_network"), False)
+    write_network = _as_bool(
+        sweep.get("save_final_network"),
+        _as_bool(_outputs_section(raw).get("save_network"), True),
+    )
     legacy_columns_only = _as_bool(sweep.get("legacy_columns_only"), False)
     legacy_single_trial_std_nan = _as_bool(
         sweep.get("legacy_single_trial_std_nan"), False
@@ -92,6 +103,7 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
     rows = _JsonlSpool()
     timings = _JsonlSpool()
     t_sweep = perf_counter()
+    saved_networks: list[str] = []
 
     for side_len in side_lengths:
         base_raw = deepcopy(raw)
@@ -112,8 +124,9 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         apply_runtime_settings(ts, build_config)
 
         explicit_input = bool(build_config.network.input_path)
+        fixed_network = explicit_input or build_config.network_mode == "simple"
         loaded_target_counts: list[int] | None = None
-        if explicit_input:
+        if fixed_network:
             loaded = build_or_load_network(build_config)
             domain = loaded.domain
             sample_points = np.asarray(
@@ -172,11 +185,11 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
             )
 
             t0 = perf_counter()
-            if explicit_input and target != int(targets[0]):
+            if fixed_network and target != int(targets[0]):
                 raise ValueError(
-                    "A sweep with network.input_path can repeat its frozen target but cannot "
-                    "reinterpret one input structure as a different target. Use a separate "
-                    "settings file for each explicit cached structure."
+                    "A sweep over a loaded or simple network cannot reinterpret the "
+                    "fixed structure as a different terminal target. Remove the terminal "
+                    "sweep dimension or use generated SVV geometry."
                 )
             if trees is None:
                 trees = _build_configured_trees(ts, domain, grow_config)
@@ -185,7 +198,7 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                     if grow_config.network_mode == "forest"
                     else None
                 )
-            elif explicit_input:
+            elif fixed_network:
                 pass
             elif target < previous_target:
                 raise ValueError(
@@ -220,6 +233,37 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                 sample_meta=sample_meta,
             )
 
+            shared_tissue_caches: list[dict | None] | None = None
+            shared_cache_build_s = 0.0
+            shared_cache_reported = False
+            minimum_points = min(distance_counts) if distance_counts else 0
+            cache_allowed = bool(
+                sample_points.size
+                and not grow_config.simulation.geometry_only
+                and not grow_config.simulation.skip_tissue_oxygen
+                and not (
+                    grow_config.simulation.external_field.enabled
+                    and grow_config.simulation.external_field.scope == "shared"
+                )
+            )
+            cacheable_trees = [
+                tree
+                for tree in trees
+                if not getattr(tree, "_cascade_simple_network", False)
+            ]
+            if cache_allowed and cacheable_trees and all(
+                tissue_cache_is_point_independent(tree, minimum_points)
+                for tree in cacheable_trees
+            ):
+                t_cache = perf_counter()
+                shared_tissue_caches = [
+                    None
+                    if getattr(tree, "_cascade_simple_network", False)
+                    else build_tissue_cache_from_tree(tree, sample_points)
+                    for tree in trees
+                ]
+                shared_cache_build_s = perf_counter() - t_cache
+
             for qin in qin_values:
                 for sample_count in distance_counts:
                     points = (
@@ -227,8 +271,10 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                         if sample_points.size
                         else sample_points
                     )
-                    tissue_caches: list[dict | None] | None = None
-                    cache_build_s = 0.0
+                    tissue_caches = shared_tissue_caches
+                    cache_build_s = (
+                        0.0 if shared_cache_reported else shared_cache_build_s
+                    )
                     try:
                         for fluid_index, fluid in enumerate(fluids):
                             run_raw = deepcopy(target_raw_config)
@@ -252,10 +298,10 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                             config.simulation.distance_sample_count = int(sample_count)
                             apply_runtime_settings(ts, config)
 
-                            # Geometry and sample coordinates are identical for
-                            # the fluid variants in this group.  Build the
-                            # spatial cache once, keep at most this one group
-                            # live, and release it in the finally block below.
+                            # Point-dependent CPU caches remain scoped to this
+                            # sample group. Geometry-only caches arrive through
+                            # ``shared_tissue_caches`` and span every qin/fluid
+                            # variant for this target.
                             if (
                                 tissue_caches is None
                                 and points.size
@@ -308,11 +354,14 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                                         else 0.0
                                     ),
                                     "tissue_cache_reused": bool(
-                                        tissue_caches is not None and fluid_index > 0
+                                        tissue_caches is not None
+                                        and (fluid_index > 0 or shared_cache_reported)
                                     ),
                                     "simulation_s": float(sim_s),
                                 }
                             )
+                            if shared_tissue_caches is not None:
+                                shared_cache_reported = True
                             del result
                             # Case-owned results are gone, while the one
                             # intentionally reusable tissue cache remains live.
@@ -320,14 +369,23 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                                 ts, trim_accelerator_pools=None
                             )
                     finally:
-                        # Bound sweep memory independently of case count.  The
-                        # next sample-count group starts with no retained
-                        # point-by-vessel maps, even when a case raises.
-                        tissue_caches = None
+                        # Bound point-dependent cache memory independently of
+                        # case count, even when a case raises.  At most one
+                        # explicitly shared geometry-only cache remains live.
+                        if tissue_caches is not shared_tissue_caches:
+                            tissue_caches = None
                         release_completed_case_memory(ts, trim_accelerator_pools=None)
 
+            shared_tissue_caches = None
+            release_completed_case_memory(ts, trim_accelerator_pools=None)
+
             if write_network:
-                save_network_if_requested(build, grow_config)
+                saved = save_network_if_requested(build, grow_config)
+                if saved is None:
+                    raise RuntimeError(
+                        "Network saving was requested but no network file was produced."
+                    )
+                saved_networks.append(str(saved))
 
     preferred_fields = _summary_fieldnames()
     _write_spooled_csv(
@@ -346,6 +404,7 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         "side_lengths": side_lengths,
         "qin_target_ul_min_values": qin_values,
         "distance_sample_counts": distance_counts,
+        "network_paths": saved_networks,
         "legacy_columns_only": legacy_columns_only,
         "legacy_single_trial_std_nan": legacy_single_trial_std_nan,
         "elapsed_s": perf_counter() - t_sweep,
@@ -380,8 +439,8 @@ def _target_values(raw: dict[str, Any], sweep: dict[str, Any]) -> list[int]:
         ),
     )
     if value is None:
-        value = network.get("target_terminal_count", network.get("target_count", 1))
-    values = _int_values(value, fallback=[1], name="sweep.target_terminal_counts")
+        value = network.get("target_terminal_count", network.get("target_count", 100))
+    values = _int_values(value, fallback=[100], name="sweep.target_terminal_counts")
     if not values:
         raise ValueError("Sweep requires at least one target_terminal_count.")
     return [int(v) for v in values]

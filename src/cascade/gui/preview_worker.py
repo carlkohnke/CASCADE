@@ -1,9 +1,16 @@
-"""Isolated worker for bounded SVV seed and uploaded-network previews."""
+"""Build bounded vessel-preview data in an isolated Studio subprocess.
+
+CASCADE Studio invokes this internal worker with ``--request`` and ``--output``
+paths. It constructs only the exact reusable seed needed for the active display
+limit, or loads an uploaded network, then returns compact geometry to the GUI.
+It is not intended as a user-facing command.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 
@@ -20,23 +27,30 @@ from cascade.domain.svv import Domain
 from cascade.domain.svv.routines.tetrahedralize import tetrahedralize
 
 
-PREVIEW_TERMINAL_BUDGET = 500
-PREVIEW_VESSEL_LIMIT = 5000
+PREVIEW_VESSEL_LIMIT = 5_000
+MAX_PREVIEW_VESSEL_LIMIT = 250_000
 
 
-def _bounded_preview_target(target: int, tree_count: int = 1) -> int:
-    """Keep common trees exact within one shared interactive preview budget."""
-    per_tree_limit = max(PREVIEW_TERMINAL_BUDGET // max(int(tree_count), 1), 1)
+def _bounded_preview_target(
+    target: int,
+    tree_count: int = 1,
+    vessel_limit: int = PREVIEW_VESSEL_LIMIT,
+) -> int:
+    """Build enough equal-sized trees to reach the requested display limit."""
+    trees = max(int(tree_count), 1)
+    displayed = min(max(int(vessel_limit), 1), MAX_PREVIEW_VESSEL_LIMIT)
+    # Each binary tree contains approximately 2*T+1 segments after T terminal
+    # additions.  Round up so the combined trees contain at least ``displayed``.
+    per_tree_limit = max(math.ceil((displayed - trees) / (2 * trees)), 1)
     return min(max(int(target), 1), per_tree_limit)
 
 
 def main(argv=None) -> int:
-    # Preview trees contain at most a few thousand segments.  The production
-    # default reserves four million rows and needlessly costs ~1 GB here.
-    os.environ.setdefault("SVV_TREE_PREALLOCATION_STEP", "2048")
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--request", required=True)
-    parser.add_argument("--output", required=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--request", required=True, help="Studio project JSON path.")
+    parser.add_argument(
+        "--output", required=True, help="Directory for preview geometry and metadata."
+    )
     args = parser.parse_args(argv)
     request = Path(args.request).resolve()
     output = Path(args.output).resolve()
@@ -45,6 +59,25 @@ def main(argv=None) -> int:
     raw = json.loads(request.read_text(encoding="utf-8"))
     network = raw.setdefault("network", {})
     source = str(raw.get("gui", {}).get("network_source", "svv_generated"))
+    viewer = raw.get("gui", {}).get("viewer", {})
+    vessel_mode = str(viewer.get("vessel_mode", "near")).lower()
+    renderer_limit = min(
+        max(
+            int(viewer.get("renderer_vessel_limit", MAX_PREVIEW_VESSEL_LIMIT)),
+            1,
+        ),
+        MAX_PREVIEW_VESSEL_LIMIT,
+    )
+    requested_vessel_limit = (
+        renderer_limit
+        if vessel_mode == "all"
+        else int(viewer.get("vessel_limit", PREVIEW_VESSEL_LIMIT))
+    )
+    preview_vessel_limit = min(max(requested_vessel_limit, 1), renderer_limit)
+    # The production default reserves four million rows and needlessly costs
+    # ~1 GB here. Size this worker for the effective cross-tab display limit
+    # plus the two rows touched while inserting its final bifurcation.
+    os.environ.setdefault("SVV_TREE_PREALLOCATION_STEP", str(preview_vessel_limit + 2))
     if source == "svv_generated":
         roots = network.get("roots") or (
             [network["root"]] if network.get("root") else []
@@ -62,9 +95,13 @@ def main(argv=None) -> int:
         if sweep_targets:
             final_target = min([final_target, *sweep_targets])
         # A binary SVV tree has approximately 2*T+1 segments for T terminal adds.
-        # Five hundred additions across all trees remains interactive at about
-        # 1,000 rendered segments while preserving common single-tree settings.
-        preview_target = _bounded_preview_target(final_target, n_trees)
+        # Construct enough of the reusable seed for the configured viewer limit;
+        # the final simulation resumes growth from this same seed when necessary.
+        preview_target = _bounded_preview_target(
+            final_target,
+            n_trees,
+            preview_vessel_limit,
+        )
         network["target_terminal_counts"] = [preview_target] * n_trees
         network.pop("target_total_terminal_count", None)
         network.pop("target_terminal_count", None)
@@ -90,16 +127,19 @@ def main(argv=None) -> int:
     config = load_config(prepared)
     preview_domain = _fast_file_preview_domain(config)
     build = build_or_load_network(config, domain_override=preview_domain)
-    seed_path = (
-        save_network_if_requested(build, config)
-        if source == "svv_generated"
-        else Path(str(network.get("input_path", ""))).expanduser().resolve()
-    )
+    if source == "svv_generated":
+        seed_path = save_network_if_requested(build, config)
+    elif source == "custom":
+        seed_path = Path(
+            str(network.get("simple", {}).get("path", ""))
+        ).expanduser().resolve()
+    else:
+        seed_path = Path(str(network.get("input_path", ""))).expanduser().resolve()
 
     starts, ends, radii, alpha, tree_ids = [], [], [], [], []
     root_radii = []
     totals = [int(getattr(tree, "segment_count", 0) or 0) for tree in build.trees]
-    allocations = _fair_allocations(totals, PREVIEW_VESSEL_LIMIT)
+    allocations = _fair_allocations(totals, preview_vessel_limit)
     for tree_id, (tree, take) in enumerate(zip(build.trees, allocations)):
         total = int(getattr(tree, "segment_count", 0) or 0)
         n = min(total, int(take))
@@ -110,15 +150,22 @@ def main(argv=None) -> int:
         ends.append(data[:, 3:6])
         radii.append(data[:, 21])
         root_radii.append(float(data[0, 21]))
-        parents = np.nan_to_num(data[:, 17], nan=-1.0).astype(np.int64)
-        depth = np.zeros(n, dtype=float)
-        for segment_id in range(n):
-            parent_id = int(parents[segment_id])
-            if 0 <= parent_id < segment_id:
-                depth[segment_id] = depth[parent_id] + 1.0
-        depth /= max(float(np.max(depth)), 1.0)
-        # Fade terminal generations and their parents progressively with tree depth.
-        alpha.append(np.clip(1.0 - 0.78 * depth**1.35, 0.18, 1.0))
+        preview_truncated = n < total or (
+            source == "svv_generated" and preview_target < final_target
+        )
+        if preview_truncated:
+            parents = np.nan_to_num(data[:, 17], nan=-1.0).astype(np.int64)
+            depth = np.zeros(n, dtype=float)
+            for segment_id in range(n):
+                parent_id = int(parents[segment_id])
+                if 0 <= parent_id < segment_id:
+                    depth[segment_id] = depth[parent_id] + 1.0
+            depth /= max(float(np.max(depth)), 1.0)
+            # A fading distal edge indicates that the preview ends before the
+            # complete tree; fully represented trees remain uniformly opaque.
+            alpha.append(np.clip(1.0 - 0.65 * depth**1.8, 0.35, 1.0))
+        else:
+            alpha.append(np.ones(n, dtype=float))
         tree_ids.append(np.full(n, tree_id, dtype=np.int32))
     geometry_path = output / "preview.geometry.npz"
     np.savez_compressed(
@@ -139,12 +186,17 @@ def main(argv=None) -> int:
         "segments": totals,
         "shown_segments": allocations,
         "requested_segments": (
-            [2 * final_target + 1] * n_trees if source == "svv_generated" else totals
+            [max(2 * final_target + 1, 0)] * n_trees
+            if source == "svv_generated"
+            else totals
         ),
         "requested_terminal_target": final_target
         if source == "svv_generated"
         else None,
         "preview_terminal_target": preview_target
+        if source == "svv_generated"
+        else None,
+        "preview_vessel_limit": preview_vessel_limit
         if source == "svv_generated"
         else None,
         "preview_limited": bool(
@@ -186,6 +238,10 @@ def _fast_file_preview_domain(config):
         "sphere",
         "pv.sphere",
         "pyvista_sphere",
+        "cylinder",
+        "disk",
+        "pv.cylinder",
+        "pyvista_cylinder",
     }:
         return None
     path = resolve_domain_path(

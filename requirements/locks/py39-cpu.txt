@@ -1,2 +1,3 @@
-# CPU release constraints. This indirection keeps CPU/GPU environments aligned.
+# CPU constraints. This indirection keeps CPU and GPU environments aligned;
+# pass this file to pip with `-c`, as shown in requirements/README.md.
 -c py39-common.txt

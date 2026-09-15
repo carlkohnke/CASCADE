@@ -21,12 +21,17 @@ def _emit(prefix: str, payload: dict[str, Any]) -> None:
 
 def serve() -> int:
     """Read newline-delimited jobs from stdin and keep imports/CUDA warm."""
-    _emit(_READY_PREFIX, {"pid": int(os.getpid()), "protocol": 2})
-    # Let Studio enqueue the first request immediately; scientific imports are
-    # then paid once while the request waits in the stdin pipe.
+    # Import the scientific path before advertising readiness.  Studio starts
+    # this worker in the background, so imports are paid while the user edits
+    # or reviews a case instead of after the Run click.
+    from cascade.commands.main import (
+        execute_configured_run,
+        prepare_configured_run,
+    )
     from cascade.commands.workspace import InteractiveRunWorkspace
 
     workspace = InteractiveRunWorkspace()
+    _emit(_READY_PREFIX, {"pid": int(os.getpid()), "protocol": 3})
     for raw_line in sys.stdin:
         line = raw_line.strip()
         if not line:
@@ -75,15 +80,29 @@ def serve() -> int:
                     pass
                 _emit(_RESULT_PREFIX, {"id": request_id, "exit_code": 0})
                 return 0
+            if command == "prepare":
+                settings_path = request.get("settings")
+                if not isinstance(settings_path, str) or not settings_path:
+                    raise ValueError("worker prepare request requires a settings path")
+                with single_simulation("cascade worker preparation"):
+                    prepared = prepare_configured_run(
+                        settings_path, workspace=workspace
+                    )
+                _emit(
+                    _RESULT_PREFIX,
+                    {
+                        "id": request_id,
+                        "exit_code": 0,
+                        "prepared": True,
+                        **prepared,
+                    },
+                )
+                continue
             if command != "run":
                 raise ValueError(f"unsupported worker command: {command!r}")
             settings_path = request.get("settings")
             if not isinstance(settings_path, str) or not settings_path:
                 raise ValueError("worker run request requires a settings path")
-
-            # Import after the ready marker so Studio can distinguish worker
-            # startup from the first scientific stack initialization.
-            from cascade.commands.main import execute_configured_run
 
             with single_simulation("cascade worker case"):
                 outputs, elapsed = execute_configured_run(
@@ -118,4 +137,3 @@ def serve() -> int:
 
 
 __all__ = ["serve"]
-

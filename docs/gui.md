@@ -17,7 +17,18 @@ uses a sibling `CASCADE-workbench/projects/CASCADE_Project` directory when that
 workbench exists, keeping generated projects and GUI state out of the source
 tree.
 
-Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `--gpu` for CPU-only work). After an editable install, `cascade-gui` is equivalent. On WSL, double-click `GUI Launchers/launch_gui_windows_silent.vbs` for a console-free launch; `GUI Launchers/launch_gui_windows_shell.bat` is the visible diagnostic fallback. Both Windows launchers resolve the checkout containing their folder, so they do not depend on a user-specific path. Linux and macOS users can run `./GUI\ Launchers/launch_gui_linux.sh` after making it executable.
+Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `--gpu` for CPU-only work). After an editable install, `cascade-gui` is equivalent. On WSL with a distribution named `Ubuntu`, double-click `GUI Launchers/launch_gui_windows_silent.vbs` for a console-free launch; `GUI Launchers/launch_gui_windows_shell.bat` is the visible diagnostic fallback. Both Windows launchers resolve the checkout containing their folder, so they do not depend on a user-specific path. Linux and WSL users can run `./GUI\ Launchers/launch_gui_linux.sh` after making it executable.
+
+The WSL launchers use Qt through WSLg's XWayland compatibility transport by
+default. This avoids the blank `[WARN:COPY MODE]` window produced by the native
+Wayland path on some Windows/driver combinations. Set `QT_QPA_PLATFORM`
+explicitly before launch to override that choice.
+The launcher also pins the XWayland cursor to a conventional 16-pixel Adwaita
+pointer because WSLg can otherwise scale the inherited desktop cursor twice.
+When available, the main window uses the standard Windows arrow from the host
+installation instead of exposing that XWayland cursor. Advanced users can
+override these choices with `CASCADE_CURSOR_THEME`, `CASCADE_CURSOR_SIZE`,
+`CASCADE_WINDOWS_CURSOR`, and `CASCADE_WINDOWS_CURSOR_SIZE`.
 
 ## Guided workflow
 
@@ -31,6 +42,19 @@ Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `-
 8. **Results** inspects summary data and scalar-colored vessel/tissue output in the shared interactive viewport.
 
 The tissue-point selector supports random points, a structured Cartesian grid, or a fixed CSV/NPY/NPZ coordinate file. Fixed files make validation runs evaluate identical coordinates; CSV columns are `x,y,z` in centimetres, while NPZ uses `points` or `sample_points` with shape `(N, 3)`.
+
+Lattice sizing can use either the number of cells along X or a physical X
+unit-cell spacing in centimetres. X is the baseline: **Y:X anisotropy** and
+**Z:X anisotropy** multiply that spacing, so values above 1 stretch cells on
+that axis and values below 1 compress them. CASCADE derives the Y and Z grid
+counts from the domain while preserving those physical spacings.
+
+Lattice setup previews construct that exact anisotropic geometry, clip it to the
+actual domain, and only then apply the viewer's nearest-inlet or random display
+selection. The preview and simulation share the same layout calculation, and
+CASCADE never displays a lower-resolution substitute. Requests above the
+one-million-strut interactive construction limit report that an exact preview
+is unavailable; the simulation configuration remains unchanged.
 
 The viewport remains the primary workspace through setup and analysis. Drag to rotate, scroll to zoom, and use **Home** to reset the camera. The gear beside Home opens viewer-wide vessel and tissue sampling controls: choose nearest-inlet, deterministic random, all, or none, and type an explicit display limit. These project-backed controls apply consistently to setup and Results; Results retains only field, colormap, range, scale, opacity, and unit controls. In Results, click a rendered vessel or tissue point to inspect its exported numeric fields in the right-side inspector.
 
@@ -66,8 +90,13 @@ Inlet and outlet locations are entered as one `x, y, z` point per line and snap 
 - A per-user operating-system lock also prevents a separately launched CASCADE CLI simulation from overlapping the Studio worker.
 - Full numerical arrays are never sent to the GUI.
 - The worker retains at most one compatible geometry, one spatial context, and
-  one compact summary result. Incompatible state is evicted before the next
-  job; detailed arrays are exported and released rather than retained.
+  one result. Normal jobs retain only compact summaries. A stable visible setup
+  may prepare one exact detailed result before Run when its arrays fit the
+  default 256 MiB cap; incompatible state is evicted before the next job.
+- Automatic preparation is debounced while settings are changing. Generated
+  cases above 500 requested terminals skip it before domain construction or
+  growth, while already-loaded bounded trees can still prepare. The default
+  pre-solve ceiling is 100,000 segments and one million tissue points.
 - The worker retires after an idle interval and exits when Studio closes,
   releasing Python, CUDA, and allocator state. Memory pressure can force an
   earlier cache eviction and allocator trim.
@@ -75,7 +104,7 @@ Inlet and outlet locations are entered as one `x, y, z` point per line and snap 
   saved network remain enabled for compatibility; disable detailed VTK/network
   output when the fastest summary-only interactive loop is desired.
 - The hardware estimate reserves the larger of 2 GiB or 10% of system RAM for the OS.
-- Viewer-wide typed limits default to 5,000 vessels and 10,000 tissue points and apply to both setup and Results. Generated-network seed construction has its own approximately 1,000-segment responsiveness budget because tree growth, rather than rendering, dominates that path. The OpenGL viewport admits up to 250,000 vessels and 1,000,000 tissue points on hardware acceleration, or 50,000 of each with software OpenGL; the QPainter fallback uses 5,000 vessels and 10,000 tissue points. The status strip always reports displayed versus underlying counts, and the viewport releases CPU/GPU scene buffers while the queue is running.
+- Viewer-wide typed limits default to 5,000 vessels and 10,000 tissue points and apply to both setup and Results. Generated-network setup previews construct enough of the reusable seed to reach the effective vessel display limit for the active renderer; the final simulation resumes growth from that seed when necessary. The OpenGL viewport admits up to 250,000 vessels and 1,000,000 tissue points on hardware acceleration, or 50,000 of each with software OpenGL; the QPainter fallback uses the same 50,000-vessel and 50,000-tissue-point budget. The status strip always reports displayed versus underlying counts, and the viewport releases CPU/GPU scene buffers while the queue is running.
 - Float32 and Int32 are the default export/cache choices where the runtime supports them; the core svVascularize compute path remains float64.
 
 The estimate is intentionally conservative, not a guarantee. FFT workspaces, sparse factorization fill-in, driver allocations, and user-selected expert settings can change peak memory substantially.
@@ -84,12 +113,7 @@ The estimate is intentionally conservative, not a guarantee. FFT workspaces, spa
 
 CASCADE uses centralized visual tokens in `cascade/gui/theme.py` and reusable form primitives in `cascade/gui/widgets.py`. Neutral graphite surfaces carry the interface; plasma/inferno accents indicate selection, transport, progress, and primary actions. The subtle perimeter flow only runs during active computation. Set `CASCADE_REDUCED_MOTION=1` before launch to disable it completely. All primary controls retain keyboard focus styling, state labels accompany color, and scientific values use a monospaced font.
 
-## Current scientific boundaries
+## Limitations
 
-- Pressure-only (inlet pressure plus outlet pressure) flow boundary conditions are shown but blocked because the current CASCADE solve path requires inlet flow plus a pressure reference.
-- A custom wall-exchange `q = κ(C-Cext)` law is displayed but disabled until the runtime exposes a reproducible user-law interface. A separately configurable tissue oxygen-consumption law is a retained future TODO; the current contract is Michaelis-Menten Vmax/Km.
-- Primitive CSG combinations are not yet part of the backend. Explicit segment graphs can be loaded from CASCADE's documented CSV/NPZ schema, and uploaded svVascularize tree/forest objects are supported.
-- Lattice flow and intravascular oxygen are supported through the general graph solver; the existing top-down external-concentration solvers remain tree-specific.
-- Detailed 3D visualization requires VTK output to have been enabled before the run.
-- The current segment exporter provides geometry, radius, flow, hematocrit, and centerline oxygen. Per-segment pressure, wall oxygen, and retained Cext fields need a future runtime/export extension before those scalar choices can appear in the viewer.
-- Moveable tissue slices currently select the exported sample points in a thin slab. The paper's nearest-distance Gaussian resampling is not yet implemented in the viewer.
+See [Known issues and limitations](known-issues.md) for the current scientific,
+visualization, and platform boundaries.

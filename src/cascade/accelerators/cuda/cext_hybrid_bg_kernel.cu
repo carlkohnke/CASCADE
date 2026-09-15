@@ -1,3 +1,5 @@
+// Sample the FFT far/background field at vessel quadrature nodes.
+// hybrid_deposit.py compiles this kernel as the global half of hybrid Cext.
 extern "C" __global__ void cext_hybrid_bg_kernel(
     const int* target_seg_ids,
     const float* gl_points_si,

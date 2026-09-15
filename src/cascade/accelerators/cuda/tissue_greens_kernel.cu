@@ -1,3 +1,5 @@
+// Evaluate tissue oxygen over prefiltered nearest-vessel candidates.
+// concentration/tissue/gpu.py compiles this standard sparse GPU path.
 extern "C" __device__ float interp_lut(float x, const float* xs, const float* ys, int n) {
     if (x <= xs[0]) return ys[0];
     if (x >= xs[n - 1]) return ys[n - 1];

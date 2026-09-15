@@ -62,7 +62,7 @@ def n_matrix(points):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.n_matrix import n_matrix
+        from cascade.domain.svv.core.n_matrix import n_matrix
 
         # Define a set of 2D points
         points = np.array([
@@ -83,8 +83,8 @@ def n_matrix(points):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.n_matrix import n_matrix
-        from svtoolkit.domain.core.a_matrix import a_matrix
+        from cascade.domain.svv.core.n_matrix import n_matrix
+        from cascade.domain.svv.core.a_matrix import a_matrix
 
         # Define a set of points in 3D space
         points = np.random.rand(5, 3)
@@ -101,9 +101,9 @@ def n_matrix(points):
 
     See Also
     --------
-    :func:`svtoolkit.domain.core.a_matrix.a_matrix` : Function to compute the full interpolation matrix A.
-    :func:`svtoolkit.domain.core.m_matrix.m_matrix` : Function to compute the M matrix.
-    :func:`svtoolkit.domain.core.h_matrix.h_matrix` : Function to compute the H matrix for bending energy minimization.
+    :func:`cascade.domain.svv.core.a_matrix.a_matrix` : Function to compute the full interpolation matrix A.
+    :func:`cascade.domain.svv.core.m_matrix.m_matrix` : Function to compute the M matrix.
+    :func:`cascade.domain.svv.core.h_matrix.h_matrix` : Function to compute the H matrix for bending energy minimization.
 
     """
     n = points.shape[0]

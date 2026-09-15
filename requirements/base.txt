@@ -1,3 +1,4 @@
-# Install CASCADE and its public-svv CPU dependencies from the repo root:
+# Core CPU installation. Run from the repository root so `-e .` installs this
+# checkout in editable mode:
 #   python -m pip install -r requirements/base.txt
 -e .

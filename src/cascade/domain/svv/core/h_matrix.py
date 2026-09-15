@@ -91,8 +91,8 @@ def h_matrix(a_, n, d, lam):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.a_matrix import a_matrix
-        from svtoolkit.domain.core.h_matrix import h_matrix
+        from cascade.domain.svv.core.a_matrix import a_matrix
+        from cascade.domain.svv.core.h_matrix import h_matrix
 
         # Define parameters
         n = 5       # Number of points
@@ -116,8 +116,8 @@ def h_matrix(a_, n, d, lam):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.a_matrix import a_matrix
-        from svtoolkit.domain.core.h_matrix import h_matrix
+        from cascade.domain.svv.core.a_matrix import a_matrix
+        from cascade.domain.svv.core.h_matrix import h_matrix
 
         # Define parameters
         n = 4       # Number of points
@@ -141,8 +141,8 @@ def h_matrix(a_, n, d, lam):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.core.a_matrix import a_matrix
-        from svtoolkit.domain.core.h_matrix import h_matrix
+        from cascade.domain.svv.core.a_matrix import a_matrix
+        from cascade.domain.svv.core.h_matrix import h_matrix
         from scipy.linalg import eigh
 
         # Define parameters
@@ -166,9 +166,9 @@ def h_matrix(a_, n, d, lam):
 
     See Also
     --------
-    :func:`svtoolkit.domain.core.a_matrix.a_matrix` : Function to compute the full interpolation matrix A.
-    :func:`svtoolkit.domain.core.m_matrix.m_matrix` : Function to compute the M sub-matrix.
-    :func:`svtoolkit.domain.core.n_matrix.n_matrix` : Function to compute the N sub-matrix.
+    :func:`cascade.domain.svv.core.a_matrix.a_matrix` : Function to compute the full interpolation matrix A.
+    :func:`cascade.domain.svv.core.m_matrix.m_matrix` : Function to compute the M sub-matrix.
+    :func:`cascade.domain.svv.core.n_matrix.n_matrix` : Function to compute the N sub-matrix.
 
     """
     a_inv = np.linalg.inv(a_)

@@ -46,6 +46,29 @@ def build_domain(config: RunConfig, ts=None):
             phi_resolution=int(domain_cfg.phi_resolution),
         )
         return ts.build_domain(mesh=mesh, random_seed=int(domain_cfg.random_seed))
+    if kind in {"cylinder", "disk", "pv.cylinder", "pyvista_cylinder"}:
+        radius = float(
+            domain_cfg.radius
+            if domain_cfg.radius is not None
+            else float(domain_cfg.side_length) / 2.0
+        )
+        height = float(
+            domain_cfg.height
+            if domain_cfg.height is not None
+            else domain_cfg.z_length
+            if domain_cfg.z_length is not None
+            else domain_cfg.side_length
+        )
+        center = tuple(float(v) for v in (domain_cfg.center or [0.0, 0.0, 0.0]))
+        mesh = pv.Cylinder(
+            center=center,
+            direction=(0.0, 0.0, 1.0),
+            radius=radius,
+            height=height,
+            resolution=64,
+            capping=True,
+        ).triangulate().clean()
+        return ts.build_domain(mesh=mesh, random_seed=int(domain_cfg.random_seed))
     if kind in {"box", "rectangular", "rectangular_box"}:
         x_len = float(
             domain_cfg.x_length

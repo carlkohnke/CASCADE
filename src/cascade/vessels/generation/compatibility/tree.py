@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import math
 import os
-from pathlib import Path
 import pickle
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -129,16 +128,10 @@ class TreeCompatibilityMixin:
         if inplace:
             self.data = root
             self.preallocate[0, :] = root
-            #self.data_copy = self.preallocate[:3, :]
             self.connectivity = np.nan_to_num(root[:, 15:18], nan=-1.0).astype(self.index_dtype).reshape(1, 3)
-            #self.preallocate_connectivity[0, :] = self.connectivity
-            #self.connectivity_copy = self.connectivity.copy()
-            #self.connectivity_copy = self.preallocate_connectivity[:3, :]
             self.preallocate_midpoints[0, :] = (root[:, 0:3] + root[:, 3:6]) / 2
             self.midpoints = self.preallocate_midpoints[0, :]
-            #self.midpoints_copy = self.preallocate_midpoints[:1, :]
             self.vessel_map.update(root_map)
-            #self.c_vessel_map = build_c_vessel_map(root_map)
             self.vessel_map_copy = deepcopy(self.vessel_map)
             self.n_terminals = 1
             self.kdtm = KDTreeManager(((root[:, 0:3] + root[:, 3:6]) / 2).reshape(1, 3))
@@ -148,8 +141,6 @@ class TreeCompatibilityMixin:
             self.max_distal_node = 1
             self.tree_scale = np.pi * root[0, 21]**self.parameters.radius_exponent*root[0, 20]**self.parameters.length_exponent
             self.segment_count = 1
-            #self.rtree = RTree()
-            #self.rtree.insert(((root[:, 0:3] + root[:, 3:6]) / 2).reshape(1, 3))
         else:
             connectivity = np.nan_to_num(root[:, 15:18], nan=-1.0).astype(self.index_dtype).reshape(1, 3)
             kdtm = KDTreeManager(((root[:, 0:3] + root[:, 3:6]) / 2).reshape(1, 3))
@@ -166,18 +157,15 @@ class TreeCompatibilityMixin:
                 "CCO growth requires float64 tree data. "
                 "Load or build float64 trees for CCO, or use terminal-only equal-bifurcation mode."
             )
+        # A preview/checkpoint file may contain only enough spare rows for the
+        # seed that was saved.  Resume growth must expand that buffer before
+        # appending two child segments; otherwise a valid seed fails exactly at
+        # its original capacity boundary.
+        self.ensure_preallocation(int(self.segment_count) + 2)
         all_start = perf_counter()
         decay_probability = kwargs.pop('decay_probability', 0.9)
         new_data, added_vessels, new_vessel_map, history, lines, nonconvex_outside, new_inds, mesh_cell, connectivity, change_i, change_j, new_tmp_data, old_tmp_data = add_vessel(self, **kwargs)
         start = perf_counter()
-        #native_volume = np.sum(np.pi*new_data[:, 21]**2.0*new_data[:, 20])
-        #assert np.isclose(native_volume,self.new_tree_scale), "native {} cost {} volumes do not match ".format(native_volume, self.new_tree_scale)
-        #results = tuple([new_data, added_vessels, new_vessel_map, history, lines])
-        #check = check_tree(self, results)
-        #if not check[0]:
-        #    print("Tree is not valid.")
-        #    return check[1], check[2]
-        #start = perf_counter()
         if not self.convex:
             if nonconvex_outside:
                 self.nonconvex_count = 0
@@ -186,85 +174,42 @@ class TreeCompatibilityMixin:
             if self.nonconvex_count > self.parameters.max_nonconvex_count:
                 self.convex = True
         if inplace:
-            #start_5 = perf_counter()
-            #_data = TreeData(new_data.shape)
-            #_data[:, :] = new_data[:, :]
-            #self.data = _data
-            #end_5 = perf_counter()
-            #self.times['chunk_5'].append(end_5-start_5)
             start_chunk_4_0 = perf_counter()
-            #new_data = np.vstack([self.data, added_vessels[0], added_vessels[1]])
             self.preallocate[self.segment_count,:] = added_vessels[0]
             self.preallocate[self.segment_count+1,:] = added_vessels[1]
             end_chunk_4_0 = perf_counter()
             self.times['chunk_4_0'].append(end_chunk_4_0 - start_chunk_4_0)
             start_chunk_4_1 = perf_counter()
-            #new_data[change_i, change_j] = np.array(new_tmp_data)
             change_i = np.array(change_i, dtype=int)
             change_j = np.array(change_j, dtype=int)
-            #if change_i.shape[0] > 10000:
-            #    #print('parallel')
-            #    parallel_scatter_update(self.preallocate, change_i, change_j, np.array(new_tmp_data))
-            #else:
             self.preallocate[change_i, change_j] = np.array(new_tmp_data)
             end_chunk_4_1 = perf_counter()
             self.times['chunk_4_1'].append(end_chunk_4_1 - start_chunk_4_1)
             start_chunk_4_2 = perf_counter()
-            #self.data = TreeData.from_array(new_data)
             self.data = self.preallocate[:self.segment_count+2,:]
             new_data = self.data
             end_chunk_4_2 = perf_counter()
             self.times['chunk_4_2'].append(end_chunk_4_2 - start_chunk_4_2)
-            #np.copyto(self.preallocate[:new_data.shape[0], :], new_data)
-            #self.data_copy = self.preallocate[:(new_data.shape[0] + 2), :]
-            #self.vessel_map_copy = ChainMap(new_vessel_map, self.vessel_map)
             start_chunk_4_3 = perf_counter()
             for key in new_vessel_map.keys():
                 if key in self.vessel_map.keys():
-                    #print("new_vessel_map: {}".format(new_vessel_map))
-                    #print("vessel_map: {}".format(self.vessel_map))
                     self.vessel_map[key]['upstream'].extend(new_vessel_map[key]['upstream'])
-                    #_, counts = np.unique(self.vessel_map[key]['upstream'], return_counts=True)
-                    #assert np.all(counts == 1), "Fail in appending upstream idxs.\nkey: {}\nprevious: {}\nextension: {}".format(key, self.vessel_map[key]['upstream'],
-                    #                                                                                                   new_vessel_map[key]['upstream'])
                     self.vessel_map[key]['downstream'].extend(new_vessel_map[key]['downstream'])
-                    #_, counts = np.unique(self.vessel_map[key]['downstream'], return_counts=True)
-                    #assert np.all(counts == 1), "Fail in appending downstream idxs"
                 else:
                     self.vessel_map[key] = deepcopy(new_vessel_map[key])
             end_chunk_4_3 = perf_counter()
             self.times['chunk_4_3'].append(end_chunk_4_3 - start_chunk_4_3)
-            #self.vessel_map = ChainMap(new_vessel_map, self.vessel_map)
             self.n_terminals += 1
             self.segment_count += 2
             self.connectivity = connectivity #self.connectivity_copy.view()
-            #self.connectivity_copy = self.preallocate_connectivity[:(self.connectivity_copy.shape[0] + 2), :]
             self.max_distal_node += 2
             if mesh_cell >= 0:
                 self.probability[mesh_cell] *= decay_probability
                 self.probability = self.probability / self.probability.sum()
                 self.domain.cumulative_probability = np.cumsum(self.probability)
-                #self.domain.mesh.cell_data['probability'][mesh_cell] *= decay_probability
-                #self.domain.mesh.cell_data['probability'] = self.domain.mesh.cell_data['probability'] / \
-                #                                            self.domain.mesh.cell_data['probability'].sum()
-                #self.domain.cumulative_probability = np.cumsum(self.domain.mesh.cell_data['probability'])
-            #self.kdtm.start_update(((new_data[:, 0:3] + new_data[:, 3:6]) / 2))
-            #self.rtree.replace(new_inds[0], ((new_data[new_inds[0], 0:3] + new_data[new_inds[0], 3:6]) / 2).flatten().tolist())
-            #self.rtree.rtree_index.insert(new_inds[1], ((new_data[new_inds[1], 0:3] + new_data[new_inds[1], 3:6]) / 2).flatten().tolist())
-            #self.rtree.points.append(((new_data[new_inds[1], 0:3] + new_data[new_inds[1], 3:6]) / 2).flatten().tolist())
-            #self.rtree.rtree_index.insert(new_inds[2], ((new_data[new_inds[2], 0:3] + new_data[new_inds[2], 3:6]) / 2).flatten().tolist())
-            #self.rtree.points.append(((new_data[new_inds[2], 0:3] + new_data[new_inds[2], 3:6]) / 2).flatten().tolist())
-            #self.kdtm.wait_for_update()
-            #self.kdtm.swap_trees()
-            #if self.n_terminals % 10000 == 0:
-            #    self.hnsw_tree = USearchTree(((new_data[:, 0:3] + new_data[:, 3:6])/2).astype(np.float32))
-            #else:
             self.hnsw_tree.replace(((new_data[new_inds[0], 0:3] + new_data[new_inds[0], 3:6]) / 2).reshape(1, 3).astype(np.float32), np.array([new_inds[0]]))
             self.hnsw_tree.add_items(((new_data[new_inds[1], 0:3] + new_data[new_inds[1], 3:6]) / 2).reshape(1, 3).astype(np.float32), np.array([new_inds[1]]))
             self.hnsw_tree.add_items(((new_data[new_inds[2], 0:3] + new_data[new_inds[2], 3:6]) / 2).reshape(1, 3).astype(np.float32), np.array([new_inds[2]]))
-            #self.preallocate_midpoints[new_inds, :] = (new_data[new_inds, 0:3] + new_data[new_inds, 3:6])/2
-            #self.midpoints_copy = self.preallocate_midpoints[:new_data.shape[0], :]
-            #self.preallocate_midpoints[:self.segment_count, :] = (new_data[:, 0:3] + new_data[:, 3:6])/2
             self.preallocate_midpoints[new_inds, :] = (new_data[new_inds, 0:3] + new_data[new_inds, 3:6]) / 2
             self.tree_scale = self.new_tree_scale
             end = perf_counter()
@@ -275,7 +220,6 @@ class TreeCompatibilityMixin:
             end = perf_counter()
             self.times['chunk_4'].append(end - start)
             self.times['all'].append(end - all_start)
-            #return new_data, added_vessels, new_vessel_map, history, lines, nonconvex_outside, new_inds, mesh_cell
             return change_i, change_j, new_tmp_data, old_tmp_data, new_vessel_map, connectivity, new_inds, mesh_cell, added_vessels
 
     def n_add(self, n, **kwargs):
@@ -576,7 +520,6 @@ class TreeCompatibilityMixin:
             return np.full((parent_idx.size,), float(base_length), dtype=float)
 
         data = np.asarray(self.data[:seg_count])
-        parent_start = data[parent_idx, 0:3]
         parent_end = data[parent_idx, 3:6]
         lengths = np.asarray(data[:, 20], dtype=float)
         bad = ~np.isfinite(lengths) | (lengths <= 0.0)
@@ -1196,20 +1139,51 @@ class TreeCompatibilityMixin:
         # memory for large validation trees.  Match the frozen TissueSim
         # analysis loader by never touching the payload in this mode.
         if analysis_only:
-            with np.load(path, allow_pickle=False) as npz:
-                data = npz["data"]
+            from cascade.vessels.metadata import inspect_network
+            from cascade.vessels.prepared import find_prepared_tree
+
+            archive_metadata = inspect_network(path)
+            source_dtype = (
+                np.dtype(archive_metadata.data_dtypes[0])
+                if archive_metadata.data_dtypes
+                else np.dtype(np.float64)
+            )
             resolved_data_dtype = _normalize_float_dtype(
-                data_dtype if data_dtype is not None else os.environ.get("SVV_TREE_DATA_DTYPE"),
-                data.dtype,
+                data_dtype
+                if data_dtype is not None
+                else os.environ.get("SVV_TREE_DATA_DTYPE"),
+                source_dtype,
             )
             resolved_index_dtype = _normalize_int_dtype(
-                index_dtype if index_dtype is not None else os.environ.get("SVV_TREE_INDEX_DTYPE"),
+                index_dtype
+                if index_dtype is not None
+                else os.environ.get("SVV_TREE_INDEX_DTYPE"),
                 np.int64,
             )
-            if data.dtype != resolved_data_dtype:
-                data = np.asarray(data, dtype=resolved_data_dtype)
+            prepared = find_prepared_tree(
+                path,
+                data_dtype=resolved_data_dtype,
+                index_dtype=resolved_index_dtype,
+            )
+            if prepared is not None:
+                # Copy-on-write keeps the persistent cache immutable while
+                # allowing legacy solve paths to update private working pages.
+                data = np.load(prepared.data, mmap_mode="c", allow_pickle=False)
+                exact_connectivity = np.load(
+                    prepared.connectivity, mmap_mode="r", allow_pickle=False
+                )
+                exact_node_ids = np.load(
+                    prepared.node_ids, mmap_mode="r", allow_pickle=False
+                )
             else:
-                data = np.asarray(data)
+                with np.load(path, allow_pickle=False) as npz:
+                    data = npz["data"]
+                exact_connectivity = None
+                exact_node_ids = None
+                if data.dtype != resolved_data_dtype:
+                    data = np.asarray(data, dtype=resolved_data_dtype)
+                else:
+                    data = np.asarray(data)
             domain = cls._coerce_domain(domain)
             tree = cls(
                 preallocation_step=1,
@@ -1220,13 +1194,26 @@ class TreeCompatibilityMixin:
             tree.data = tree_data
             tree.preallocate = tree_data
             tree.segment_count = int(data.shape[0])
-            if data.ndim == 2 and data.shape[1] > 16:
+            if exact_connectivity is not None:
+                terminal_mask = (exact_connectivity[:, 0] < 0) & (
+                    exact_connectivity[:, 1] < 0
+                )
+                inferred_terminals = int(np.count_nonzero(terminal_mask))
+            elif data.ndim == 2 and data.shape[1] > 16:
                 terminal_mask = np.isnan(data[:, 15]) & np.isnan(data[:, 16])
                 inferred_terminals = int(np.count_nonzero(terminal_mask))
             else:
                 inferred_terminals = 0
             tree.n_terminals = inferred_terminals or max((tree.segment_count + 1) // 2, 0)
-            distal_nodes = data[:, 19] if data.ndim == 2 and data.shape[1] > 19 else np.empty((0,))
+            distal_nodes = (
+                exact_node_ids[:, 1]
+                if exact_node_ids is not None
+                else (
+                    data[:, 19]
+                    if data.ndim == 2 and data.shape[1] > 19
+                    else np.empty((0,))
+                )
+            )
             finite_distal = distal_nodes[np.isfinite(distal_nodes)]
             tree.max_distal_node = int(np.max(finite_distal)) if finite_distal.size else tree.segment_count
             if data.ndim == 2 and data.shape[1] > 21:
@@ -1242,7 +1229,9 @@ class TreeCompatibilityMixin:
             tree.preallocation_step = tree.segment_count
             tree.preallocate_midpoints = np.empty((0, 3), dtype=resolved_data_dtype)
             tree.midpoints = tree.preallocate_midpoints
-            tree.connectivity = None
+            tree.connectivity = exact_connectivity
+            if exact_node_ids is not None:
+                tree._cascade_node_ids = exact_node_ids
             tree.vessel_map = TreeMap()
             tree.kdtm = None
             tree.hnsw_tree = None
@@ -1250,6 +1239,7 @@ class TreeCompatibilityMixin:
             tree.domain = domain
             tree.probability = None
             tree._analysis_only_load = True
+            tree._cascade_prepared_mmap = prepared is not None
             return tree
 
         with np.load(path, allow_pickle=True) as npz:

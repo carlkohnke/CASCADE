@@ -1,3 +1,5 @@
+// Evaluate Cext-derived tissue oxygen over supplied nearest-source candidates.
+// concentration/tissue/gpu.py compiles this kernel through CuPy/NVRTC.
 extern "C" __global__ void cext_tissue_greens_kernel(
     const float* points_si,
     const int* nearest_idx,

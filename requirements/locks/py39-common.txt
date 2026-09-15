@@ -1,5 +1,6 @@
-# CASCADE 0.1.0rc4 validated constraints.
-# Python 3.9.20, Linux x86-64, generated 2026-09-09.
+# Fully pinned dependencies shared by the CPU and CUDA 13 environments.
+# Apply this Linux x86-64/Python 3.9.20 file as a pip constraint; do not
+# install it as a standalone requirements file.
 addict==2.4.0
 annotated-types==0.7.0
 anyio==4.12.1

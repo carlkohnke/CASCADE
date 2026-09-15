@@ -1,3 +1,5 @@
+// Deposit active vessel source strengths into lambda-binned FFT grids.
+// hybrid_geometry.py uses precomputed interpolation indices and weights here.
 extern "C" __global__ void cext_hybrid_deposit_kernel(
     const float* q_weighted_gl,
     const float* lambda_iv_gl,

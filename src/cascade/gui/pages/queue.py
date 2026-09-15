@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
     QTableWidget,
@@ -29,6 +30,7 @@ from cascade.gui.theme import Tokens
 from cascade.gui.widgets import (
     Card,
     FocusPlainTextEdit,
+    labeled,
 )
 from datetime import (
     datetime,
@@ -55,6 +57,9 @@ class QueuePage(Page):
             parent,
         )
         control = Card("Queue controls")
+        self.run_name = QLineEdit("Run 001")
+        self.run_name.setPlaceholderText("Run 001")
+        control.add(labeled("Run name", self.run_name))
         toolbar = QWidget()
         row = QHBoxLayout(toolbar)
         row.setContentsMargins(0, 0, 0, 0)
@@ -115,17 +120,21 @@ class QueuePage(Page):
         small = QWidget()
         small_row = QHBoxLayout(small)
         small_row.setContentsMargins(0, 0, 0, 0)
-        self.remove_btn = QPushButton("Remove selected")
+        self.remove_btn = QPushButton("Clear selected")
         self.remove_btn.setProperty("secondary", True)
         self.remove_btn.setEnabled(False)
-        self.clear_btn = QPushButton("Clear finished")
+        self.clear_btn = QPushButton("Clear finished from queue")
         self.clear_btn.setProperty("secondary", True)
         self.clear_btn.setEnabled(False)
+        self.delete_btn = QPushButton("Delete run files")
+        self.delete_btn.setProperty("secondary", True)
+        self.delete_btn.setEnabled(False)
         self.open_sweep_csv_btn = QPushButton("Open sweep CSV")
         self.open_sweep_csv_btn.setProperty("secondary", True)
         self.open_sweep_csv_btn.setEnabled(False)
         small_row.addWidget(self.remove_btn)
         small_row.addWidget(self.clear_btn)
+        small_row.addWidget(self.delete_btn)
         small_row.addWidget(self.open_sweep_csv_btn)
         small_row.addStretch()
         jobs.add(small)
@@ -148,6 +157,7 @@ class QueuePage(Page):
         self.column.addWidget(self.diagnostics_panel)
         self.finish()
         self.runner: JobRunner | None = None
+        self._setup_changed = True
         self.runtime_timer = QTimer(self)
         self.runtime_timer.setInterval(1000)
         self.runtime_timer.timeout.connect(self.refresh)
@@ -162,6 +172,7 @@ class QueuePage(Page):
         self.clear_btn.clicked.connect(
             lambda: self.runner and self.runner.clear_finished()
         )
+        self.delete_btn.clicked.connect(self._delete)
         self.open_sweep_csv_btn.clicked.connect(self._open_sweep_csv)
         self.details_btn.toggled.connect(self._toggle_diagnostics)
         self.table.itemSelectionChanged.connect(self._show_selected_log)
@@ -198,6 +209,7 @@ class QueuePage(Page):
             "Running": Tokens.TEXT,
             "Queued": Tokens.AMBER,
             "Cancelled": Tokens.TEXT_3,
+            "Interrupted": Tokens.AMBER,
         }
         for row, job in enumerate(self.runner.jobs):
             self._render_job_row(row, job, tones)
@@ -232,6 +244,7 @@ class QueuePage(Page):
             "Running": Tokens.TEXT,
             "Queued": Tokens.AMBER,
             "Cancelled": Tokens.TEXT_3,
+            "Interrupted": Tokens.AMBER,
         }
         self._render_job_row(row, job, tones)
         self._update_action_states()
@@ -273,7 +286,9 @@ class QueuePage(Page):
         results.setProperty("secondary", True)
         results.setToolTip(str(job.output_dir))
         results.clicked.connect(
-            lambda _checked=False, path=str(job.output_dir): open_folder(path)
+            lambda _checked=False, path=str(job.output_dir): self._open_results_folder(
+                path
+            )
         )
         self.table.setCellWidget(row, 4, results)
         self.table.setRowHeight(row, 46 if job.status == "Running" else 38)
@@ -316,11 +331,22 @@ class QueuePage(Page):
 
     def _update_action_states(self):
         running = bool(self.runner and self.runner.running)
-        selected = bool(self.runner and self.selected_ids())
-        queued = bool(
-            self.runner and any(job.status == "Queued" for job in self.runner.jobs)
-        )
         selected_ids = set(self.selected_ids()) if self.runner else set()
+        selected_runnable = bool(
+            self.runner
+            and any(
+                job.id in selected_ids
+                and job.status in {"Queued", "Failed", "Cancelled", "Interrupted"}
+                for job in self.runner.jobs
+            )
+        )
+        queued = bool(
+            self.runner
+            and any(
+                job.status in {"Queued", "Failed", "Cancelled", "Interrupted"}
+                for job in self.runner.jobs
+            )
+        )
         active_id = getattr(getattr(self.runner, "current", None), "id", None)
         removable = bool(selected_ids) and active_id not in selected_ids
         finished = bool(
@@ -330,13 +356,15 @@ class QueuePage(Page):
                 for job in self.runner.jobs
             )
         )
-        self.add_btn.setEnabled(not running)
-        self.add_run_btn.setEnabled(not running)
-        self.run_selected_btn.setEnabled(not running and selected)
+        can_add = not running and self._setup_changed
+        self.add_btn.setEnabled(can_add)
+        self.add_run_btn.setEnabled(can_add)
+        self.run_selected_btn.setEnabled(not running and selected_runnable)
         self.run_all_btn.setEnabled(not running and queued)
         self.cancel_btn.setEnabled(running)
         self.remove_btn.setEnabled(removable)
         self.clear_btn.setEnabled(finished)
+        self.delete_btn.setEnabled(removable)
         selected_job = next(
             (
                 job
@@ -348,6 +376,10 @@ class QueuePage(Page):
         self.open_sweep_csv_btn.setEnabled(
             bool(selected_job and Path(str(selected_job.combined_csv_path)).is_file())
         )
+
+    def set_setup_changed(self, changed: bool) -> None:
+        self._setup_changed = bool(changed)
+        self._update_action_states()
 
     def _run_selected(self):
         selected = self.selected_ids()
@@ -361,6 +393,33 @@ class QueuePage(Page):
             self.runner.remove(self.selected_ids())
         except Exception as exc:
             QMessageBox.warning(self, "Cannot remove job", str(exc))
+
+    def _delete(self):
+        if not self.runner:
+            return
+        ids = self.selected_ids()
+        if not ids:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete run files?",
+            "Permanently delete the selected run folders and their results?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            self.runner.delete(ids)
+        except Exception as exc:
+            QMessageBox.warning(self, "Cannot delete run files", str(exc))
+
+    def requested_run_name(self) -> str:
+        return self.run_name.text().strip() or self.run_name.placeholderText()
+
+    def advance_run_name(self) -> None:
+        count = len(self.runner.jobs) + 1 if self.runner else 1
+        self.run_name.setText(f"Run {count:03d}")
 
     def _open_sweep_csv(self):
         if not self.runner:
@@ -379,6 +438,12 @@ class QueuePage(Page):
                 open_path(job.combined_csv_path)
             except Exception as exc:
                 QMessageBox.warning(self, "Cannot open sweep CSV", str(exc))
+
+    def _open_results_folder(self, path):
+        try:
+            open_folder(path)
+        except Exception as exc:
+            QMessageBox.warning(self, "Cannot open results folder", str(exc))
 
     def _append_log(self, job_id, line):
         if not self.selected_ids() or job_id in self.selected_ids():

@@ -11,7 +11,7 @@ import numpy as np
 
 from cascade.configuration.parsing import reject_unknown
 from cascade.configuration.schema import RunConfig
-from .lattice import LATTICE_TYPES, generate_lattice
+from .lattice import LATTICE_TYPES, generate_lattice, resolve_lattice_layout
 
 
 @dataclass
@@ -74,6 +74,10 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
             "lattice_type",
             "cells",
             "cells_per_axis",
+            "sizing_mode",
+            "cell_spacing_cm",
+            "anisotropy_yx",
+            "anisotropy_zx",
             "inlet_points_cm",
             "outlet_points_cm",
             "radius_expression",
@@ -139,9 +143,18 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
         solve_separate = False
     elif is_lattice:
         lattice_type = "cubic" if lattice_type == "lattice" else lattice_type
-        lattice = generate_lattice(
-            int(raw.get("cells", raw.get("cells_per_axis", 4))),
+        layout = resolve_lattice_layout(
             dims,
+            cells=int(raw.get("cells", raw.get("cells_per_axis", 4))),
+            sizing_mode=str(raw.get("sizing_mode", "cells")),
+            cell_spacing_cm=raw.get("cell_spacing_cm"),
+            anisotropy_yx=float(raw.get("anisotropy_yx", 1.0)),
+            anisotropy_zx=float(raw.get("anisotropy_zx", 1.0)),
+            lattice_type=lattice_type,
+        )
+        lattice = generate_lattice(
+            int(layout["generator_cells"]),
+            tuple(float(v) for v in layout["generator_dimensions_cm"]),
             radius,
             lattice_type=lattice_type,
             inlet_points_cm=raw.get("inlet_points_cm"),
@@ -150,8 +163,12 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
             subdivisions=int(
                 raw.get("subdivisions", raw.get("segment_subdivisions", 1))
             ),
-            center_cm=domain_center,
+            center_cm=tuple(
+                float(domain_center[axis] + layout["generator_center_offset_cm"][axis])
+                for axis in range(3)
+            ),
             node_inside=domain.within,
+            radius_reference_dimensions_cm=dims,
         )
         starts = np.asarray(lattice["segment_starts_cm"], dtype=float)
         ends = np.asarray(lattice["segment_ends_cm"], dtype=float)
@@ -165,7 +182,17 @@ def build_simple_network(ts, domain, config: RunConfig) -> SimpleNetwork:
         solve_separate = False
         lattice_meta = {
             "lattice_type": lattice_type,
-            "cells": int(lattice["cells"]),
+            "cells": int(layout["cells_along_x"]),
+            "sizing_mode": str(layout["sizing_mode"]),
+            "cell_spacing_cm": float(layout["cell_spacing_cm"]),
+            "unit_cell_spacing_cm": np.asarray(layout["unit_cell_spacing_cm"]).tolist(),
+            "cells_per_axis": np.asarray(layout["axis_cells"]).tolist(),
+            "anisotropy_yx": float(layout["anisotropy_yx"]),
+            "anisotropy_zx": float(layout["anisotropy_zx"]),
+            "generator_cells": int(layout["generator_cells"]),
+            "generator_center_offset_cm": np.asarray(
+                layout["generator_center_offset_cm"]
+            ).tolist(),
             "subdivisions": int(lattice["subdivisions"]),
             "radius_expression": str(lattice["radius_expression"]),
             "inlet_points_cm": np.asarray(lattice["inlet_points_cm"]).tolist(),
@@ -362,9 +389,10 @@ def _load_custom_geometry(
     """Load an explicit segment network from CSV or NPZ.
 
     CSV requires start_x/start_y/start_z and end_x/end_y/end_z in centimetres.
-    radius_cm and prox_id/dist_id are optional. NPZ uses starts, ends, radii,
-    prox_ids and dist_ids arrays. When node IDs are omitted they are inferred
-    by matching segment endpoints exactly after rounding to 12 decimal places.
+    radius_cm is required; prox_id/dist_id are optional. NPZ uses starts, ends,
+    radii, prox_ids and dist_ids arrays. When node IDs are omitted they are
+    inferred by matching segment endpoints exactly after rounding to 12 decimal
+    places.
     """
     if not path.is_file():
         raise FileNotFoundError(f"Custom geometry file not found: {path}")
@@ -380,6 +408,12 @@ def _load_custom_geometry(
             raise ValueError(
                 f"Custom geometry CSV is missing columns: {', '.join(missing)}"
             )
+        if "radius_cm" not in rows[0] or any(
+            not str(row.get("radius_cm", "")).strip() for row in rows
+        ):
+            raise ValueError(
+                "Custom geometry CSV requires a radius_cm value for every segment."
+            )
         starts = np.asarray(
             [[float(row[name]) for name in coordinate_fields[:3]] for row in rows],
             dtype=float,
@@ -388,10 +422,7 @@ def _load_custom_geometry(
             [[float(row[name]) for name in coordinate_fields[3:]] for row in rows],
             dtype=float,
         )
-        radii = np.asarray(
-            [float(row.get("radius_cm") or default_radius_cm) for row in rows],
-            dtype=float,
-        )
+        radii = np.asarray([float(row["radius_cm"]) for row in rows], dtype=float)
         if {"prox_id", "dist_id"}.issubset(rows[0]):
             prox_ids = np.asarray([int(row["prox_id"]) for row in rows], dtype=np.int64)
             dist_ids = np.asarray([int(row["dist_id"]) for row in rows], dtype=np.int64)
@@ -401,11 +432,12 @@ def _load_custom_geometry(
         with np.load(path, allow_pickle=False) as data:
             starts = np.asarray(data["starts"], dtype=float)
             ends = np.asarray(data["ends"], dtype=float)
-            radii = (
-                np.asarray(data["radii"], dtype=float)
-                if "radii" in data
-                else np.full(starts.shape[0], default_radius_cm)
-            )
+            if "radii" not in data:
+                raise ValueError(
+                    "Custom geometry NPZ requires a radii array with one value "
+                    "per segment."
+                )
+            radii = np.asarray(data["radii"], dtype=float)
             if "prox_ids" in data and "dist_ids" in data:
                 prox_ids = np.asarray(data["prox_ids"], dtype=np.int64)
                 dist_ids = np.asarray(data["dist_ids"], dtype=np.int64)

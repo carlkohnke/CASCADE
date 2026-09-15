@@ -1,4 +1,9 @@
-"""Bounded installed-package self-test for CASCADE users and release CI."""
+"""Run CASCADE's bounded installed-package simulation and export self-test.
+
+Invoke this through ``cascade self-test`` after installation. By default the
+temporary output is removed; ``--keep`` or ``--output-dir`` retains evidence,
+and ``--require-gpu`` additionally exercises the CUDA Cext and tissue paths.
+"""
 
 from __future__ import annotations
 
@@ -24,9 +29,10 @@ def _run_case(root: Path, *, require_gpu: bool) -> dict[str, Any]:
     # geometry for the executable smoke so this check measures simulation and
     # export rather than stochastic CCO growth.
     starter = parse_config(example_config())
-    if gpu_requested(starter):
+    if not gpu_requested(starter):
         raise RuntimeError(
-            "The generated starter configuration unexpectedly requires a GPU."
+            "The generated starter configuration did not select the shared "
+            "Studio/CLI GPU default."
         )
 
     # Create a deterministic one-segment input through CASCADE's public-svv

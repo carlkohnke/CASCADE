@@ -8,6 +8,7 @@ import os
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
+    QBrush,
     QColor,
     QLinearGradient,
     QPainter,
@@ -25,6 +26,7 @@ from cascade.gui.visualization.fields import (
     _point_array,
     _scientific,
     _triangle_array,
+    _value_pairs,
     _values,
 )
 
@@ -129,8 +131,15 @@ class GeometryCanvas(QWidget):
     """Small-memory mouse-navigable 3D line and point renderer."""
 
     renderer_backend = "software-qpaint"
-    vessel_preview_limit = 5_000
-    tissue_preview_limit = 10_000
+    # Keep both fallback layers on the same budget. CasePreview owns the
+    # universal selection policy, so this renderer must not silently impose a
+    # smaller vessel limit only on Results.
+    vessel_preview_limit = 50_000
+    # Tissue points are submitted in color/opacity batches by
+    # ``_draw_tissue_points`` rather than painted one at a time.  Keep the
+    # software fallback aligned with software OpenGL so an accepted viewer
+    # setting is not silently reduced to the old 10k ceiling.
+    tissue_preview_limit = 50_000
 
     selection_changed = Signal(object)
 
@@ -153,15 +162,26 @@ class GeometryCanvas(QWidget):
         self.tissue_values: np.ndarray | None = None
         self.tissue_alpha = np.empty((0,), dtype=np.float32)
         self.colormap = "plasma"
+        self.vessel_colormap = "plasma"
+        self.tissue_colormap = "plasma"
         self.vessel_range: tuple[float | None, float | None] = (None, None)
         self.tissue_range: tuple[float | None, float | None] = (None, None)
+        self.tissue_range_inherit = (False, False)
         self.vessel_scale = "linear"
         self.tissue_scale = "linear"
         self.vessel_label = "Vessels"
         self.tissue_label = "Tissue"
         self.vessel_opacity = 1.0
         self.tissue_opacity = 0.38
+        self.vessel_placeholder = False
+        self._placeholder_epoch = 0.0
+        from PySide6.QtCore import QTimer
+
+        self._placeholder_timer = QTimer(self)
+        self._placeholder_timer.setInterval(45)
+        self._placeholder_timer.timeout.connect(self.update)
         self._rotation = self._home_rotation()
+        self._model_rotation = np.eye(3, dtype=float)
         self._zoom = 0.82
         self._last_mouse = QPoint()
         self._press_mouse = QPoint()
@@ -170,6 +190,33 @@ class GeometryCanvas(QWidget):
         self._center = np.zeros(3, dtype=float)
         self._span = 1.0
         self.message = "no case defined"
+
+    def set_vessel_placeholder(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self.vessel_placeholder:
+            return
+        self.vessel_placeholder = enabled
+        if enabled:
+            from time import monotonic
+
+            self._placeholder_epoch = monotonic()
+            self._placeholder_timer.start()
+        else:
+            self._placeholder_timer.stop()
+        self.update()
+
+    def _display_vessel_alpha(self, index: int) -> float:
+        base = float(self.vessel_alpha[index])
+        if not self.vessel_placeholder:
+            return base
+        from time import monotonic
+
+        depth = max((1.0 - base) / 0.18, 0.0)
+        phase = ((monotonic() - self._placeholder_epoch) * 2.0) % 6.0
+        separation = abs(depth - phase)
+        separation = min(separation, 6.0 - separation)
+        pulse = math.exp(-1.8 * separation * separation)
+        return base * (0.38 + 0.62 * pulse)
 
     def clear(self, message: str = "preview paused") -> None:
         self.set_geometry(message=message)
@@ -189,6 +236,7 @@ class GeometryCanvas(QWidget):
         tissue_points: np.ndarray | None = None,
         tissue_values: np.ndarray | None = None,
         tissue_alpha: np.ndarray | None = None,
+        model_rotation: np.ndarray | None = None,
         message: str = "",
     ) -> None:
         self.domain_lines = _line_array(domain_lines)
@@ -198,7 +246,7 @@ class GeometryCanvas(QWidget):
         n = min(len(self.vessel_starts), len(self.vessel_ends))
         self.vessel_starts = self.vessel_starts[:n]
         self.vessel_ends = self.vessel_ends[:n]
-        self.vessel_values = _values(vessel_values, n)
+        self.vessel_values = _value_pairs(vessel_values, n)
         self.vessel_radii = _values(vessel_radii, n)
         if vessel_alpha is None:
             self.vessel_alpha = np.ones(n, dtype=np.float32)
@@ -210,6 +258,11 @@ class GeometryCanvas(QWidget):
         self.tissue_values = _values(tissue_values, len(self.tissue_points))
         self.tissue_alpha = np.clip(
             _values(tissue_alpha, len(self.tissue_points), fill=1.0), 0.0, 1.0
+        )
+        self._model_rotation = (
+            np.eye(3, dtype=float)
+            if model_rotation is None
+            else np.asarray(model_rotation, dtype=float).reshape(3, 3).copy()
         )
         self._selected_vessel = -1
         self._selected_tissue = -1
@@ -282,7 +335,7 @@ class GeometryCanvas(QWidget):
         if not len(points):
             return np.empty((0, 2)), np.empty((0,))
         p = (np.asarray(points, dtype=float) - self._center) / self._span
-        rotated = p @ self._rotation.T
+        rotated = p @ (self._rotation @ self._model_rotation).T
         x, y, depth = rotated[:, 0], rotated[:, 1], rotated[:, 2]
         perspective = 1.0 / np.clip(1.55 - 0.42 * depth, 0.75, 2.2)
         scale = min(self.width(), self.height()) * self._zoom
@@ -342,19 +395,6 @@ class GeometryCanvas(QWidget):
             domain_segments = flat.reshape(-1, 2, 2)
             add_scene_items(depth.reshape(-1, 2).mean(axis=1), 1)
 
-        if self.tissue_points.size:
-            tissue_screen, _depth = self._project(self.tissue_points)
-            vals = self.tissue_values if self.tissue_values is not None else None
-            tissue_norm, tissue_limits = _normalize_with_scale(
-                vals, *self.tissue_range, self.tissue_scale
-            )
-
-            # Tissue is a translucent context layer, so draw it behind the
-            # vessel/domain scene in a bounded number of QPainter calls. The
-            # old path depth-sorted and painted every point independently,
-            # making ordinary 10k previews needlessly sluggish while orbiting.
-            self._draw_tissue_points(painter, tissue_screen, tissue_norm)
-
         if self.vessel_starts.size:
             vessel_starts, ds = self._project(self.vessel_starts)
             vessel_ends, de = self._project(self.vessel_ends)
@@ -363,6 +403,22 @@ class GeometryCanvas(QWidget):
             )
             radius_widths = self._radius_widths()
             add_scene_items(0.5 * (ds + de), 3)
+
+        if self.tissue_points.size:
+            tissue_screen, _depth = self._project(self.tissue_points)
+            vals = self.tissue_values if self.tissue_values is not None else None
+            tissue_range = list(self.tissue_range)
+            if vessel_limits is not None:
+                for index, inherit in enumerate(self.tissue_range_inherit):
+                    if inherit:
+                        tissue_range[index] = vessel_limits[index]
+            tissue_norm, tissue_limits = _normalize_with_scale(
+                vals, *tissue_range, self.tissue_scale
+            )
+
+            # Tissue is a translucent context layer, so draw it behind the
+            # vessel/domain scene in a bounded number of QPainter calls.
+            self._draw_tissue_points(painter, tissue_screen, tissue_norm)
 
         if scene_depths:
             depths = np.concatenate(scene_depths)
@@ -390,16 +446,42 @@ class GeometryCanvas(QWidget):
                         QPointF(*domain_segments[j, 0]), QPointF(*domain_segments[j, 1])
                     )
                 else:
-                    color = (
-                        QColor(185, 181, 190)
-                        if vessel_norm is None
-                        else _map_color(self.colormap, vessel_norm[j])
-                    )
-                    alpha = float(self.vessel_alpha[j]) * self.vessel_opacity
-                    color.setAlphaF(min(max(alpha, 0.04), 1.0))
-                    painter.setPen(
-                        QPen(color, float(radius_widths[j]), Qt.SolidLine, Qt.RoundCap)
-                    )
+                    alpha = self._display_vessel_alpha(j) * self.vessel_opacity
+                    alpha = min(max(alpha, 0.04), 1.0)
+                    if vessel_norm is None:
+                        color = (
+                            QColor(190, 100, 238)
+                            if self.vessel_placeholder
+                            else QColor(185, 181, 190)
+                        )
+                        color.setAlphaF(alpha)
+                        pen = QPen(
+                            color,
+                            float(radius_widths[j]),
+                            Qt.SolidLine,
+                            Qt.RoundCap,
+                        )
+                    else:
+                        start_color = _map_color(
+                            self.vessel_colormap, vessel_norm[j, 0]
+                        )
+                        end_color = _map_color(
+                            self.vessel_colormap, vessel_norm[j, 1]
+                        )
+                        start_color.setAlphaF(alpha)
+                        end_color.setAlphaF(alpha)
+                        gradient = QLinearGradient(
+                            QPointF(*vessel_starts[j]), QPointF(*vessel_ends[j])
+                        )
+                        gradient.setColorAt(0.0, start_color)
+                        gradient.setColorAt(1.0, end_color)
+                        pen = QPen(
+                            QBrush(gradient),
+                            float(radius_widths[j]),
+                            Qt.SolidLine,
+                            Qt.RoundCap,
+                        )
+                    painter.setPen(pen)
                     painter.drawLine(
                         QPointF(*vessel_starts[j]), QPointF(*vessel_ends[j])
                     )
@@ -430,6 +512,7 @@ class GeometryCanvas(QWidget):
                 vessel_limits,
                 side="left",
                 scale=self.vessel_scale,
+                colormap=self.vessel_colormap,
             )
         if tissue_norm is not None and tissue_limits is not None:
             self._draw_scalar_legend(
@@ -438,6 +521,7 @@ class GeometryCanvas(QWidget):
                 tissue_limits,
                 side="right",
                 scale=self.tissue_scale,
+                colormap=self.tissue_colormap,
             )
 
         if (
@@ -491,7 +575,9 @@ class GeometryCanvas(QWidget):
             color = (
                 QColor(91, 221, 238)
                 if normalized_values is None
-                else _map_color(self.colormap, color_slot / max(color_bins - 1, 1))
+                else _map_color(
+                    self.tissue_colormap, color_slot / max(color_bins - 1, 1)
+                )
             )
             color.setAlphaF(alpha_slot / (alpha_bins - 1))
             painter.setPen(QPen(color, 2.0))
@@ -508,6 +594,7 @@ class GeometryCanvas(QWidget):
         *,
         side: str,
         scale: str,
+        colormap: str,
     ) -> None:
         margin, top = 13.0, 13.0
         # Five labelled ticks make the scale useful at a glance. Keep both
@@ -527,7 +614,7 @@ class GeometryCanvas(QWidget):
         painter.setPen(QColor(224, 226, 232, 235))
         painter.drawText(QRectF(left, top, width, 14), Qt.AlignLeft, label)
         gradient = QLinearGradient(left, top + 20.0, left + width, top + 20.0)
-        stops = _MAP_STOPS.get(self.colormap, _MAP_STOPS["viridis"])
+        stops = _MAP_STOPS.get(colormap, _MAP_STOPS["viridis"])
         for index, color in enumerate(stops):
             gradient.setColorAt(index / max(len(stops) - 1, 1), QColor(*color))
         painter.setBrush(gradient)
@@ -680,7 +767,6 @@ class GeometryCanvas(QWidget):
         if event.button() == Qt.LeftButton:
             self._last_mouse = event.position().toPoint()
             self._press_mouse = self._last_mouse
-            self.setCursor(Qt.ClosedHandCursor)
 
     def mouseMoveEvent(self, event) -> None:
         if event.buttons() & Qt.LeftButton:
@@ -691,7 +777,6 @@ class GeometryCanvas(QWidget):
             self.update()
 
     def mouseReleaseEvent(self, event) -> None:
-        self.unsetCursor()
         if (
             event.button() == Qt.LeftButton
             and (event.position().toPoint() - self._press_mouse).manhattanLength() <= 5

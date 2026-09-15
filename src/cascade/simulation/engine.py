@@ -29,6 +29,7 @@ from cascade.domain.sampling import (
 from cascade.domain.workflow import prepare_sample_points
 from cascade.configuration.bridge import load_runtime_module
 from cascade.vessels.conditions import (
+    _tree_terminal_segments,
     flow_for_tree,
     inlet_concentration_for_tree,
     sync_tree_parameters_for_run,
@@ -449,7 +450,7 @@ def _summary_from_solution(
         "avg_radius": float(np.nanmean(radii)) if radii.size else math.nan,
         "avg_length": float(np.nanmean(lengths)) if lengths.size else math.nan,
         "total_length": float(np.nansum(lengths)),
-        "terminal_segments": max(int(getattr(tree, "n_terminals", 0)) - 1, 0),
+        "terminal_segments": _tree_terminal_segments(tree),
         "total_segments": int(radii.size),
         "inlet_flow_ul_per_min": float(flows[0] * 60000.0) if flows.size else math.nan,
         "C_LQ_over_Cmax": (
@@ -600,7 +601,7 @@ def _geometry_only_result(
         "avg_length": float(np.nanmean(lengths)) if n else math.nan,
         "total_length": float(np.nansum(lengths)) if n else math.nan,
         "avg_distance_to_channel": math.nan,
-        "terminal_segments": max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0),
+        "terminal_segments": _tree_terminal_segments(tree),
         "total_segments": int(n),
         "dlp_angle": 0.0,
         "Rnet": math.nan,

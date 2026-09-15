@@ -1,3 +1,5 @@
+// Traverse the prepared treecode and evaluate Cext at vessel quadrature nodes.
+// treecode.py compiles this evaluation stage for approximate far-field solves.
 extern "C" __global__ void cext_treecode_kernel(
     const int* target_seg_ids,
     const float* target_points_si,

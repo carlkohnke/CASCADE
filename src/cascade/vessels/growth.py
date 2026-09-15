@@ -57,7 +57,7 @@ def _build_configured_trees(ts, domain, config: RunConfig) -> list[Any]:
         terminal_flow = _terminal_flow_for_target(config, qin_cm3_s, int(target))
         tree = ts.grow_tree(
             domain,
-            max(int(target), 1),
+            max(int(target), 0),
             dlp_enable=False,
             min_theta=0.0,
             side_length=float(config.domain.side_length),
@@ -320,8 +320,8 @@ def _grow_one_nearest_tree(
     *,
     ignore_intertree_collisions: bool,
 ) -> tuple[int, float]:
-    # TODO(upstream-svv): request a high-scale nearest-tree growth primitive.
-    # Keep this CASCADE implementation until an upstream replacement is validated.
+    # Public svv does not expose the required multi-tree assignment primitive,
+    # so CASCADE owns this candidate sampling and retry loop.
     max_attempts = max(1, int(config.growth.collision_retry_limit))
     last_error: Exception | None = None
     for _attempt in range(max_attempts):

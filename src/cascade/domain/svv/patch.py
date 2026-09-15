@@ -130,8 +130,6 @@ class Patch:
             if show:
                 print("Diff: ", diff)
                 print("Diff^2: ", diff_2)
-            #a_value = np.sum(a_ * np.sum(np.square(diff), axis=-1) ** (self.rbf_degree / 2), axis=0)
-            # A Value
             value = np.sum(a_ * np.power(diff_2, (self.rbf_degree / 2)), axis=0)
             if show:
                 print("A Value: ", value)

@@ -1,4 +1,5 @@
-# CUDA 11.x GPU/Cext install.
-# Use this only on machines with a compatible NVIDIA driver/CUDA runtime.
+# Core runtime plus CuPy for CASCADE's CUDA 11 solver paths. Install from the
+# repository root only on machines with a compatible NVIDIA driver:
+#   python -m pip install -r requirements/gpu-cu11.txt
 -r base.txt
 cupy-cuda11x>=13

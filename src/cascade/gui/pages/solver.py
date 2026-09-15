@@ -49,14 +49,6 @@ class SolverPage(Page):
         )
         choose = Card("Solver path")
         self._lattice_mode = False
-        self.preset = _combo(
-            [
-                ("Paper-aligned balanced", "paper"),
-                ("Fast preview", "fast"),
-                ("Higher accuracy", "accurate"),
-                ("Custom", "custom"),
-            ]
-        )
         self.conc_solver = _combo(
             [
                 ("Network direct solver (best for large domains)", "network_ext"),
@@ -91,11 +83,10 @@ class SolverPage(Page):
         )
         choose.add(
             row_of(
-                labeled("Starting preset", self.preset),
                 labeled("Vessel oxygen solver", self.conc_solver, important=True),
+                labeled("Flow solver", self.flow_solver, important=True),
             )
         )
-        choose.add(labeled("Flow solver", self.flow_solver, important=True))
         self.solver_hint = Banner()
         self.solver_hint.setVisible(False)
         choose.add(self.solver_hint)
@@ -125,6 +116,12 @@ class SolverPage(Page):
         self.gl_order = self.tissue_gl_order
         self.cext_gl_order = _spin(1, 1, 32)
         self.axial_steps = _spin(5, 1, 100)
+        self.hct_stop = _combo(
+            [
+                ("Fixed number of iterations", "iterations"),
+                ("Convergence tolerance", "tolerance"),
+            ]
+        )
         self.hct_iterations = _spin(2, 0, 1000)
         self.hct_tol = _double(0.001, 0, 1, 8, 0.0001)
         primary.add(
@@ -147,10 +144,15 @@ class SolverPage(Page):
                 labeled("Axial blood steps", self.axial_steps),
             )
         )
+        self.hct_iterations_row = labeled(
+            "Hct / flow iterations", self.hct_iterations
+        )
+        self.hct_tol_row = labeled("Hct convergence tolerance", self.hct_tol)
         primary.add(
             row_of(
-                labeled("Hct / flow iterations", self.hct_iterations),
-                labeled("Hct tolerance", self.hct_tol),
+                labeled("Hct / flow stopping rule", self.hct_stop, important=True),
+                self.hct_iterations_row,
+                self.hct_tol_row,
             )
         )
         self.column.addWidget(primary)
@@ -168,14 +170,20 @@ class SolverPage(Page):
         )
         self.cext_mode = _combo(
             [
-                ("FFT background + local correction", "fft"),
+                ("FFT background only", "fft"),
                 ("Local screened interactions", "local_only_nlambda"),
-                ("Hybrid", "hybrid"),
+                ("FFT background + local correction", "hybrid"),
             ]
         )
         self.cext_grid = _spin(256, 16, 1024, 16)
         self.lambda_bins = _spin(5, 1, 64)
         self.window = _double(6.0, 0.1, 100, 3, 0.5)
+        self.cext_stop = _combo(
+            [
+                ("Fixed number of iterations", "iterations"),
+                ("Convergence tolerance", "tolerance"),
+            ]
+        )
         self.cext_iters = _spin(1, 1, 10000)
         self.cext_tol = _double(1e-3, 0, 1e9, 10, 1e-4)
         self.cext_accel = _combo(
@@ -184,7 +192,7 @@ class SolverPage(Page):
         self.cext_card.add(
             row_of(
                 labeled("Tissue backend", self.backend, important=True),
-                labeled("Cₑₓₜ backend", self.cext_backend, important=True),
+                labeled("Vessel network backend", self.cext_backend, important=True),
             )
         )
         self.cext_card.add(
@@ -194,22 +202,25 @@ class SolverPage(Page):
                 "Precision for accelerated tissue calculations.",
             )
         )
-        self.cext_card.add(
-            row_of(
-                labeled("Cₑₓₜ method", self.cext_mode),
-                labeled("Interaction window λ", self.window),
-            )
+        self.cext_method_row = labeled(
+            "Vessel-vessel coupling method", self.cext_mode
         )
-        self.cext_card.add(
-            row_of(
-                labeled("FFT grid per axis", self.cext_grid, important=True),
-                labeled("Screening bins", self.lambda_bins),
-            )
+        self.window_row = labeled("Interaction window λ", self.window)
+        self.cext_card.add(row_of(self.cext_method_row, self.window_row))
+        self.cext_grid_row = labeled(
+            "FFT grid per axis", self.cext_grid, important=True
         )
+        self.lambda_bins_row = labeled("Screening bins", self.lambda_bins)
+        self.cext_card.add(
+            row_of(self.cext_grid_row, self.lambda_bins_row)
+        )
+        self.cext_iterations_row = labeled("Coupling iterations", self.cext_iters)
+        self.cext_tol_row = labeled("Coupling convergence tolerance", self.cext_tol)
         self.cext_card.add(
             row_of(
-                labeled("Coupling iterations", self.cext_iters),
-                labeled("Coupling tolerance", self.cext_tol),
+                labeled("Coupling stopping rule", self.cext_stop, important=True),
+                self.cext_iterations_row,
+                self.cext_tol_row,
             )
         )
         self.cext_card.add(labeled("Coupling acceleration", self.cext_accel))
@@ -234,8 +245,32 @@ class SolverPage(Page):
         self.filter.textChanged.connect(self._filter_expert)
         self.conc_solver.currentIndexChanged.connect(self._applicability)
         self.closure.currentIndexChanged.connect(self._update_kappa_visibility)
-        self.preset.activated.connect(self._apply_preset)
+        self.hct_stop.currentIndexChanged.connect(self._update_stop_controls)
+        self.cext_stop.currentIndexChanged.connect(self._update_stop_controls)
+        self.cext_mode.currentIndexChanged.connect(
+            self._update_cext_method_controls
+        )
+        self._update_stop_controls()
+        self._update_cext_method_controls()
         self.finish()
+
+    def _update_stop_controls(self, *_):
+        hct_fixed = self.hct_stop.currentData() == "iterations"
+        self.hct_iterations_row.setVisible(hct_fixed)
+        self.hct_tol_row.setVisible(not hct_fixed)
+        cext_fixed = self.cext_stop.currentData() == "iterations"
+        self.cext_iterations_row.setVisible(cext_fixed)
+        self.cext_tol_row.setVisible(not cext_fixed)
+
+    def _update_cext_method_controls(self, *_):
+        """Show only controls used by the selected vessel-coupling algorithm."""
+        solver = str(self.conc_solver.currentData() or "")
+        hybrid_path = solver.endswith("_hybrid_bg")
+        mode = str(self.cext_mode.currentData() or "fft")
+        self.cext_method_row.setVisible(hybrid_path)
+        self.cext_grid_row.setVisible(hybrid_path and mode in {"fft", "hybrid"})
+        self.lambda_bins_row.setVisible(hybrid_path)
+        self.window_row.setVisible(not hybrid_path or mode in {"local_only_nlambda", "hybrid"})
 
     def _populate_expert(self):
         self.tree.clear()
@@ -290,22 +325,22 @@ class SolverPage(Page):
         }:
             _set_combo(self.conc_solver, "network_ext")
             _set_combo(self.flow_solver, "spsolve")
-        network_solver = self.conc_solver.currentData() in {
-            "network_ext",
+        wellmixed_only = self.conc_solver.currentData() in {
             "network_ext_hybrid_bg",
             "network",
         }
-        if network_solver:
+        if wellmixed_only:
             _set_combo(self.closure, "wellmixed")
-        self.closure.setEnabled(not network_solver)
+        self.closure.setEnabled(not wellmixed_only)
         self.closure.setToolTip(
-            "General-network oxygen currently uses the well-mixed lumen closure."
-            if network_solver
+            "This FFT or uncoupled network path currently uses the well-mixed lumen closure."
+            if wellmixed_only
             else ""
         )
         self._update_kappa_visibility()
         use_cext = "ext" in str(self.conc_solver.currentData())
         self.cext_card.setEnabled(use_cext)
+        self._update_cext_method_controls()
         self.cext_gl_order.setEnabled(use_cext)
         self.cext_gl_order.setToolTip(
             "Gauss–Legendre points per vessel used by the coupled external field."
@@ -354,53 +389,9 @@ class SolverPage(Page):
         self.flow_solver.setEnabled(not self._lattice_mode)
         self._applicability()
 
-    def _apply_preset(self):
-        mode = self.preset.currentData()
-        if mode == "fast":
-            _set_combo(self.conc_solver, "topdown")
-            _set_combo(self.closure, "wellmixed")
-            _set_combo(self.finite_radius, "none")
-            self.tissue_gl_order.setValue(3)
-            self.cext_gl_order.setValue(3)
-            self.axial_steps.setValue(3)
-            self.cext_iters.setValue(1)
-            self.cext_grid.setValue(128)
-        elif mode == "paper":
-            _set_combo(self.conc_solver, "topdown_ext_hybrid_bg")
-            _set_combo(self.closure, "graetz")
-            _set_combo(self.finite_radius, "both")
-            self.tissue_gl_order.setValue(5)
-            self.cext_gl_order.setValue(5)
-            self.axial_steps.setValue(5)
-            self.cext_iters.setValue(5)
-            self.cext_grid.setValue(256)
-            self.lambda_bins.setValue(5)
-            self.window.setValue(6)
-        elif mode == "accurate":
-            _set_combo(self.conc_solver, "topdown_ext_hybrid_bg")
-            _set_combo(self.closure, "graetz")
-            _set_combo(self.finite_radius, "both")
-            self.tissue_gl_order.setValue(7)
-            self.cext_gl_order.setValue(7)
-            self.axial_steps.setValue(8)
-            self.cext_iters.setValue(10)
-            self.cext_grid.setValue(384)
-            self.lambda_bins.setValue(8)
-            self.window.setValue(8)
-        if self._lattice_mode:
-            if self.conc_solver.currentData() not in {
-                "network_ext",
-                "network_ext_hybrid_bg",
-                "network",
-            }:
-                _set_combo(self.conc_solver, "network_ext")
-            _set_combo(self.flow_solver, "spsolve")
-        self._applicability()
-
     def load(self, config):
         sim = config.get("simulation", {})
         gui = config.get("gui", {})
-        _set_combo(self.preset, gui.get("solver_preset", "custom"))
         solver_value = sim.get("concentration_solver", "network_ext")
         # Keep old treecode projects loadable without exposing the unvalidated
         # choice in the current interface.
@@ -408,7 +399,7 @@ class SolverPage(Page):
             solver_value = "topdown_ext_hybrid_bg"
         _set_combo(self.conc_solver, solver_value)
         _set_combo(
-            self.flow_solver, _value(config, "hemodynamics", "kirchhoff_solver", "tree")
+            self.flow_solver, _value(config, "hemodynamics", "kirchhoff_solver", "spsolve")
         )
         _set_combo(
             self.closure, _value(config, "oxygen", "lumen_wall_closure", "graetz")
@@ -428,7 +419,10 @@ class SolverPage(Page):
         self.hct_iterations.setValue(
             int(_value(config, "hematocrit", "flow_iterations", 2))
         )
-        self.hct_tol.setValue(float(_value(config, "hematocrit", "hdtol", 0.001)))
+        self.hct_tol.setValue(
+            max(0.0, float(_value(config, "hematocrit", "hdtol", 0.001)))
+        )
+        _set_combo(self.hct_stop, gui.get("hct_stop_mode", "iterations"))
         _set_combo(self.backend, _value(config, "tissue", "accel_mode", "gpu"))
         _set_combo(self.cext_backend, _value(config, "cext", "accel_mode", "gpu"))
         _set_combo(self.precision, _value(config, "cext", "float_dtype", "float32"))
@@ -441,11 +435,15 @@ class SolverPage(Page):
         self.cext_iters.setValue(
             int(_value(config, "cext", "vess_coupling_max_iter", 1))
         )
-        self.cext_tol.setValue(float(_value(config, "cext", "vess_coupling_tol", 1e-3)))
+        self.cext_tol.setValue(
+            max(0.0, float(_value(config, "cext", "vess_coupling_tol", 1e-3)))
+        )
+        _set_combo(self.cext_stop, gui.get("cext_stop_mode", "iterations"))
         _set_combo(
             self.cext_accel, _value(config, "cext", "vess_coupling_accel", "anderson")
         )
         self._load_overrides(config.get("settings", {}))
+        self._update_stop_controls()
         self._applicability()
 
     def _load_overrides(self, settings):
@@ -457,6 +455,7 @@ class SolverPage(Page):
             "HEMATOCRIT_MODEL",
             "HEMATOCRIT_FLOW_ITERATIONS",
             "HEMATOCRIT_HDTOL",
+            "HEMATOCRIT_QTOL_NL_MIN",
             "HD_DISCHARGE",
             "CONCENTRATION_SOLVER",
             "CONCENTRATION_INLET_BY_FLUID",
@@ -512,8 +511,11 @@ class SolverPage(Page):
                     child.setCheckState(0, Qt.Unchecked)
 
     def write(self, config):
-        config.setdefault("gui", {})["solver_preset"] = self.preset.currentData()
-        config.setdefault("gui", {})["custom_kappa"] = self.kappa.text().strip()
+        gui = config.setdefault("gui", {})
+        gui.pop("solver_preset", None)
+        gui["custom_kappa"] = self.kappa.text().strip()
+        gui["hct_stop_mode"] = self.hct_stop.currentData()
+        gui["cext_stop_mode"] = self.cext_stop.currentData()
         config.setdefault("simulation", {})["concentration_solver"] = (
             self.conc_solver.currentData()
         )
@@ -532,8 +534,21 @@ class SolverPage(Page):
         )
         settings.setdefault("hematocrit", {}).update(
             {
-                "flow_iterations": self.hct_iterations.value(),
-                "hdtol": self.hct_tol.value(),
+                "flow_iterations": (
+                    self.hct_iterations.value()
+                    if self.hct_stop.currentData() == "iterations"
+                    else 1000
+                ),
+                "hdtol": (
+                    -1.0
+                    if self.hct_stop.currentData() == "iterations"
+                    else self.hct_tol.value()
+                ),
+                "qtol_nl_min": (
+                    -1.0
+                    if self.hct_stop.currentData() == "iterations"
+                    else 1.0e30
+                ),
             }
         )
         settings.setdefault("tissue", {})["accel_mode"] = self.backend.currentData()
@@ -546,8 +561,16 @@ class SolverPage(Page):
                 "hybrid_bg_grid": self.cext_grid.value(),
                 "hybrid_bg_lambda_bins": self.lambda_bins.value(),
                 "window_factor": self.window.value(),
-                "vess_coupling_max_iter": self.cext_iters.value(),
-                "vess_coupling_tol": self.cext_tol.value(),
+                "vess_coupling_max_iter": (
+                    self.cext_iters.value()
+                    if self.cext_stop.currentData() == "iterations"
+                    else 1000
+                ),
+                "vess_coupling_tol": (
+                    -1.0
+                    if self.cext_stop.currentData() == "iterations"
+                    else self.cext_tol.value()
+                ),
                 "vess_coupling_accel": self.cext_accel.currentData(),
             }
         )
@@ -562,3 +585,6 @@ class SolverPage(Page):
 
 
 __all__ = ("SolverPage",)
+
+# Constructors resolve these shared layout helpers at runtime.
+from cascade.gui.property_grid import Card, labeled, row_of

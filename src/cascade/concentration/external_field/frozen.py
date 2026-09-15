@@ -270,6 +270,234 @@ if _state._HAVE_NUMBA:
                 cout_seg[seg_idx] = np.float32(c_out)
         return cin_seg, cout_seg, c_iv_gl
 
+    @njit(cache=True)
+    def _propagate_network_ext_frozen_numba(
+        node_conc: np.ndarray,
+        up: np.ndarray,
+        q: np.ndarray,
+        radii_si: np.ndarray,
+        lengths_si: np.ndarray,
+        gl_t: np.ndarray,
+        c_ext_gl: np.ndarray,
+        diffusivity_si: float,
+        vmax: float,
+        km: float,
+        chb_max: np.ndarray,
+        is_blood: int,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Propagate one fixed node-concentration state without Python loops."""
+        nseg = int(q.shape[0])
+        gl_order = int(gl_t.shape[0])
+        cin = np.empty((nseg,), dtype=np.float32)
+        cout = np.empty((nseg,), dtype=np.float32)
+        civ = np.empty((nseg, gl_order), dtype=np.float32)
+        for edge_idx in range(nseg):
+            c_in = float(node_conc[int(up[edge_idx])])
+            if c_in < _state.VESS_CONC_FLOOR:
+                c_in = _state.VESS_CONC_FLOOR
+            cin[edge_idx] = np.float32(c_in)
+            cout[edge_idx] = np.float32(c_in)
+            for node_idx in range(gl_order):
+                civ[edge_idx, node_idx] = np.float32(c_in)
+            if float(q[edge_idx]) <= 1e-30:
+                continue
+
+            c_running = c_in
+            previous_s = 0.0
+            flow_mag = max(float(q[edge_idx]), 1e-30)
+            radius_si = float(radii_si[edge_idx])
+            length_si = float(lengths_si[edge_idx])
+            for node_idx in range(gl_order):
+                target_s = float(gl_t[node_idx]) * length_si
+                step = max(target_s - previous_s, 0.0)
+                c_external = max(float(c_ext_gl[edge_idx, node_idx]), 0.0)
+                c_local = max(c_running, 0.0)
+                denominator = max(km + c_local, 1e-30)
+                lambda_if = np.sqrt(
+                    diffusivity_si / max(vmax / denominator, 1e-30)
+                )
+                lambda_local = max(lambda_if, 1e-30)
+                radius_local = max(radius_si, 0.0)
+                phi = max(radius_local / lambda_local, 1e-12)
+                ratio = np.interp(phi, _state._KRATIO_XS, _state._KRATIO_YS)
+                k_if = (
+                    (2.0 * np.pi * radius_local)
+                    * (diffusivity_si / lambda_local)
+                    * ratio
+                )
+                beta = k_if / flow_mag
+                if is_blood > 0:
+                    pressure = c_running / _state.ALPHA_MMHG
+                    severinghaus_denominator = (
+                        pressure**3 + 150.0 * pressure + 23400.0
+                    )
+                    derivative = (
+                        70200.0
+                        * (pressure**2 + 50.0)
+                        / (severinghaus_denominator**2)
+                    )
+                    buffer = (
+                        1.0
+                        + max(float(chb_max[edge_idx]), 0.0)
+                        * derivative
+                        / _state.ALPHA_MMHG
+                    )
+                    beta /= max(float(buffer), 1e-30)
+                exponent = min(max(-beta * step, -150.0), 50.0)
+                c_running = max(
+                    c_external
+                    + (c_running - c_external) * np.exp(exponent),
+                    _state.VESS_CONC_FLOOR,
+                )
+                civ[edge_idx, node_idx] = np.float32(c_running)
+                previous_s = target_s
+
+            tail_step = max(length_si - previous_s, 0.0)
+            c_external = (
+                max(float(c_ext_gl[edge_idx, gl_order - 1]), 0.0)
+                if gl_order
+                else 0.0
+            )
+            c_local = max(c_running, 0.0)
+            denominator = max(km + c_local, 1e-30)
+            lambda_if = np.sqrt(
+                diffusivity_si / max(vmax / denominator, 1e-30)
+            )
+            lambda_local = max(lambda_if, 1e-30)
+            radius_local = max(radius_si, 0.0)
+            phi = max(radius_local / lambda_local, 1e-12)
+            ratio = np.interp(phi, _state._KRATIO_XS, _state._KRATIO_YS)
+            k_if = (
+                (2.0 * np.pi * radius_local)
+                * (diffusivity_si / lambda_local)
+                * ratio
+            )
+            beta = k_if / flow_mag
+            if is_blood > 0:
+                pressure = c_running / _state.ALPHA_MMHG
+                severinghaus_denominator = (
+                    pressure**3 + 150.0 * pressure + 23400.0
+                )
+                derivative = (
+                    70200.0
+                    * (pressure**2 + 50.0)
+                    / (severinghaus_denominator**2)
+                )
+                buffer = (
+                    1.0
+                    + max(float(chb_max[edge_idx]), 0.0)
+                    * derivative
+                    / _state.ALPHA_MMHG
+                )
+                beta /= max(float(buffer), 1e-30)
+            exponent = min(max(-beta * tail_step, -150.0), 50.0)
+            cout[edge_idx] = np.float32(
+                max(
+                    c_external
+                    + (c_running - c_external) * np.exp(exponent),
+                    _state.VESS_CONC_FLOOR,
+                )
+            )
+        return cin, cout, civ
+
+    @njit(cache=True)
+    def _solve_network_ext_frozen_numba(
+        up: np.ndarray,
+        q: np.ndarray,
+        incoming_offsets: np.ndarray,
+        incoming_edges: np.ndarray,
+        sum_out: np.ndarray,
+        sum_in: np.ndarray,
+        inlet_mask: np.ndarray,
+        cached_cin: np.ndarray,
+        radii_si: np.ndarray,
+        lengths_si: np.ndarray,
+        gl_t: np.ndarray,
+        c_ext_gl: np.ndarray,
+        diffusivity_si: float,
+        vmax: float,
+        km: float,
+        inlet_concentration: float,
+        chb_max: np.ndarray,
+        is_blood: int,
+        omega: float,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+        """Solve general-network fixed-field transport in compiled CPU code."""
+        nseg = int(q.shape[0])
+        nnode = int(inlet_mask.shape[0])
+        node_conc = np.full((nnode,), inlet_concentration, dtype=np.float64)
+        if cached_cin.shape[0] == nseg:
+            for edge_idx in range(nseg):
+                upstream = int(up[edge_idx])
+                if q[edge_idx] > 1e-30 and inlet_mask[upstream] == 0:
+                    node_conc[upstream] = max(
+                        float(cached_cin[edge_idx]), _state.VESS_CONC_FLOOR
+                    )
+        for node in range(nnode):
+            if inlet_mask[node] != 0:
+                node_conc[node] = inlet_concentration
+
+        iterations = 0
+        for iteration_number in range(1, 101):
+            iterations = iteration_number
+            _, cout, _ = _propagate_network_ext_frozen_numba(
+                node_conc,
+                up,
+                q,
+                radii_si,
+                lengths_si,
+                gl_t,
+                c_ext_gl,
+                diffusivity_si,
+                vmax,
+                km,
+                chb_max,
+                is_blood,
+            )
+            updated = node_conc.copy()
+            for node in range(nnode):
+                row_start = int(incoming_offsets[node])
+                row_stop = int(incoming_offsets[node + 1])
+                if inlet_mask[node] != 0 or row_start == row_stop:
+                    continue
+                denominator = (
+                    float(sum_out[node])
+                    if float(sum_out[node]) > 1e-30
+                    else float(sum_in[node])
+                )
+                if denominator > 1e-30:
+                    numerator = 0.0
+                    for position in range(row_start, row_stop):
+                        edge_idx = int(incoming_edges[position])
+                        numerator += float(q[edge_idx]) * float(cout[edge_idx])
+                    updated[node] = numerator / denominator
+            delta = 0.0
+            for node in range(nnode):
+                difference = abs(float(updated[node]) - float(node_conc[node]))
+                if difference > delta:
+                    delta = difference
+                node_conc[node] += omega * (updated[node] - node_conc[node])
+                if inlet_mask[node] != 0:
+                    node_conc[node] = inlet_concentration
+            if delta < 1e-6:
+                break
+
+        cin, cout, civ = _propagate_network_ext_frozen_numba(
+            node_conc,
+            up,
+            q,
+            radii_si,
+            lengths_si,
+            gl_t,
+            c_ext_gl,
+            diffusivity_si,
+            vmax,
+            km,
+            chb_max,
+            is_blood,
+        )
+        return cin, cout, civ, iterations
+
 
 def _solve_topdown_ext_frozen_python(
     level_order: np.ndarray,

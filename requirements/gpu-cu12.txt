@@ -1,4 +1,5 @@
-# CUDA 12.x GPU/Cext install.
-# Use this only on machines with a compatible NVIDIA driver/CUDA runtime.
+# Core runtime plus CuPy for CASCADE's CUDA 12 solver paths. Install from the
+# repository root only on machines with a compatible NVIDIA driver:
+#   python -m pip install -r requirements/gpu-cu12.txt
 -r base.txt
 cupy-cuda12x>=13

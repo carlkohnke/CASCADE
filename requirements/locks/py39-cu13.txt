@@ -1,4 +1,5 @@
-# CUDA 13 release constraints validated on an RTX 3080 Laptop GPU.
+# CUDA 13 constraints tested on Linux x86-64 with an RTX 3080 Laptop GPU.
+# Pass this file to pip with `-c`, as shown in requirements/README.md.
 -c py39-common.txt
 cupy-cuda13x==13.6.0
 fastrlock==0.8.3

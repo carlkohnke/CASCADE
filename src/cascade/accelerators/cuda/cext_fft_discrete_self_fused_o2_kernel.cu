@@ -1,3 +1,5 @@
+// Recover the finite-radius, orientation-aware self term from FFT grid data.
+// hybrid_corrections.py compiles this fused correction for GPU Cext solves.
 extern "C" __global__ void cext_fft_discrete_self_fused_o2_kernel(
     const int* target_seg_ids,
     const float* gl_points_si,

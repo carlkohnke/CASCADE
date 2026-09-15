@@ -1,3 +1,5 @@
+// Evaluate the exact near field used to correct the hybrid FFT approximation.
+// hybrid_deposit.py compiles this kernel for cell-binned local Cext sources.
 extern "C" __global__ void cext_local_corr_kernel(
     const int* target_seg_ids,
     const float* gl_points_si,

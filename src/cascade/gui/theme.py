@@ -19,7 +19,7 @@ class Tokens:
     BORDER_ACTIVE = "#343740"
     TEXT = "#EBECF0"
     TEXT_2 = "#B9BBC3"
-    TEXT_3 = "#858892"
+    TEXT_3 = "#A2A5AE"
     VIOLET = "#6A38C2"
     PURPLE = "#8E3FC7"
     MAGENTA = "#C83C98"
@@ -38,6 +38,9 @@ class Tokens:
 def stylesheet() -> str:
     t = Tokens
     checkmark = (Path(__file__).parent / "assets" / "checkmark.svg").as_posix()
+    disabled_checkmark = (
+        Path(__file__).parent / "assets" / "checkmark-disabled.svg"
+    ).as_posix()
     return f"""
 QMainWindow, QWidget#root {{ background: {t.APP}; color: {t.TEXT}; }}
 QWidget#root {{ border:1px solid {t.BORDER}; }}
@@ -125,7 +128,7 @@ QPushButton:disabled {{ background:{t.SURFACE_2}; color:{t.TEXT_3}; border-color
 QPushButton[secondary="true"] {{ background:{t.SURFACE_2}; color:{t.TEXT_2}; border:1px solid {t.BORDER_ACTIVE}; }}
 QPushButton[secondary="true"]:hover {{ background:{t.HOVER}; color:{t.TEXT}; border-color:{t.PURPLE}; }}
 QPushButton[secondary="true"]:disabled {{
-  background:#090A0D; color:#41444C; border-color:#14161B; font-weight:550;
+  background:#090A0D; color:#777B86; border-color:#292C34; font-weight:550;
 }}
 QPushButton[danger="true"] {{ background:#3A1D24; color:#F2B3BB; border-color:#66303A; }}
 QPushButton[danger="true"]:hover {{ background:#4A252E; border-color:{t.DANGER}; }}
@@ -145,12 +148,20 @@ QPushButton[queueRole="stop"]:hover {{ background:#4A252E; border-color:{t.DANGE
 QPushButton[queueRole="neutral"]:disabled,
 QPushButton[queueRole="run"]:disabled,
 QPushButton[queueRole="stop"]:disabled {{
-  background:#090A0D; color:#41444C; border-color:#14161B; font-weight:550;
+  background:#090A0D; color:#777B86; border-color:#292C34; font-weight:550;
+}}
+QPushButton[queueRole="warning"] {{
+  background:#4A3618; color:#FFD166; border-color:#8B682A; font-weight:700;
+}}
+QPushButton[queueRole="warning"]:hover {{
+  background:#5A421D; color:#FFE099; border-color:#C79535;
 }}
 
 QCheckBox {{ spacing:7px; color:{t.TEXT_2}; }}
 QCheckBox::indicator {{ width:14px; height:14px; border:1px solid {t.BORDER_ACTIVE}; border-radius:3px; background:{t.SURFACE_2}; }}
 QCheckBox::indicator:checked {{ background:{t.PURPLE}; border-color:{t.MAGENTA}; image:url({checkmark}); }}
+QCheckBox::indicator:disabled {{ background:{t.SURFACE_1}; border-color:{t.BORDER}; }}
+QCheckBox::indicator:checked:disabled {{ background:{t.SURFACE_2}; border-color:{t.BORDER}; image:url({disabled_checkmark}); }}
 QHeaderView {{ background:{t.APP}; color:{t.TEXT_2}; }}
 QHeaderView::section {{ background:{t.SURFACE_2}; color:{t.TEXT_2}; padding:6px; border:none; border-bottom:1px solid {t.BORDER_ACTIVE}; font-weight:650; }}
 QTableCornerButton::section {{ background:{t.SURFACE_2}; border:none; border-bottom:1px solid {t.BORDER_ACTIVE}; }}

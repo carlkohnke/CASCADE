@@ -15,7 +15,6 @@ from cascade.domain.svv.routines.tetrahedralize import tetrahedralize, triangula
 from cascade.domain.svv.routines.c_sample import pick_from_tetrahedron, pick_from_triangle, pick_from_line
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from cascade.domain.svv.routines.boolean import boolean
-# from svtoolkit.tree.utils.KDTreeManager import KDTreeManager
 from svv.tree.utils.TreeManager import KDTreeManager, USearchTree
 from time import perf_counter
 from tqdm import trange, tqdm
@@ -26,9 +25,9 @@ import random
 class Domain(object):
     def __init__(self, *args, **kwargs):
         """
-        The Domain class defines the region in space that
-        will be recognized by svtoolkit when generating
-        vascular networks. The class abstracts the physical
+        The Domain class defines the region in space used by CASCADE's
+        SVV-compatible vessel generator to construct vascular networks.
+        The class abstracts the physical
         representation of the space to allow for efficient
         interrogation and data manipulation.
 
@@ -332,11 +331,12 @@ class Domain(object):
         self.function_tree = cKDTree(np.array(firsts))
         function_list = set(tuple(list(range(len(functions)))))
         self.functions = functions
-        # for fast evaluation
+        # Pack differently sized patch coefficients into padded arrays so
+        # ``__call__`` can evaluate the selected patches in one vectorized pass.
         a_shapes = np.array([function.a.shape for function in functions])
         b_shapes = np.array([function.b.shape for function in functions])
         c_shapes = np.array([function.c.shape for function in functions])
-        d_values = np.array([function.d for function in functions]) # omit this since d is always a scalar
+        d_values = np.array([function.d for function in functions])
         pt_shapes = np.array([function.pts.shape for function in functions])
         self.A = np.full((len(functions), a_shapes[:, 0].max(), 1, 1, 1), np.nan)
         self.B = np.full((len(functions), b_shapes[:, 0].max(), 1, 1, 1, b_shapes[:, -1].max()), np.nan)
@@ -349,7 +349,6 @@ class Domain(object):
             self.C[i] = function.c
             self.D[i] = function.d
             self.PTS[i, :function.points.shape[0]] = function.pts
-        # for fast evaluation
         if self.random_generator is None:
             self.set_random_generator()
         if not skip_boundary:
@@ -382,7 +381,6 @@ class Domain(object):
         new_domain.evaluate = evaluate
         new_domain.points = np.vstack((self.points, other.points))
         new_domain.normals = np.vstack((self.normals, other.normals))
-        #new_domain.evaluate = lambda x: np.logical_and(self.__call__(x) < 0, other.__call__(x) < 0)*(abs(self.__call__(x)) + abs(other.__call__(x))) + self.__call__(x)
         return new_domain
 
     def __add__(self, other):
@@ -400,7 +398,6 @@ class Domain(object):
         new_domain.evaluate = evaluate
         new_domain.points = np.vstack((self.points, other.points))
         new_domain.normals = np.vstack((self.normals, other.normals))
-        #new_domain.evaluate = lambda x: np.logical_and(self.__call__(x) > 0, other.__call__(x) > 0)*(abs(self.__call__(x)) + abs(other.__call__(x))) + (self.__call__(x) < 0)*self.__call__(x) + (other.__call__(x) < 0)*other.__call__(x)
         return new_domain
 
     def evaluate_fast(self, points, k=1, normalize=True, tolerance=np.finfo(float).eps * 4, show=False):
@@ -432,11 +429,6 @@ class Domain(object):
                 inds[i, 0] = indices_first[i]
             else:
                 inds[i, :len(indices[i])] = indices[i]
-            #elif isinstance(indices_first[i], np.int64):
-            #    print("Fallback indices found for point {} -> {}".format(i, points[i, :]))
-            #    inds[i, 0] = indices_first[i]
-            #else:
-            #    print("No indices found for point {} -> {}".format(i, points[i, :]))
         inds_mask = np.ma.masked_array(inds, mask=(inds == -1))
         if np.any(np.all(inds_mask.mask, axis=1)):
             print("Mask for entire row! {}".format(np.argwhere(np.all(inds_mask.mask, axis=1))))
@@ -536,30 +528,10 @@ class Domain(object):
                 print("Values: ", tmp_value)
             sign = np.sign(np.max(tmp_value))
             tmp_value_sign = np.argwhere(np.sign(tmp_value) == sign).flatten()
-            #tmp_sum = np.sum(tmp_value[tmp_value_sign])
             bools = np.isclose(tmp_value, 0)
             weights = np.ones(tmp_value.shape[0])
             weights[bools] = np.inf
             weights[~bools] = 1 / np.abs(tmp_value[~bools])
-            #if np.any(np.isclose(tmp_value, 0)):
-            #    weights.append(np.inf)
-            #else:
-            #    weights.append(1 / np.min(abs(tmp_sum)))
-            #tmp_value = [tmp_sum]
-            #weights = [weights]
-            #if k > 1:
-            #    if len(extra_indices[i]) == 0:
-            #        extra_indices[i].extend(extra_indices_first[i, :].tolist())
-            #    for j in range(len(indices[i]), len(extra_indices[i])):
-            #        func = self.functions[extra_indices[i][j]](points[i, :])
-            #        if np.isclose(func.flatten()[0], 0):
-            #            weights.append(np.inf)
-            #            tmp_value.append(tmp_sum)
-            #        else:
-            #            weights.append(1 / abs(func.flatten()[0]))
-            #            tmp_value.append(func.flatten()[0])
-            #tmp_value = np.array(tmp_value)
-            #weights = np.array(weights)
             signs = np.sign(tmp_value)
             idx = np.argwhere(signs == sign).flatten()
             if np.any(np.isinf(weights)):
@@ -573,7 +545,6 @@ class Domain(object):
                     jdx = np.argmax(tmp_value[idx]).flatten()
                 else:
                     jdx = np.argmin(abs(tmp_value[idx])).flatten()
-                #partition = weights[idx] / np.sum(weights[idx])
                 value = np.tanh(sign*np.sqrt(np.sum(np.square(tmp_value[idx][jdx])))/normalize_scale)
                 values[i] = value
         return values
@@ -730,11 +701,6 @@ class Domain(object):
         """
         use_random_int = kwargs.get('use_random_int', False)
         convex = kwargs.get('convex', False)
-        #print(f"method={method}, implicit_range={implicit_range}")
-        #if method is None:
-        #    print("method not specified")
-        #if self.mesh is None:
-        #    print("mesh not defined")
         if self.mesh is None or method == 'implicit_only':
             min_dims = np.min(self.points, axis=0)
             max_dims = np.max(self.points, axis=0)
@@ -774,8 +740,6 @@ class Domain(object):
                     self.random_points = pts
             cells = np.ones((n,), dtype=np.int64) * -1
         else:
-            #print("default")
-            #print(f"n: {n}, self.points.shape[1]: {self.points.shape[1]}")
             replace = kwargs.get('replace', True)
             points = np.ones((n, 3), dtype=np.float64) * np.nan
             remaining_points = n
@@ -785,61 +749,27 @@ class Domain(object):
             domain_calc = 0
             while remaining_points > 0:
                 if self.points.shape[1] == 3:
-                    #if isinstance(tree, KDTreeManager) and isinstance(threshold, float) and not convex:
-                    #print(f"threshold: {threshold}; threshold_volume: {volume_threshold}")
                     if isinstance(threshold, float) and not convex:
-                        #print("inside loop")
-                        #cells_outer = []
                         start = perf_counter()
-                        #cells_0 = tree.query_ball_tree(self.mesh_tree, volume_threshold, eps=volume_threshold/100)
-                        #start = perf_counter()
                         if volume_threshold is None:
                             cells_outer = np.arange(self.mesh.n_cells, dtype=np.int64)
                         else:
-                            #cells_0 = self.mesh_tree_2.query_radius(tree.active_tree.data, volume_threshold)
                             cells_0 = self.mesh_tree_2.query_radius(tree, volume_threshold)
                             cells_outer = np.unique(np.concatenate(cells_0))
-                        #_ = [cells_outer.extend(cell) for cell in cells_0]
-                        #cells_1 = tree.query_ball_tree(self.mesh_tree, threshold, eps=threshold/100)
-                        #cells_1 = self.mesh_tree_2.query_radius(tree.active_tree.data, threshold)
                         cells_1 = self.mesh_tree_2.query_radius(tree, threshold)
-                        #cells_inner = []
-                        #_ = [cells_inner.extend(cell) for cell in cells_1]
                         cells_inner = np.unique(np.concatenate(cells_1))
-                        #end = perf_counter()
-                        #ball_point += end - start
-                        #start = perf_counter()
-                        #cells = np.array(list(cells_outer - cells_inner))
-                        #_, idx = self.mesh_tree.query_ball_point(tree.active_tree.data, k=min(100, self.mesh.n_cells))
-                        #cells = np.unique(idx[:, 50:].flatten())
                         cells = np.setdiff1d(cells_outer, cells_inner)
-                        #if len(cells) == 0:
-                        #    print("No cells found")
-                        #else:
-                        #    #print(cells)
-                        #    pass
-                        #plotter = pv.Plotter()
-                        #plotter.add_mesh(self.boundary, show_edges=False, opacity=0.2)
-                        #plotter.add_mesh(self.mesh.extract_cells(cells), color='blue', opacity=0.6)
-                        #plotter.show()
                         end = perf_counter()
                         set_calc += end - start
                         start = perf_counter()
                         if len(cells) == 0:
                             if not use_random_int:
-                                #cells = self.random_generator.choice(list(range(self.mesh.n_cells)), n,
-                                #                                     p=self.mesh.cell_data['probability'],
-                                #                                     replace=replace)
                                 cells = np.array(random.choices(self.all_mesh_cells,
                                                        cum_weights=self.cumulative_probability,k=n))
                             else:
                                 cells = self.random_generator.integers(0, self.mesh.n_cells, n)
                         else:
                             if not use_random_int:
-                                #cells = self.random_generator.choice(cells, n,
-                                #                                     p=(self.mesh.cell_data['probability'][cells] /
-                                #                                        np.sum(self.mesh.cell_data['probability'][cells])),
-                                #                                     replace=replace)
                                 cumulative_probability = np.cumsum(self.mesh.cell_data['Normalized_Volume'][cells])
                                 cells = np.array(random.choices(cells.tolist(),
                                                                 cum_weights=cumulative_probability, k=n))
@@ -850,17 +780,12 @@ class Domain(object):
                     else:
                         start = perf_counter()
                         if not use_random_int:
-                            #cells = self.random_generator.choice(list(range(self.mesh.n_cells)), n,
-                            #                                     p=self.mesh.cell_data['probability'],
-                            #                                     replace=replace)
                             cells = np.array(random.choices(self.all_mesh_cells,
                                                             cum_weights=self.cumulative_probability, k=n))
                         else:
                             cells = self.random_generator.integers(0, self.mesh.n_cells, n)
                         end = perf_counter()
                         choice_calc += end - start
-                        #if use_random_int:
-                        #    print("Time from random int: ", end - start)
                     start = perf_counter()
                     rdx = self.random_generator.random((n, 4, 1))
                     simplices = self.mesh_nodes[self.mesh_vertices[cells, :], :]
@@ -894,24 +819,6 @@ class Domain(object):
                     added_points = min(remaining_points, tmp_points.shape[0])
                     points[n - remaining_points:n - remaining_points + added_points, :] = tmp_points[:added_points, :2]
                     remaining_points -= added_points
-            #if tree is not None and tree.active_tree.data.shape[0] <= 3 and not convex:
-            #    mesh_cells = np.setdiff1d(cells_outer, cells_inner)
-            #    if mesh_cells.shape[0] > 0:
-            #        plotter = pv.Plotter()
-            #        plotter.add_mesh(self.mesh, color='white', opacity=0.25)
-            #        plotter.add_mesh(self.mesh.extract_cells(mesh_cells), color='red', opacity=0.5)
-            #        plotter.add_points(points, color='blue', point_size=5)
-            #        if isinstance(tree.active_tree, cKDTree) and isinstance(threshold, float):
-            #            plotter.add_points(tree.active_tree.data, color='green', point_size=10)
-            #        plotter.show()
-            #if ball_point > 0.01:
-            #    print(f'Ball Point took {ball_point} seconds')
-            #if set_calc > 0.01:
-            #    print(f'Set Calculation took {set_calc} seconds')
-            #if choice_calc > 0.01:
-            #    print(f'Choice Calculation took {choice_calc} seconds')
-            #if domain_calc > 0.01:
-            #    print(f'Domain Calculation took {domain_calc} seconds')
         return points, cells
 
     def get_boundary_points(self, n, method=None, **kwargs):

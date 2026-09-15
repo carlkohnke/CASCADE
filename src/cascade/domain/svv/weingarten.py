@@ -1,7 +1,6 @@
 """Estimate local tangent bases, normals, and curvature from surface samples."""
 
 import numpy as np
-#import numba as nb
 from scipy.spatial import cKDTree
 from scipy import spatial
 from tqdm import tqdm
@@ -44,7 +43,6 @@ def generate_bases(points, quiet=True):
             tmp = points[idx[i, :], :]
             # Account for duplicate points for multiple normal estimation
             # and feature edge detection
-            # if u_counts[i] > 1:
             # ensure that the count of the points is greater than the
             # number of neighbors to avoid singular matrix solutions
             tmp = tmp - np.ones((K + 1, 1)) @ tmp[0, :].reshape(1, -1)

@@ -43,12 +43,13 @@ class DomainPage(Page):
             [
                 ("Box", "box"),
                 ("Sphere", "sphere"),
-                ("Biventricular heart (bivent3)", "bivent3"),
+                ("Cylinder / disk", "cylinder"),
+                ("Biventricular heart", "bivent3"),
                 ("Upload mesh / .dmn", "file"),
             ]
         )
         card.add(labeled("Domain source", self.kind, important=True))
-        self.stack = QStackedWidget()
+        self.stack = CompactStack()
         self.box_x = _double(1.0, 1e-6, 1e6)
         self.box_y = _double(1.0, 1e-6, 1e6)
         self.box_z = _double(1.0, 1e-6, 1e6)
@@ -66,8 +67,8 @@ class DomainPage(Page):
         self.sphere_radius = _double(0.5, 1e-6, 1e6)
         self.sphere_detail = _combo(
             [
-                ("Coarse (about 144 surface patches)", "12x8"),
-                ("Fine (about 7,936 surface patches)", "64x64"),
+                ("Coarse (recommended)", "12x8"),
+                ("Fine", "64x64"),
             ]
         )
         sphere_panel = QWidget()
@@ -76,12 +77,24 @@ class DomainPage(Page):
         sphere_layout.addWidget(labeled("Radius (cm)", self.sphere_radius))
         sphere_layout.addWidget(
             labeled(
-                "Surface detail",
+                "Surface detail retention",
                 self.sphere_detail,
                 "Coarse is the default and is about 55× smaller than Fine, which matches the reference sphere resolution.",
             )
         )
         self.stack.addWidget(sphere_panel)
+        self.cylinder_radius = _double(0.5, 1e-6, 1e6)
+        self.cylinder_height = _double(1.0, 1e-6, 1e6)
+        cylinder_panel = QWidget()
+        cylinder_layout = QVBoxLayout(cylinder_panel)
+        cylinder_layout.setContentsMargins(0, 0, 0, 0)
+        cylinder_layout.addWidget(
+            row_of(
+                labeled("Radius (cm)", self.cylinder_radius),
+                labeled("Height (cm)", self.cylinder_height),
+            )
+        )
+        self.stack.addWidget(cylinder_panel)
         heart_panel = QWidget()
         heart_layout = QVBoxLayout(heart_panel)
         heart_layout.setContentsMargins(0, 0, 0, 0)
@@ -104,6 +117,7 @@ class DomainPage(Page):
                 "Use a watertight surface/volume mesh or a verified CASCADE .dmn file.",
             )
         )
+        self.stack.sync_height()
         card.add(self.stack)
         self.seed = _spin(42, 0, 2_147_483_647)
         card.add(
@@ -130,7 +144,9 @@ class DomainPage(Page):
         )
         _set_combo(
             self.kind,
-            visible_kind if visible_kind in {"box", "sphere", "bivent3"} else "file",
+            visible_kind
+            if visible_kind in {"box", "sphere", "cylinder", "bivent3"}
+            else "file",
         )
         self.stack.setCurrentIndex(self.kind.currentIndex())
         self.box_x.setValue(
@@ -143,6 +159,10 @@ class DomainPage(Page):
             float(domain.get("z_length", domain.get("side_length", 1.0)))
         )
         self.sphere_radius.setValue(float(domain.get("radius", 0.5)))
+        self.cylinder_radius.setValue(float(domain.get("radius", 0.5)))
+        self.cylinder_height.setValue(
+            float(domain.get("height", domain.get("z_length", 1.0)))
+        )
         theta = int(domain.get("theta_resolution", 12))
         phi = int(domain.get("phi_resolution", 8))
         detail = f"{theta}x{phi}"
@@ -180,6 +200,20 @@ class DomainPage(Page):
                     "phi_resolution": phi,
                 }
             )
+        elif kind == "cylinder":
+            radius = self.cylinder_radius.value()
+            height = self.cylinder_height.value()
+            domain.update(
+                {
+                    "side_length": max(2 * radius, height),
+                    "radius": radius,
+                    "height": height,
+                    "x_length": 2 * radius,
+                    "y_length": 2 * radius,
+                    "z_length": height,
+                    "center": [0.0, 0.0, 0.0],
+                }
+            )
         elif kind == "bivent3":
             domain.update(
                 {
@@ -201,3 +235,6 @@ class DomainPage(Page):
 
 
 __all__ = ("DomainPage",)
+
+# Constructors resolve these shared layout helpers at runtime.
+from cascade.gui.property_grid import Card, CompactStack, labeled, row_of

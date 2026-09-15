@@ -37,6 +37,9 @@ def _normalize_kirchhoff_bc_mode(value: str | None = None) -> str:
         "pressure": "terminal_pressure",
         "pressure_terminals": "terminal_pressure",
         "terminal_pressure_bc": "terminal_pressure",
+        "pressure_pressure": "pressure_pressure",
+        "fixed_pressure_drop": "pressure_pressure",
+        "dirichlet": "pressure_pressure",
         "legacy": "legacy_equal_terminal_flow",
         "legacy_equal_terminal_flow": "legacy_equal_terminal_flow",
         "equal_terminal_flow": "legacy_equal_terminal_flow",
@@ -50,7 +53,8 @@ def _normalize_kirchhoff_bc_mode(value: str | None = None) -> str:
     except KeyError as exc:
         raise ValueError(
             "Unknown Kirchhoff BC mode "
-            f"{value!r}; expected 'terminal_pressure' or 'legacy_equal_terminal_flow'."
+            f"{value!r}; expected 'pressure_pressure', 'terminal_pressure', or "
+            "'legacy_equal_terminal_flow'."
         ) from exc
 
 

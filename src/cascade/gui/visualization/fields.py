@@ -63,6 +63,9 @@ def _polyline_data(mesh):
             arrays[str(name)] = (
                 values[first_arr].astype(float) + values[last_arr].astype(float)
             ) * 0.5
+            arrays[f"{name}__endpoints"] = np.column_stack(
+                (values[first_arr], values[last_arr])
+            ).astype(float, copy=False)
     raw_local_ids = getattr(mesh, "point_data", {}).get("local_segment_id")
     if raw_local_ids is not None and cell_first:
         raw_local_ids = np.asarray(raw_local_ids)
@@ -132,6 +135,20 @@ def _values(value, n, fill=np.nan):
     return np.pad(array, (0, n - len(array)), constant_values=fill)
 
 
+def _value_pairs(value, n):
+    if value is None:
+        return None
+    array = np.asarray(value, dtype=np.float32)
+    if array.ndim == 2 and array.shape[1] >= 2:
+        pairs = array[:, :2]
+    else:
+        flat = array.reshape(-1)
+        pairs = np.column_stack((flat, flat))
+    if len(pairs) >= n:
+        return pairs[:n]
+    return np.pad(pairs, ((0, n - len(pairs)), (0, 0)), constant_values=np.nan)
+
+
 def _normalize_with_scale(
     values: np.ndarray | None,
     requested_min: float | None = None,
@@ -144,11 +161,11 @@ def _normalize_with_scale(
     values = np.asarray(values, dtype=float)
     finite = np.isfinite(values)
     if not finite.any():
-        return np.full(len(values), 0.5), None
+        return np.full(values.shape, 0.5), None
     log_scale = str(scale).lower() == "log"
     valid = finite & (values > 0.0) if log_scale else finite
     if not valid.any():
-        return np.full(len(values), 0.5), None
+        return np.full(values.shape, 0.5), None
     source = values[valid]
     auto_lo, auto_hi = np.nanpercentile(source, [2, 98])
     lo = (
@@ -169,7 +186,7 @@ def _normalize_with_scale(
     if hi <= lo:
         hi = float(np.nanmax(source))
     if hi <= lo:
-        return np.full(len(values), 0.5), (lo, hi)
+        return np.full(values.shape, 0.5), (lo, hi)
     if log_scale:
         logged = np.zeros(len(values), dtype=float)
         logged[valid] = np.log10(values[valid])
@@ -215,10 +232,14 @@ def _display_field_values(
         "viability": "Viable tissue",
         "distance": "Distance to nearest vessel",
     }
-    raw = arrays.get(source_map.get(field, field))
+    source_name = source_map.get(field, field)
+    if kind == "vessel" and field in {"bulk_concentration", "wall_concentration"}:
+        raw = arrays.get(f"{source_name}__endpoints", arrays.get(source_name))
+    else:
+        raw = arrays.get(source_name)
     if raw is None:
         return None, labels.get(field, str(field).replace("_", " ").title())
-    values = np.asarray(raw, dtype=float).reshape(-1)
+    values = np.asarray(raw, dtype=float)
     if field == "flow":
         if options.get("flow_unit") == "cm3_s":
             values = values / 60_000.0
@@ -314,6 +335,7 @@ __all__ = (
     "_triangle_array",
     "_point_array",
     "_values",
+    "_value_pairs",
     "_normalize_with_scale",
     "_scientific",
     "_display_field_values",

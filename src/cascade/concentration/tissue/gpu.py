@@ -479,6 +479,7 @@ def _build_cext_tissue_cell_list_gpu(
     window_factor: float,
     radii_si: np.ndarray,
     seg_len_si: np.ndarray | None = None,
+    tissue_cache: dict | None = None,
 ) -> tuple[dict, dict[str, float | int]]:
     if _state._cp is None:
         raise RuntimeError("CuPy is not available.")
@@ -502,68 +503,117 @@ def _build_cext_tissue_cell_list_gpu(
     maxs = np.max(gl_flat, axis=0)
     center = 0.5 * (mins + maxs)
     span = max(float(np.max(maxs - mins)), 1.0e-9)
-    side = span + 2.0 * search_radius
-    origin = np.asarray(center - 0.5 * side, dtype=np.float32)
-
-    min_grid = max(int(_state.TISSUE_CEXT_CELL_MIN_GRID), 1)
-    max_grid = max(min(int(_state.TISSUE_CEXT_CELL_MAX_GRID), 512), min_grid)
-    target_occ = max(int(_state.TISSUE_CEXT_CELL_TARGET_OCCUPANCY), 1)
-    occ_grid = int(math.ceil((float(n_nodes) / float(target_occ)) ** (1.0 / 3.0)))
-    start_grid = max(min_grid, min(max_grid, max(occ_grid // 2, min_grid)))
-    stop_grid = max(min(max_grid, max(occ_grid * 2, start_grid)), start_grid)
-    max_rad_cells = max(int(_state.TISSUE_CEXT_CELL_MAX_RAD_CELLS), 1)
-    empty_cell_weight = 0.05
-    best_grid = max(min_grid, min(max_grid, occ_grid))
-    best_rad = max(
-        1,
-        int(math.ceil(search_radius / max(float(side) / float(best_grid), 1.0e-30)))
-        + 1,
+    gl_order = int(lambda_valid.shape[1]) if np.asarray(lambda_valid).ndim >= 2 else 1
+    structures = (
+        list(tissue_cache.get("cext_gpu_cell_structures", ()))
+        if isinstance(tissue_cache, dict)
+        else []
     )
-    best_score = float("inf")
-    for grid_candidate in range(start_grid, stop_grid + 1):
-        spacing_candidate = float(side) / float(grid_candidate)
-        rad_candidate = max(
-            1, int(math.ceil(search_radius / max(spacing_candidate, 1.0e-30))) + 1
+    structure = next(
+        (
+            item
+            for item in reversed(structures)
+            if int(item.get("n_nodes", -1)) == n_nodes
+            and int(item.get("gl_order", -1)) == gl_order
+            and np.array_equal(np.asarray(item.get("mins")), mins)
+            and np.array_equal(np.asarray(item.get("maxs")), maxs)
+            and float(item.get("search_radius", -1.0)) == search_radius
+        ),
+        None,
+    )
+    structure_reused = structure is not None
+    if structure_reused:
+        origin = structure["origin"]
+        spacing = float(structure["spacing"])
+        grid_n = int(structure["grid_n"])
+        rad_cells = int(structure["rad_cells"])
+        grid_cells = int(grid_n * grid_n * grid_n)
+        flat = structure["flat"]
+        order = structure["order"]
+        counts = structure["counts"]
+        cell_ptr = structure["cell_ptr"]
+        cell_segment_reach = structure["cell_segment_reach"]
+    else:
+        side = span + 2.0 * search_radius
+        origin = np.asarray(center - 0.5 * side, dtype=np.float32)
+        min_grid = max(int(_state.TISSUE_CEXT_CELL_MIN_GRID), 1)
+        max_grid = max(min(int(_state.TISSUE_CEXT_CELL_MAX_GRID), 512), min_grid)
+        target_occ = max(int(_state.TISSUE_CEXT_CELL_TARGET_OCCUPANCY), 1)
+        occ_grid = int(
+            math.ceil((float(n_nodes) / float(target_occ)) ** (1.0 / 3.0))
         )
-        if rad_candidate > max_rad_cells:
-            continue
-        avg_occ_candidate = float(n_nodes) / max(float(grid_candidate) ** 3, 1.0)
-        cells_visited = float((2 * rad_candidate + 1) ** 3)
-        score = cells_visited * (avg_occ_candidate + empty_cell_weight)
-        if score < best_score:
-            best_score = float(score)
-            best_grid = int(grid_candidate)
-            best_rad = int(rad_candidate)
-    if not np.isfinite(best_score):
-        rad_cap_grid = int(
-            math.floor(float(max_rad_cells) * side / max(search_radius, 1.0e-30))
-        )
-        best_grid = max(min_grid, min(max_grid, max(rad_cap_grid, min_grid)))
+        start_grid = max(min_grid, min(max_grid, max(occ_grid // 2, min_grid)))
+        stop_grid = max(min(max_grid, max(occ_grid * 2, start_grid)), start_grid)
+        max_rad_cells = max(int(_state.TISSUE_CEXT_CELL_MAX_RAD_CELLS), 1)
+        empty_cell_weight = 0.05
+        best_grid = max(min_grid, min(max_grid, occ_grid))
         best_rad = max(
             1,
-            int(math.ceil(search_radius / max(float(side) / float(best_grid), 1.0e-30)))
+            int(
+                math.ceil(
+                    search_radius / max(float(side) / float(best_grid), 1.0e-30)
+                )
+            )
             + 1,
         )
-    grid_n = int(best_grid)
-    spacing = float(side) / float(grid_n)
-    rad_cells = int(best_rad)
+        best_score = float("inf")
+        for grid_candidate in range(start_grid, stop_grid + 1):
+            spacing_candidate = float(side) / float(grid_candidate)
+            rad_candidate = max(
+                1,
+                int(
+                    math.ceil(search_radius / max(spacing_candidate, 1.0e-30))
+                )
+                + 1,
+            )
+            if rad_candidate > max_rad_cells:
+                continue
+            avg_occ_candidate = float(n_nodes) / max(
+                float(grid_candidate) ** 3, 1.0
+            )
+            cells_visited = float((2 * rad_candidate + 1) ** 3)
+            score = cells_visited * (avg_occ_candidate + empty_cell_weight)
+            if score < best_score:
+                best_score = float(score)
+                best_grid = int(grid_candidate)
+                best_rad = int(rad_candidate)
+        if not np.isfinite(best_score):
+            rad_cap_grid = int(
+                math.floor(
+                    float(max_rad_cells) * side / max(search_radius, 1.0e-30)
+                )
+            )
+            best_grid = max(min_grid, min(max_grid, max(rad_cap_grid, min_grid)))
+            best_rad = max(
+                1,
+                int(
+                    math.ceil(
+                        search_radius
+                        / max(float(side) / float(best_grid), 1.0e-30)
+                    )
+                )
+                + 1,
+            )
+        grid_n = int(best_grid)
+        spacing = float(side) / float(grid_n)
+        rad_cells = int(best_rad)
+        coords = np.floor(
+            (gl_flat - origin[None, :]) / np.float32(spacing)
+        ).astype(np.int32)
+        coords = np.clip(coords, 0, grid_n - 1)
+        flat = (
+            coords[:, 0].astype(np.int64) * np.int64(grid_n)
+            + coords[:, 1].astype(np.int64)
+        ) * np.int64(grid_n) + coords[:, 2].astype(np.int64)
+        order = np.argsort(flat, kind="stable").astype(np.int32, copy=False)
+        sorted_flat = np.asarray(flat[order], dtype=np.int64)
+        grid_cells = int(grid_n * grid_n * grid_n)
+        counts = np.bincount(sorted_flat, minlength=grid_cells)
+        cell_ptr = np.zeros((grid_cells + 1,), dtype=np.int32)
+        cell_ptr[1:] = np.cumsum(
+            np.asarray(counts, dtype=np.int64), dtype=np.int64
+        ).astype(np.int32)
 
-    coords = np.floor((gl_flat - origin[None, :]) / np.float32(spacing)).astype(
-        np.int32
-    )
-    coords = np.clip(coords, 0, grid_n - 1)
-    flat = (
-        coords[:, 0].astype(np.int64) * np.int64(grid_n) + coords[:, 1].astype(np.int64)
-    ) * np.int64(grid_n) + coords[:, 2].astype(np.int64)
-    order = np.argsort(flat, kind="stable").astype(np.int32, copy=False)
-    sorted_flat = np.asarray(flat[order], dtype=np.int64)
-    grid_cells = int(grid_n * grid_n * grid_n)
-    counts = np.bincount(sorted_flat, minlength=grid_cells)
-    cell_ptr = np.zeros((grid_cells + 1,), dtype=np.int32)
-    cell_ptr[1:] = np.cumsum(np.asarray(counts, dtype=np.int64), dtype=np.int64).astype(
-        np.int32
-    )
-    gl_order = int(lambda_valid.shape[1]) if np.asarray(lambda_valid).ndim >= 2 else 1
     node_seg_ids = np.arange(n_nodes, dtype=np.int64) // max(int(gl_order), 1)
     radii_arr = np.asarray(radii_si, dtype=np.float32).reshape(-1)
     if radii_arr.size:
@@ -582,18 +632,28 @@ def _build_cext_tissue_cell_list_gpu(
         np.maximum(node_radius, 0.0) + np.maximum(node_seg_len, 0.0), dtype=np.float32
     )
     cell_source_reach = np.zeros((grid_cells,), dtype=np.float32)
-    cell_segment_reach = np.zeros((grid_cells,), dtype=np.float32)
+    if not structure_reused:
+        cell_segment_reach = np.zeros((grid_cells,), dtype=np.float32)
     if n_nodes > 0:
         np.maximum.at(cell_source_reach, flat, node_source_reach)
-        np.maximum.at(cell_segment_reach, flat, node_segment_reach)
+        if not structure_reused:
+            np.maximum.at(cell_segment_reach, flat, node_segment_reach)
     build_s = perf_counter() - t0
 
     t0 = perf_counter()
+    if structure_reused:
+        cell_ptr_g = structure["cell_ptr_g"]
+        cell_node_ids_g = structure["cell_node_ids_g"]
+        cell_segment_reach_g = structure["cell_segment_reach_g"]
+    else:
+        cell_ptr_g = _state._cp.asarray(cell_ptr)
+        cell_node_ids_g = _state._cp.asarray(order)
+        cell_segment_reach_g = _state._cp.asarray(cell_segment_reach)
     cell = {
-        "cell_ptr_g": _state._cp.asarray(cell_ptr),
-        "cell_node_ids_g": _state._cp.asarray(order),
+        "cell_ptr_g": cell_ptr_g,
+        "cell_node_ids_g": cell_node_ids_g,
         "cell_source_reach_g": _state._cp.asarray(cell_source_reach),
-        "cell_segment_reach_g": _state._cp.asarray(cell_segment_reach),
+        "cell_segment_reach_g": cell_segment_reach_g,
         "origin": np.asarray(origin, dtype=np.float32),
         "spacing": float(spacing),
         "grid_n": int(grid_n),
@@ -604,9 +664,33 @@ def _build_cext_tissue_cell_list_gpu(
     }
     _state._cp.cuda.Stream.null.synchronize()
     upload_s = perf_counter() - t0
+    if isinstance(tissue_cache, dict) and not structure_reused:
+        structures.append({
+            "n_nodes": n_nodes,
+            "gl_order": gl_order,
+            "mins": mins.copy(),
+            "maxs": maxs.copy(),
+            "search_radius": search_radius,
+            "origin": origin.copy(),
+            "spacing": spacing,
+            "grid_n": grid_n,
+            "rad_cells": rad_cells,
+            "flat": flat,
+            "order": order,
+            "counts": counts,
+            "cell_ptr": cell_ptr,
+            "cell_segment_reach": cell_segment_reach,
+            "cell_ptr_g": cell_ptr_g,
+            "cell_node_ids_g": cell_node_ids_g,
+            "cell_segment_reach_g": cell_segment_reach_g,
+        })
+        # Two entries cover an interactive A/B comparison while bounding both
+        # host and device memory independently of sweep length.
+        tissue_cache["cext_gpu_cell_structures"] = structures[-2:]
     return cell, {
         "build_s": float(build_s),
         "upload_s": float(upload_s),
+        "structure_reused": int(structure_reused),
         "grid_n": int(grid_n),
         "rad_cells": int(rad_cells),
         "avg_occupancy": float(n_nodes) / max(float(grid_cells), 1.0),
@@ -759,6 +843,7 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
                 window_factor=window_factor,
                 radii_si=np.asarray(radii_si, dtype=np.float32),
                 seg_len_si=np.asarray(seg_len, dtype=np.float32),
+                tissue_cache=tissue_cache,
             )
             kernel_cell = _get_cext_tissue_cell_gpu_kernel()
             # Small/medium trees benefit strongly from one launch because the
@@ -852,6 +937,7 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
                     f"chunks={chunks_done} chunk_points={chunk_points} "
                     f"setup_cpu={_fmt_seconds(t_setup_cpu)} upload_static={_fmt_seconds(t_upload_static)} "
                     f"cell_build={_fmt_seconds(cell_metrics['build_s'])} cell_upload={_fmt_seconds(cell_metrics['upload_s'])} "
+                    f"cell_structure_reused={bool(cell_metrics['structure_reused'])} "
                     f"query={_fmt_seconds(0.0)} transfer={_fmt_seconds(t_transfer)} "
                     f"refine={_fmt_seconds(0.0)} greens={_fmt_seconds(t_greens)} "
                     f"download={_fmt_seconds(t_download)} total={_fmt_seconds(perf_counter() - t_total)}"

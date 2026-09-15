@@ -7,11 +7,14 @@ import numpy as np
 from cascade.configuration import solver_state as _state
 from cascade.flow.hematocrit import _tree_exact_connectivity
 from cascade.flow.kirchhoff import solve_kirchhoff
+from cascade.flow.api import solve_pressure_drop
+from cascade.flow.contracts import PressureDropProblem
 from cascade.flow.rheology import (
     segment_viscosity_from_radius,
     segment_viscosity_from_radius_hd,
 )
 from cascade.flow.topology import _build_node_indices
+from cascade.flow.topology import _normalize_kirchhoff_bc_mode
 from cascade.vessels.generation.tree_ops import set_tree_fluid
 
 
@@ -20,6 +23,7 @@ def assemble_tree_segments(
     fluid: str,
     hd_per_segment: np.ndarray | None = None,
     *,
+    compute_viscosity: bool = True,
     reuse_geometry: bool = False,
 ) -> tuple[
     np.ndarray,
@@ -123,15 +127,22 @@ def assemble_tree_segments(
             proximal_ids = cached["proximal_ids"]
             distal_ids = cached["distal_ids"]
 
-    base_viscosity = float(tree.parameters.fluid_density) * float(
-        tree.parameters.kinematic_viscosity
-    )
-    if hd_per_segment is None:
-        viscosity = segment_viscosity_from_radius(radii, base_viscosity, fluid)
+    if not compute_viscosity:
+        # The caller will calculate viscosity from its converged hematocrit.
+        # Avoid an O(N) nonlinear rheology pass whose values would be discarded.
+        viscosity = np.empty(radii.shape, dtype=float)
     else:
-        viscosity = segment_viscosity_from_radius_hd(
-            radii, base_viscosity, fluid, hd_per_segment
+        base_viscosity = float(tree.parameters.fluid_density) * float(
+            tree.parameters.kinematic_viscosity
         )
+        if hd_per_segment is None:
+            viscosity = segment_viscosity_from_radius(
+                radii, base_viscosity, fluid
+            )
+        else:
+            viscosity = segment_viscosity_from_radius_hd(
+                radii, base_viscosity, fluid, hd_per_segment
+            )
 
     return (
         starts,
@@ -192,15 +203,37 @@ def recompute_tree_flows(
 
     safe_radii = np.maximum(radii, 1e-12)
     resistances = (8.0 * viscosity * lengths) / (np.pi * safe_radii**4)
-    pressures, flows, _, _, _ = solve_kirchhoff(
-        proximal_ids,
-        distal_ids,
-        resistances,
-        inlet_nodes,
-        inlet_flow_cm3_s,
-        outlet_nodes,
-    )
-    if pressures.size and inlet_nodes:
+    pressure_pressure_mode = _normalize_kirchhoff_bc_mode() == "pressure_pressure"
+    if pressure_pressure_mode:
+        result = solve_pressure_drop(
+            PressureDropProblem(
+                proximal_nodes=proximal_ids,
+                distal_nodes=distal_ids,
+                resistances=resistances,
+                inlet_nodes=inlet_nodes,
+                outlet_nodes=outlet_nodes,
+                outlet_pressure=float(tree.parameters.terminal_pressure)
+                * _state.PA_TO_DYN_PER_CM2,
+                pressure_drop=(
+                    float(tree.parameters.root_pressure)
+                    - float(tree.parameters.terminal_pressure)
+                )
+                * _state.PA_TO_DYN_PER_CM2,
+                solver=str(_state.KIRCHHOFF_SOLVER),
+            )
+        )
+        pressures = result.pressures
+        flows = result.flows_cm3_s
+    else:
+        pressures, flows, _, _, _ = solve_kirchhoff(
+            proximal_ids,
+            distal_ids,
+            resistances,
+            inlet_nodes,
+            inlet_flow_cm3_s,
+            outlet_nodes,
+        )
+    if pressures.size and inlet_nodes and not pressure_pressure_mode:
         target = float(tree.parameters.root_pressure) * _state.PA_TO_DYN_PER_CM2
         pressures = pressures + target - float(pressures[inlet_nodes[0]])
     return (

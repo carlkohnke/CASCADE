@@ -1,4 +1,6 @@
 #version 330 core
+// Project tissue sample positions and pass their per-point colors to point.frag.
+// The retained OpenGL preview loads this packaged shader; it is not standalone.
 layout(location = 0) in vec3 a_position;
 layout(location = 1) in vec4 a_color;
 uniform float u_point_size;

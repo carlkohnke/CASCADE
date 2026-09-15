@@ -116,26 +116,18 @@ TARGET_TERMINAL_COUNTS: tuple[int, ...] = (
     4000000,
     5000000,
 )
-# (0,0, 1, 2, 3, 4, 5, 8, 10, 15, 25, 35, 50, 75, 100, 150, 250, 350, 500, 750, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000,300000,400000,500000,650000,1000000,2000000,3000000,4000000,5000000)
-
-
-# (0, 1, 2, 3, 4, 5, 8, 10, 15, 25, 35, 50, 75, 100, 150, 250, 350, 500, 750, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000,300000,400000,500000,650000,1000000,2000000,3000000,4000000,5000000)
-# (0, 1, 2, 3, 4, 5, 8, 10, 15, 25, 35, 50, 75, 100, 150, 250, 350, 500, 750, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000,300000,400000,500000)
-# TARGET_TERMINAL_COUNTS: tuple[int, ...] = (100000, 200000,300000,400000,500000)
-
-# 1,    2,    3,    4,    5,    8,    10,    15,    25,   35,    50,    75,      100,    150,    250,    350,   500,    750,    1000,    2000,    5000,    10000,  20000,
-# 1,    2,    3,    4,    5,    8,    10,    15,    25,   35,    50,    75,      100,    150,    250,    350,   500,    750,    1000,    2000,    5000,    10000,  20000,    50000,   100000,
 ROOT_LOCATION = np.array(
     [[0.49, -0.49, -0.49]]
 )  # scaled by cube side length at runtime
 ROOT_DIR = np.array([[-0.49, 0.49, 0.49]])
-# OUTPUT_CSV_NAME = "Cube_EXT_q_considers_Cext_Vmax_04_300kplus.csv"
 OUTPUT_CSV_NAME = "cascade_results.csv"
 NONDIMENSIONAL_NUMBERS = False
 NONDIMENSIONAL_CSV_NAME = "cascade_dimensionless_results.csv"
 FLUID = "both"  # analysis mode: "water", "blood", or "both"
 BUILD_FLUID = "blood"
 ACTIVE_FLUID = FLUID
+CUSTOM_FLUID_DENSITY_G_CM3 = 1.0
+CUSTOM_FLUID_DYNAMIC_VISCOSITY_CP = 1.0
 
 DISTANCE_SAMPLE_COUNT = 1000000
 DISTANCE_CHUNK_SIZE = 256
@@ -148,12 +140,6 @@ DISTANCE_BRUTE_FORCE_MAX_SEGMENTS = 20_000
 DISTANCE_KDTREE_MIN_CANDIDATES = 64
 DISTANCE_KDTREE_CANDIDATE_MULT = 8
 DISTANCE_KDTREE_MAX_CANDIDATES = 4096
-# ROOT_PRESSURE = 133322.37
-# TERMINAL_PRESSURE = 133200
-# ROOT_PRESSURE = 113324.
-# TERMINAL_PRESSURE = 133200
-# TERMINAL_PRESSURE = 123660.0
-# TERMINAL_PRESSURE = 40000.0
 ROOT_PRESSURE = 66661.0
 TERMINAL_PRESSURE = 40000.0
 QIN_TARGET = 900.0  # uL/min target inlet flow rate
@@ -445,9 +431,7 @@ TREE_CACHE_INDEX_NAME = "tree_index.csv"
 
 VMAX_MM = 2e-16 * 2.2e13
 VMAX_MM = 0.04
-# VMAX_MM = 3.85e-17*6e+13  # mol/(m^3*s) (Michaelis-Menten Vmax for cell media depletion)
 K_M_MM = 0.0069
-# K_M_MM = 0.035954   # mol/m^3 (Michaelis-Menten constant)
 AXIAL_BLOOD_STEPS = 5
 OMEGA = 0.7
 
@@ -482,7 +466,7 @@ PRIES_SECOMB_MCV_CORR = (92.0 / PRIES_SECOMB_MCV_FL) ** (1.0 / 3.0)
 
 # Sparse Kirchhoff solver selection.
 # Options: "auto" | "cg" | "spsolve" | "gmres_ilu".
-KIRCHHOFF_SOLVER = "tree"  # "tree" or one of the sparse solver options below.
+KIRCHHOFF_SOLVER = "spsolve"  # "tree" or one of the sparse solver options below.
 KIRCHHOFF_BC_MODE = (
     "legacy_equal_terminal_flow"  # "terminal_pressure" or "legacy_equal_terminal_flow".
 )
@@ -519,7 +503,6 @@ O2_ML_PER_DL_TO_MOL_PER_M3_STP = (1e-3 / 22.414) / 1e-4
 CONC_MAX_FOR_NORMALIZATION = 0.14
 
 EXTRAVASCULAR_CONCENTRATION = 0.0
-# SOLUTE_DIFFUSIVITY = (3.2e-5) * (0.9 ** (4 / 3))
 SOLUTE_DIFFUSIVITY = 2.41e-5
 TISSUE_DECAY_LENGTH = 0.2
 POROSITY = 0.9
@@ -541,6 +524,7 @@ CONCENTRATION_INLET_BY_FLUID = {
     "cell media": 0.2211,
     "media": 0.2211,
     "blood": 0.14,
+    "custom": 0.2211,
 }
 
 

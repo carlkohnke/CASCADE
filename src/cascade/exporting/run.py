@@ -46,6 +46,12 @@ def export_run(
     )
     if out_dir is None:
         raise ValueError("outputs.out_dir must identify an output directory.")
+    manifest_path = out_dir / "manifest.json"
+    if manifest_path.exists() and not config.outputs.overwrite:
+        raise FileExistsError(
+            f"{out_dir} already contains a CASCADE run; choose a new outputs.out_dir "
+            "or set outputs.overwrite=true."
+        )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     outputs: dict[str, str] = {}
@@ -120,7 +126,6 @@ def export_run(
             outputs["oxygen_points_vtp"] = str(path)
         outputs.update(_save_domain_outputs(build.domain, out_dir))
 
-    manifest_path = out_dir / "manifest.json"
     manifest = _manifest(config, build, simulation, outputs)
     manifest_path.write_text(
         json.dumps(_jsonable(manifest), indent=2, allow_nan=True), encoding="utf-8"
@@ -225,6 +230,19 @@ def _write_segment_csv_from_results(path: Path, tree_results: list[Any]) -> None
                 row.extend(arrays[name][local_id] for name in optional)
                 writer.writerow(row)
                 global_id += 1
+
+
+def _anchor_axial_profile(values, target_t, proximal, distal):
+    """Preserve a solved profile's shape while enforcing vessel-end values."""
+    profile = np.asarray(values, dtype=float)
+    position = np.asarray(target_t, dtype=float)
+    proximal = np.asarray(proximal, dtype=float)
+    distal = np.asarray(distal, dtype=float)
+    start_correction = proximal - profile[..., 0]
+    end_correction = distal - profile[..., -1]
+    return profile + start_correction[..., None] * (1.0 - position) + end_correction[
+        ..., None
+    ] * position
 
 
 def _segment_polydata(
@@ -340,13 +358,22 @@ def _segment_polydata(
                         left=float(sorted_values[0]),
                         right=float(sorted_values[-1]),
                     )
-        fallback = np.linspace(float(cin[segment_id]), float(cout[segment_id]), count)
-        concentration_chunks.append(
-            values_for_field.get(
-                "bulk_oxygen",
-                values_for_field.get("intralumen_oxygen", fallback),
-            )
+        proximal = float(cin[segment_id])
+        distal = float(cout[segment_id])
+        fallback = np.linspace(proximal, distal, count)
+        bulk_reference = values_for_field.get(
+            "bulk_oxygen",
+            values_for_field.get("intralumen_oxygen", fallback),
         )
+        bulk_profile = _anchor_axial_profile(
+            bulk_reference, target_t, proximal, distal
+        )
+        if "wall_oxygen" in values_for_field:
+            values_for_field["wall_oxygen"] = (
+                values_for_field["wall_oxygen"] + bulk_profile - bulk_reference
+            )
+        values_for_field["bulk_oxygen"] = bulk_profile
+        concentration_chunks.append(bulk_profile)
         for output_name in field_chunks:
             field_chunks[output_name].append(
                 values_for_field.get(output_name, np.full(count, np.nan, dtype=float))
@@ -438,8 +465,7 @@ def _segment_polydata_from_results(
             if valid.size:
                 sample = int(valid[0])
                 source_t = (
-                    (gl_points[sample] * 100.0 - starts[sample])
-                    @ vectors[sample]
+                    (gl_points[sample] * 100.0 - starts[sample]) @ vectors[sample]
                 ) / length_sq[sample]
                 source_t = np.clip(source_t, 0.0, 1.0)
         base_t = np.linspace(0.0, 1.0, minimum_resolution, dtype=float)
@@ -467,19 +493,26 @@ def _segment_polydata_from_results(
                     interpolated[output_name] = _interp_rows(
                         sorted_t, raw[:nseg, order_idx], target_t
                     )
+        bulk_reference = interpolated.get(
+            "bulk_oxygen", interpolated.get("intralumen_oxygen", fallback)
+        )
+        bulk_profile = _anchor_axial_profile(
+            bulk_reference, target_t, cin, cout
+        )
+        if "wall_oxygen" in interpolated:
+            interpolated["wall_oxygen"] = (
+                interpolated["wall_oxygen"] + bulk_profile - bulk_reference
+            )
+        interpolated["bulk_oxygen"] = bulk_profile
         add(
             "concentration",
-            interpolated.get(
-                "bulk_oxygen", interpolated.get("intralumen_oxygen", fallback)
-            ),
+            bulk_profile,
         )
         for name in profile_names.values():
             add(name, interpolated.get(name, np.full((nseg, count), np.nan)))
         is_node = (
             np.any(
-                np.isclose(
-                    target_t[:, None], source_t[None, :], rtol=1e-6, atol=1e-7
-                ),
+                np.isclose(target_t[:, None], source_t[None, :], rtol=1e-6, atol=1e-7),
                 axis=1,
             )
             if source_t.size
@@ -501,12 +534,16 @@ def _segment_polydata_from_results(
             add(name, np.repeat(values, count))
         add(
             "tree_id",
-            np.full(nseg * count, int(getattr(result, "tree_id", 0)), dtype=index_dtype),
+            np.full(
+                nseg * count, int(getattr(result, "tree_id", 0)), dtype=index_dtype
+            ),
         )
         add("local_segment_id", np.repeat(np.arange(nseg), count))
         add(
             "global_segment_id",
-            np.repeat(np.arange(global_segment_offset, global_segment_offset + nseg), count),
+            np.repeat(
+                np.arange(global_segment_offset, global_segment_offset + nseg), count
+            ),
         )
         for source_name in optional_fields:
             add(
@@ -642,6 +679,16 @@ def _manifest(
     return {
         "schema_version": 1,
         "created_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "project": {
+            "name": str(config.raw.get("gui", {}).get("project_name", config.prefix)),
+            "job_id": config.raw.get("gui", {}).get("job_id"),
+            "run_directory": str(
+                resolve_path(
+                    config.outputs.out_dir,
+                    base_dir=config.settings_path.parent if config.settings_path else None,
+                )
+            ),
+        },
         "cascade": {
             "version": __version__,
             "source": _git_metadata(),
@@ -685,8 +732,7 @@ def _manifest(
         "environment": {
             "python": sys.version,
             "python_executable": sys.executable,
-            "platform": platform.platform(),
-            "machine": platform.machine(),
+            **_platform_metadata(),
             "cuda_path": os.environ.get("CUDA_PATH"),
             "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
             "omp_num_threads": os.environ.get("OMP_NUM_THREADS"),
@@ -744,9 +790,29 @@ def _dependency_versions() -> dict[str, str | None]:
 
 
 @lru_cache(maxsize=1)
+def _platform_metadata() -> dict[str, str]:
+    """Cache stable platform probes that may launch an OS subprocess."""
+    return {"platform": platform.platform(), "machine": platform.machine()}
+
+
+def warm_export_metadata() -> None:
+    """Move stable manifest discovery off the interactive Run critical path."""
+    _dependency_versions()
+    _platform_metadata()
+    _git_metadata()
+
+
+@lru_cache(maxsize=1)
 def _git_metadata() -> dict[str, Any]:
-    root = Path(__file__).resolve().parents[2]
-    if not (root / ".git").exists():
+    root = next(
+        (
+            parent
+            for parent in Path(__file__).resolve().parents
+            if (parent / ".git").exists()
+        ),
+        None,
+    )
+    if root is None:
         return {"commit": None, "dirty": None}
     try:
         commit = subprocess.run(

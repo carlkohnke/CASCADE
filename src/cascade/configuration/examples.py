@@ -10,7 +10,7 @@ def example_config() -> dict[str, Any]:
         "domain": {"type": "cube", "side_length": 1.0, "random_seed": 42},
         "network": {
             "mode": "tree",
-            "target_terminal_count": 1,
+            "target_terminal_count": 100,
             "root": {"start": [0.49, -0.49, -0.49], "direction": [-0.49, 0.49, 0.49]},
         },
         "growth": {
@@ -23,11 +23,11 @@ def example_config() -> dict[str, Any]:
         "simulation": {
             "fluid": "blood",
             "build_fluid": "blood",
-            "qin_target_ul_min": 900.0,
-            "concentration_solver": "topdown",
-            "distance_sample_count": 64,
+            "qin_target_ul_min": 100.0,
+            "concentration_solver": "network_ext",
+            "distance_sample_count": 10000,
             "sample_mode": "random",
-            "tissue_accel": "cpu",
+            "tissue_accel": "gpu",
             "geometry_only": False,
         },
         "settings": {
@@ -37,8 +37,8 @@ def example_config() -> dict[str, Any]:
                 "finite_radius_o2_terms": "both",
                 "lumen_wall_closure": "graetz",
             },
-            "cext": {"accel_mode": "cpu", "vess_coupling_accel": "anderson"},
-            "tissue": {"accel_mode": "cpu", "nearest_vessels": 250},
+            "cext": {"accel_mode": "gpu", "vess_coupling_accel": "anderson"},
+            "tissue": {"accel_mode": "gpu", "nearest_vessels": 250},
         },
         "outputs": {
             "out_dir": "cascade_run",

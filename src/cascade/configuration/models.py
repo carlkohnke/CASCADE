@@ -15,6 +15,7 @@ class DomainConfig:
     y_length: float | None = None
     z_length: float | None = None
     radius: float | None = None
+    height: float | None = None
     center: list[float] | None = None
     theta_resolution: int = 12
     phi_resolution: int = 8
@@ -35,7 +36,7 @@ class RootConfig:
 class NetworkConfig:
     mode: str = "tree"
     input_path: str | None = None
-    target_terminal_count: int | None = 1
+    target_terminal_count: int | None = 100
     target_total_terminal_count: int | None = None
     target_terminal_counts: list[int] = field(default_factory=list)
     roots: list[RootConfig] = field(default_factory=list)
@@ -100,10 +101,10 @@ class OcclusionConfig:
 class SimulationConfig:
     fluid: str = "blood"
     build_fluid: str = "blood"
-    qin_target_ul_min: float = 900.0
+    qin_target_ul_min: float = 100.0
     total_qin_ul_min: float | None = None
     concentration_solver: str = "network_ext"
-    distance_sample_count: int = 1000
+    distance_sample_count: int = 10000
     flow_source: str = "per_tree"
     inlet_conditions: list[dict[str, float]] = field(default_factory=list)
     sample_mode: str = "random"
@@ -112,7 +113,7 @@ class SimulationConfig:
     geometry_only: bool = False
     skip_tissue_oxygen: bool = False
     compute_avg_distance_to_channel: bool = False
-    tissue_accel: str | None = None
+    tissue_accel: str | None = "gpu"
     tissue_gpu_validate_points: int | None = None
     viability_threshold: float | None = None
     occlusion: OcclusionConfig | None = None
@@ -140,6 +141,7 @@ class OutputsConfig:
     vessel_resolution: int = 2
     write_combined_sweep_csv: bool = True
     combined_sweep_filename: str = "sweep_summary.csv"
+    overwrite: bool = False
 
 
 @dataclass

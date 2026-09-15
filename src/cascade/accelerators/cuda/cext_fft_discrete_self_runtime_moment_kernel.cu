@@ -1,3 +1,5 @@
+// Evaluate one orientation-moment component of the FFT self correction.
+// hybrid_geometry.py uses this runtime-stencil variant to avoid stored stencils.
 extern "C" __global__ void cext_fft_discrete_self_runtime_moment_kernel(
     const int* target_seg_ids,
     const float* gl_points_si,

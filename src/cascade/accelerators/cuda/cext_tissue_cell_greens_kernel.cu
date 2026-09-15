@@ -1,3 +1,5 @@
+// Evaluate Cext-derived tissue oxygen using a uniform-cell source index.
+// concentration/tissue/gpu.py compiles this kernel for large sparse searches.
 extern "C" __global__ void cext_tissue_cell_greens_kernel(
     const float* points_si,
     const int* cell_ptr,

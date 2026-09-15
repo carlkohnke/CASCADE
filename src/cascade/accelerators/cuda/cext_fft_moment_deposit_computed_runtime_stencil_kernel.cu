@@ -1,3 +1,5 @@
+// Compute one orientation moment and deposit it with an in-kernel grid stencil.
+// hybrid_geometry.py uses this variant when stencils are not retained in memory.
 extern "C" __global__ void cext_fft_moment_deposit_computed_runtime_stencil_kernel(
     const float* o2_weight_gl,
     const float* lambda_iv_gl,

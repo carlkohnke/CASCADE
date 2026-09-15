@@ -9,6 +9,10 @@ DEFAULTS = {
     "TERMINAL_PRESSURE": 40000.0,
     # Target inlet flow used when a run does not provide a different flow, in microliters per minute.
     "QIN_TARGET": 900.0,
+    # Density of a user-defined constant-viscosity perfusate, in g/cm^3.
+    "CUSTOM_FLUID_DENSITY_G_CM3": 1.0,
+    # Dynamic viscosity of a user-defined perfusate, in centipoise.
+    "CUSTOM_FLUID_DYNAMIC_VISCOSITY_CP": 1.0,
     # If true, scale requested terminal counts by the domain volume. Usually left false in CASCADE runs.
     "SCALE_NTERMS_BY_VOLUME": False,
     # If true, scale inlet flow by side_length^3 so larger domains receive proportionally more flow.
@@ -16,7 +20,7 @@ DEFAULTS = {
     # If true, scale the pressure drop by side_length^3 before solving vessel flows.
     "SCALE_dP_BY_VOLUME": True,
     # Kirchhoff flow solver family. "tree" uses the fast tree-specialized solver when possible.
-    "KIRCHHOFF_SOLVER": "tree",
+    "KIRCHHOFF_SOLVER": "spsolve",
     # Boundary condition mode for flow. The legacy mode enforces equal terminal flow then reconstructs pressure.
     "KIRCHHOFF_BC_MODE": "legacy_equal_terminal_flow",
     # If true, compare the tree-specialized solver against a sparse solver for debugging.
@@ -60,6 +64,8 @@ ALIASES = {
     "terminal_pressure": "TERMINAL_PRESSURE",
     "qin_target": "QIN_TARGET",
     "qin_target_ul_min": "QIN_TARGET",
+    "custom_fluid_density_g_cm3": "CUSTOM_FLUID_DENSITY_G_CM3",
+    "custom_fluid_dynamic_viscosity_cp": "CUSTOM_FLUID_DYNAMIC_VISCOSITY_CP",
     "scale_nterms_by_volume": "SCALE_NTERMS_BY_VOLUME",
     "scale_q_by_volume": "SCALE_Q_BY_VOLUME",
     "scale_dp_by_volume": "SCALE_dP_BY_VOLUME",

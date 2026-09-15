@@ -1,4 +1,9 @@
-"""Inspect the installed CASCADE environment and report optional solver capabilities."""
+"""Inspect an installed CASCADE environment and optional GPU capabilities.
+
+This module backs ``cascade doctor`` and ``cascade-doctor``. Use ``--json`` for
+machine-readable output, ``--no-gpu-probe`` on CPU-only systems, or
+``--require-gpu`` when CUDA readiness is mandatory.
+"""
 
 from __future__ import annotations
 

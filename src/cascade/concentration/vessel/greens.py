@@ -631,6 +631,87 @@ if _state._HAVE_NUMBA:
                 out[row] = min(total, cap_max)
         return keep_mask, out
 
+    @njit(cache=True, parallel=True)
+    def _cext_tissue_kernel_numba(
+        points_si: np.ndarray,
+        nearest_idx: np.ndarray,
+        keep_mask: np.ndarray,
+        valid_source_ids: np.ndarray,
+        gl_points_si: np.ndarray,
+        segment_vectors: np.ndarray,
+        lambda_iv_gl: np.ndarray,
+        q_weighted_gl: np.ndarray,
+        mono2_weight_gl: np.ndarray,
+        dipole2_weight_gl: np.ndarray,
+        seg_cap_gl: np.ndarray,
+        diffusivity_si: float,
+        window_factor: float,
+    ) -> np.ndarray:
+        """Evaluate converged Cext sources without Python point/segment loops."""
+        n_points = points_si.shape[0]
+        gl_order = gl_points_si.shape[1]
+        out = np.zeros(n_points, dtype=np.float64)
+        for row in prange(n_points):
+            if not keep_mask[row]:
+                continue
+            px = points_si[row, 0]
+            py = points_si[row, 1]
+            pz = points_si[row, 2]
+            total = 0.0
+            cap_max = 0.0
+            for local_i in range(nearest_idx.shape[1]):
+                compact_seg = nearest_idx[row, local_i]
+                if compact_seg < 0 or compact_seg >= valid_source_ids.size:
+                    continue
+                source_seg = valid_source_ids[compact_seg]
+                if source_seg < 0 or source_seg >= gl_points_si.shape[0]:
+                    continue
+                seg_contributed = False
+                vx = segment_vectors[source_seg, 0]
+                vy = segment_vectors[source_seg, 1]
+                vz = segment_vectors[source_seg, 2]
+                vector_length = np.sqrt(vx * vx + vy * vy + vz * vz)
+                for source_node in range(gl_order):
+                    source_lambda = max(lambda_iv_gl[source_seg, source_node], 1.0e-30)
+                    dx = px - gl_points_si[source_seg, source_node, 0]
+                    dy = py - gl_points_si[source_seg, source_node, 1]
+                    dz = pz - gl_points_si[source_seg, source_node, 2]
+                    radius = np.sqrt(dx * dx + dy * dy + dz * dz)
+                    if radius <= 1.0e-12 or radius > window_factor * source_lambda:
+                        continue
+                    kernel = np.exp(-radius / source_lambda) / (
+                        4.0 * np.pi * diffusivity_si * radius
+                    )
+                    total += q_weighted_gl[source_seg, source_node] * kernel
+                    o2_weight = (
+                        mono2_weight_gl[source_seg, source_node]
+                        + dipole2_weight_gl[source_seg, source_node]
+                    )
+                    if o2_weight != 0.0 and vector_length > 1.0e-30:
+                        tangent_dot_r = (vx * dx + vy * dy + vz * dz) / vector_length
+                        mu2 = min(
+                            (tangent_dot_r * tangent_dot_r)
+                            / max(radius * radius, 1.0e-30),
+                            1.0,
+                        )
+                        inv_radius = 1.0 / radius
+                        inv_lambda = 1.0 / source_lambda
+                        p_hessian = (
+                            (1.0 - 3.0 * mu2)
+                            * (inv_radius * inv_radius + inv_lambda * inv_radius)
+                            + (1.0 - mu2) * inv_lambda * inv_lambda
+                        ) * kernel
+                        total += o2_weight * p_hessian
+                    seg_contributed = True
+                if seg_contributed:
+                    cap_max = max(cap_max, seg_cap_gl[source_seg])
+            if total < 0.0 or not np.isfinite(total):
+                total = 0.0
+            if cap_max > 0.0:
+                total = min(total, cap_max)
+            out[row] = total
+        return out
+
 
 def _greens_lambda_char(
     diffusivity: float, vmax: float, km: float, cin: float
@@ -888,6 +969,7 @@ __all__ = [
     "_solve_channel_concentrations_topdown_numba",
     "_tissue_kernel_numba",
     "_tissue_dense_kernel_numba",
+    "_cext_tissue_kernel_numba",
     "_greens_lambda_char",
     "_greens_decay_factor",
     "_greens_segment_params",

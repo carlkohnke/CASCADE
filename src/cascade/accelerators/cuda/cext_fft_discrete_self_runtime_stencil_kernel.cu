@@ -1,3 +1,5 @@
+// Evaluate FFT self corrections while constructing interpolation stencils in-kernel.
+// hybrid_geometry.py compiles it for memory-conscious GPU configurations.
 extern "C" __global__ void cext_fft_discrete_self_runtime_stencil_kernel(
     const int* target_seg_ids,
     const float* gl_points_si,

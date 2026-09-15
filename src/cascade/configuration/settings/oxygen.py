@@ -17,6 +17,8 @@ DEFAULTS = {
         "cell media": 0.2211,
         # Short alias for cell-media inlet oxygen concentration.
         "media": 0.2211,
+        # User-defined constant-viscosity perfusates default to the media value.
+        "custom": 0.2211,
     },
     # Reference concentration used to normalize output metrics such as C_tiss_over_Cmax.
     "CONC_MAX_FOR_NORMALIZATION": 0.14,

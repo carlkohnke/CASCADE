@@ -175,9 +175,9 @@ Examples
 See Also
 --------
 
-  :func:`~svtoolkit.domain.a_matrix.a_matrix` : Constructs the full interpolation matrix :math:`A`.
-  :func:`~svtoolkit.domain.h_matrix.h_matrix` : Computes the :math:`H` matrix for bending energy minimization.
-  :func:`~svtoolkit.domain.n_matrix.n_matrix` : Constructs the :math:`N` matrix incorporating polynomial terms.
-  :func:`~svtoolkit.domain.m_matrix.m_matrix` : Constructs the :math:`M` matrix from its sub-matrices.
+  :func:`~cascade.domain.svv.core.a_matrix.a_matrix` : Constructs the full interpolation matrix :math:`A`.
+  :func:`~cascade.domain.svv.core.h_matrix.h_matrix` : Computes the :math:`H` matrix for bending energy minimization.
+  :func:`~cascade.domain.svv.core.n_matrix.n_matrix` : Constructs the :math:`N` matrix incorporating polynomial terms.
+  :func:`~cascade.domain.svv.core.m_matrix.m_matrix` : Constructs the :math:`M` matrix from its sub-matrices.
 
 """

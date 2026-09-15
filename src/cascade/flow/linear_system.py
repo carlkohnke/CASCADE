@@ -828,3 +828,85 @@ def solve_kirchhoff_dirichlet(
 
     flows = edge_conductance * (pressures[prox_ids] - pressures[dist_ids])
     return pressures, flows, prox_ids, dist_ids, nodes
+
+
+def _solve_pressure_dirichlet(
+    prox_ids: np.ndarray,
+    dist_ids: np.ndarray,
+    resistances: np.ndarray,
+    inlet_nodes: Sequence[int],
+    inlet_pressure: float,
+    outlet_nodes: Sequence[int],
+    outlet_pressure: float,
+    *,
+    num_nodes: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Impose inlet/outlet pressures and solve all unconstrained node pressures."""
+
+    prox_ids = np.asarray(prox_ids, dtype=np.int64).reshape(-1)
+    dist_ids = np.asarray(dist_ids, dtype=np.int64).reshape(-1)
+    resistances = np.asarray(resistances, dtype=float).reshape(-1)
+    if not (prox_ids.size == dist_ids.size == resistances.size) or prox_ids.size == 0:
+        raise ValueError("Pressure topology and resistance arrays must be nonempty and equal length.")
+    if num_nodes is None:
+        num_nodes = int(max(int(prox_ids.max()), int(dist_ids.max())) + 1)
+    num_nodes = int(num_nodes)
+
+    inlet_arr = np.asarray(list(inlet_nodes), dtype=np.int64).reshape(-1)
+    outlet_arr = np.asarray(list(outlet_nodes), dtype=np.int64).reshape(-1)
+    boundary_nodes = np.concatenate([inlet_arr, outlet_arr])
+    boundary_values = np.concatenate(
+        [
+            np.full(inlet_arr.size, float(inlet_pressure), dtype=float),
+            np.full(outlet_arr.size, float(outlet_pressure), dtype=float),
+        ]
+    )
+    pressures = np.empty(num_nodes, dtype=float)
+    pressures.fill(np.nan)
+    pressures[boundary_nodes] = boundary_values
+    boundary_mask = np.zeros(num_nodes, dtype=bool)
+    boundary_mask[boundary_nodes] = True
+    free = np.flatnonzero(~boundary_mask)
+    conductance = 1.0 / resistances
+
+    if _state._HAVE_SCIPY_SPARSE:
+        rows = np.concatenate([prox_ids, dist_ids, prox_ids, dist_ids])
+        cols = np.concatenate([prox_ids, dist_ids, dist_ids, prox_ids])
+        data = np.concatenate([conductance, conductance, -conductance, -conductance])
+        laplacian = _sp.coo_matrix(
+            (data, (rows, cols)), shape=(num_nodes, num_nodes)
+        ).tocsr()
+        if free.size:
+            system = laplacian[free][:, free].tocsr()
+            rhs = -(laplacian[free][:, boundary_nodes] @ boundary_values)
+            try:
+                pressures[free] = _splinalg.spsolve(system, rhs)
+            except Exception as exc:  # pragma: no cover
+                raise RuntimeError(
+                    "Failed to solve pressure-pressure Kirchhoff system. "
+                    "Check boundary nodes and connectivity."
+                ) from exc
+    else:
+        laplacian = np.zeros((num_nodes, num_nodes), dtype=float)
+        np.add.at(laplacian, (prox_ids, prox_ids), conductance)
+        np.add.at(laplacian, (dist_ids, dist_ids), conductance)
+        np.add.at(laplacian, (prox_ids, dist_ids), -conductance)
+        np.add.at(laplacian, (dist_ids, prox_ids), -conductance)
+        if free.size:
+            system = laplacian[np.ix_(free, free)]
+            rhs = -(laplacian[np.ix_(free, boundary_nodes)] @ boundary_values)
+            try:
+                pressures[free] = np.linalg.solve(system, rhs)
+            except np.linalg.LinAlgError as exc:
+                raise RuntimeError(
+                    "Failed to solve pressure-pressure Kirchhoff system. "
+                    "Check boundary nodes and connectivity."
+                ) from exc
+
+    if not np.all(np.isfinite(pressures)):
+        raise RuntimeError(
+            "Pressure-pressure Kirchhoff solve is singular. Every connected "
+            "component must contain an inlet or outlet pressure boundary."
+        )
+    flows = conductance * (pressures[prox_ids] - pressures[dist_ids])
+    return pressures, flows

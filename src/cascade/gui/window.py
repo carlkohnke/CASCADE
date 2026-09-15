@@ -17,7 +17,7 @@ from PySide6.QtCore import (
     QTimer,
     Qt,
 )
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -45,6 +45,8 @@ from cascade.gui.model import (
     estimate_resources,
     hardware_info,
     load_project,
+    merge_project,
+    PROJECT_FILENAME,
     save_project,
     validate_project,
 )
@@ -55,7 +57,6 @@ from cascade.gui.preview import (
 from cascade.gui.runner import JobRunner
 from cascade.gui.theme import Tokens
 from cascade.gui.widgets import (
-    StatusPill,
     cancel_native_pickers,
     choose_native_path,
 )
@@ -112,10 +113,8 @@ class WindowResizeHandle(QWidget):
         self.horizontal = horizontal
         if horizontal:
             self.setFixedHeight(4)
-            self.setCursor(Qt.SizeVerCursor)
         else:
             self.setFixedWidth(4)
-            self.setCursor(Qt.SizeHorCursor)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
@@ -202,7 +201,7 @@ class MainWindow(QMainWindow):
         "Physics",
         "Solver",
         "Outputs",
-        "Run",
+        "Run queue",
         "Results",
     ]
 
@@ -216,6 +215,8 @@ class MainWindow(QMainWindow):
         self.config = default_project()
         self.project_path: Path | None = None
         self.project_dir = _default_project_directory()
+        self._project_dirty = False
+        self._last_queued_signature: str | None = None
         self.hardware = hardware_info()
         self.runner = JobRunner(self.project_dir, self)
         self._preview_process: QProcess | None = None
@@ -233,6 +234,10 @@ class MainWindow(QMainWindow):
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(90)
         self._preview_timer.timeout.connect(self._refresh_preview)
+        self._prepare_timer = QTimer(self)
+        self._prepare_timer.setSingleShot(True)
+        self._prepare_timer.setInterval(1200)
+        self._prepare_timer.timeout.connect(self._prepare_interactive_case)
         self._build_ui()
         self._build_menu()
         self._load_pages()
@@ -246,6 +251,7 @@ class MainWindow(QMainWindow):
         """Avoid launching a worker for headless model-only window instances."""
         if self.isVisible():
             self.runner.warmup()
+            self._prepare_timer.start()
 
     def _build_ui(self):
         self.title_bar = WindowTitleBar(self)
@@ -332,16 +338,20 @@ class MainWindow(QMainWindow):
         top_row.setContentsMargins(16, 8, 16, 8)
         self.project_label = QLabel("Unsaved project")
         self.project_label.setStyleSheet(f"font-weight:650;color:{Tokens.TEXT_2};")
-        self.validation_pill = StatusPill("Checking…")
-        self.validation_pill.setToolTip("Click to review setup issues and warnings.")
-        self.validation_pill.clicked.connect(self._show_validation_details)
-        save = QPushButton("Save project")
-        save.setProperty("secondary", True)
-        save.clicked.connect(self.save)
+        self.queue_btn = QPushButton("+ Queue")
+        self.queue_btn.setProperty("queueRole", "run")
+        self.queue_btn.clicked.connect(self._top_queue_clicked)
+        self.load_btn = QPushButton("Load project")
+        self.load_btn.setProperty("secondary", True)
+        self.load_btn.clicked.connect(self.open)
+        self.save_btn = QPushButton("Save project")
+        self.save_btn.setProperty("secondary", True)
+        self.save_btn.clicked.connect(self.save)
         top_row.addWidget(self.project_label)
         top_row.addStretch()
-        top_row.addWidget(self.validation_pill)
-        top_row.addWidget(save)
+        top_row.addWidget(self.queue_btn)
+        top_row.addWidget(self.load_btn)
+        top_row.addWidget(self.save_btn)
         content_col.addWidget(top)
 
         self.pages = [
@@ -433,22 +443,29 @@ class MainWindow(QMainWindow):
         queue: QueuePage = self.pages[6]
         analysis: AnalysisPage = self.pages[7]
         queue.set_runner(self.runner)
+        self._restore_last_queued_signature()
         analysis.set_runner(self.runner)
         analysis.render_requested.connect(self._render_analysis)
+        analysis.use_setup_requested.connect(self._use_run_as_setup)
         self.preview.view_settings_changed.connect(self._viewer_settings_changed)
         self.preview.result_fields_loaded.connect(analysis.set_render_fields)
         self.preview.selection_changed.connect(analysis.set_selection)
         self.runner.running_changed.connect(self._preview_running_changed)
         self.runner.jobs_changed.connect(self._update_solver_status)
         queue.add_requested.connect(self._enqueue)
-        self.pages[2].open_physics_requested.connect(lambda: self.nav.setCurrentRow(3))
         self.pages[2].source.currentIndexChanged.connect(self._network_source_changed)
         self.pages[2].topology.currentIndexChanged.connect(
             self._sync_inlet_condition_count
         )
         self.pages[2].inlet_count.valueChanged.connect(self._sync_inlet_condition_count)
         self.pages[2].auto_roots.toggled.connect(self._sync_inlet_condition_count)
-        self.pages[2].roots.textChanged.connect(self._sync_inlet_condition_count)
+        self.pages[2].roots_changed.connect(self._sync_inlet_condition_count)
+        self.pages[2].save_network.toggled.connect(
+            self.pages[5].save_network.setChecked
+        )
+        self.pages[5].save_network.toggled.connect(
+            self.pages[2].save_network.setChecked
+        )
         self.pages[3].changed.connect(self._schedule_status_refresh)
         self.pages[5].preview_changed.connect(self._schedule_output_preview_refresh)
         self._wire_live_validation()
@@ -493,7 +510,10 @@ class MainWindow(QMainWindow):
 
     def _schedule_status_refresh(self, *_):
         if not self._initializing:
+            self._project_dirty = True
+            self._update_project_label()
             self._status_timer.start()
+            self._prepare_timer.start()
             # Outputs edits do not alter geometry. Avoid re-entering the WSLg
             # canvas while QTableWidget is changing its cell widgets.
             source = self.sender()
@@ -504,6 +524,90 @@ class MainWindow(QMainWindow):
     def _schedule_output_preview_refresh(self, *_):
         if not self._initializing and self.nav.currentRow() == 5:
             self._preview_timer.start()
+
+    def _setup_signature(self, config: dict[str, Any]) -> str:
+        payload = deepcopy(config)
+        gui = payload.setdefault("gui", {})
+        for key in (
+            "run_name",
+            "job_id",
+            "preview_seed",
+            "sweep_batch_id",
+            "combined_sweep_csv_path",
+            "sweep_parameters",
+            "analysis",
+            "viewer",
+        ):
+            gui.pop(key, None)
+        payload.setdefault("outputs", {}).pop("out_dir", None)
+        if gui.get("network_source") == "svv_generated":
+            payload.setdefault("network", {}).pop("input_path", None)
+        for section, key in (("domain", "path"), ("network", "input_path")):
+            raw = payload.get(section, {}).get(key)
+            if raw:
+                path = Path(str(raw)).expanduser()
+                if not path.is_absolute():
+                    path = self.project_dir / path
+                payload[section][key] = str(path.resolve())
+        simple = payload.get("network", {}).get("simple", {})
+        for key in ("path", "geometry_path"):
+            raw = simple.get(key) if isinstance(simple, dict) else None
+            if raw:
+                path = Path(str(raw)).expanduser()
+                if not path.is_absolute():
+                    path = self.project_dir / path
+                simple[key] = str(path.resolve())
+        encoded = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), default=str
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _restore_last_queued_signature(self) -> None:
+        self._last_queued_signature = None
+        if self.runner.jobs:
+            latest = max(self.runner.jobs, key=lambda job: job.created_at)
+            try:
+                queued = json.loads(
+                    Path(latest.settings_path).read_text(encoding="utf-8")
+                )
+                if isinstance(queued, dict):
+                    self._last_queued_signature = self._setup_signature(queued)
+            except Exception:
+                pass
+
+    def _sync_queue_availability(self, config: dict[str, Any]) -> None:
+        changed = (
+            self._last_queued_signature is None
+            or self._setup_signature(config) != self._last_queued_signature
+        )
+        self.pages[6].set_setup_changed(changed)
+        self.queue_btn.setEnabled(not self.runner.running and changed)
+
+    def _sync_queue_warning_state(self, report) -> None:
+        blocked = bool(getattr(report, "errors", []))
+        self.queue_btn.setText("⚠ Warning" if blocked else "+ Queue")
+        self.queue_btn.setAccessibleName(
+            "Show setup warning" if blocked else "Add current setup to run queue"
+        )
+        self.queue_btn.setToolTip(
+            "Click to see why this setup cannot be queued." if blocked else ""
+        )
+        self.queue_btn.setProperty("queueRole", "warning" if blocked else "run")
+        if blocked:
+            self.queue_btn.setEnabled(True)
+        self.queue_btn.style().unpolish(self.queue_btn)
+        self.queue_btn.style().polish(self.queue_btn)
+        self.queue_btn.update()
+
+    def _top_queue_clicked(self, _checked=False) -> None:
+        report = getattr(self, "_validation_report", None)
+        errors = list(getattr(report, "errors", []) or [])
+        if errors:
+            QMessageBox.warning(
+                self, "Cannot queue this setup", "\n\n".join(errors)
+            )
+            return
+        self._enqueue(False, stay_on_page=True)
 
     def _load_pages(self):
         for page in self.pages[:6]:
@@ -528,7 +632,8 @@ class MainWindow(QMainWindow):
             self.project_path.stat().st_mtime
         ).astimezone()
         saved_text = saved_at.strftime("%b %-d, %Y, %-I:%M %p")
-        label = f"Project {display_path.name}: Last saved {saved_text}"
+        dirty = " | Unsaved changes" if self._project_dirty else ""
+        label = f"Project {display_path.parent.name}: Last saved {saved_text}{dirty}"
         self.project_label.setText(label)
         self.project_label.setToolTip("")
         self.project_label.setAccessibleDescription(label)
@@ -538,6 +643,7 @@ class MainWindow(QMainWindow):
         solvers: SolverPage = self.pages[4]
         is_lattice = vessels.source.currentData() == "lattice"
         solvers.set_lattice_mode(is_lattice)
+        self.pages[3].set_network_source(vessels.source.currentData())
         self._sync_inlet_condition_count()
 
     def _sync_inlet_condition_count(self, *_):
@@ -582,11 +688,9 @@ class MainWindow(QMainWindow):
             self.pages_stack.setCurrentIndex(self._inspector_page_index[index])
         self.back_btn.setEnabled(index > 0)
         self.next_btn.setEnabled(index < len(self.pages) - 1)
-        self.next_btn.setText(
-            f"Continue to {self.PAGE_NAMES[index + 1]}"
-            if index < len(self.pages) - 1
-            else "Workflow complete"
-        )
+        self.next_btn.setVisible(index < len(self.pages) - 1)
+        if index < len(self.pages) - 1:
+            self.next_btn.setText(f"Continue to {self.PAGE_NAMES[index + 1]}")
         if index == 6:
             self.preview.release()
         elif index == 7:
@@ -608,7 +712,7 @@ class MainWindow(QMainWindow):
                 include_tissue=index == 5,
             )
             source = config.get("gui", {}).get("network_source")
-            if index >= 2 and source in {"svv_generated", "uploaded"}:
+            if index >= 2 and source in {"svv_generated", "uploaded", "custom"}:
                 signature = self._case_preview_signature(config)
                 response = self._preview_seed_response
                 geometry = response.get("geometry_path")
@@ -644,6 +748,9 @@ class MainWindow(QMainWindow):
     def _preview_running_changed(self, running):
         self.backdrop.set_animation_enabled(running)
         self._update_solver_status()
+        queue = self.pages[6]
+        queue._update_action_states()
+        self.queue_btn.setEnabled(not running and queue._setup_changed)
         if running:
             self.preview.release()
         elif self.nav.currentRow() not in {6, 7}:
@@ -662,32 +769,52 @@ class MainWindow(QMainWindow):
                 stage = stage[:31] + "…"
             self.status_solver.setText(f"{stage}  │  {int(job.progress or 0)}%")
 
-    @staticmethod
-    def _case_preview_signature(config):
+    def _case_preview_signature(self, config):
         simulation = config.get("simulation", {})
         settings = config.get("settings", {})
         gui = config.get("gui", {})
+        rebuild_for_pressure = bool(gui.get("rebuild_svv_for_pressure_drop", False))
+        generated = gui.get("network_source") == "svv_generated"
+        simulation_keys = ["build_fluid", "fluid"]
+        hemodynamic_keys = [
+            "scale_q_by_volume",
+            "scale_dp_by_volume",
+            "custom_fluid_density_g_cm3",
+            "custom_fluid_dynamic_viscosity_cp",
+        ]
+        if not generated or rebuild_for_pressure:
+            simulation_keys.extend(
+                ["qin_target_ul_min", "flow_source", "inlet_conditions"]
+            )
+            hemodynamic_keys.extend(["root_pressure", "terminal_pressure"])
         relevant = {
-            "preview_version": 4,
+            "preview_version": 8,
             "domain": deepcopy(config.get("domain", {})),
             "network": deepcopy(config.get("network", {})),
             "growth": deepcopy(config.get("growth", {})),
             "simulation": {
                 key: simulation.get(key)
-                for key in (
-                    "build_fluid",
-                    "fluid",
-                    "qin_target_ul_min",
-                    "flow_source",
-                    "inlet_conditions",
-                )
+                for key in simulation_keys
             },
             "settings": {
-                "hemodynamics": deepcopy(settings.get("hemodynamics", {})),
-                "hematocrit": deepcopy(settings.get("hematocrit", {})),
+                "hemodynamics": {
+                    key: settings.get("hemodynamics", {}).get(key)
+                    for key in hemodynamic_keys
+                    if key in settings.get("hemodynamics", {})
+                },
             },
             "gui": {
                 "network_source": gui.get("network_source"),
+                "rebuild_svv_for_pressure_drop": rebuild_for_pressure,
+                "viewer_vessel_mode": (
+                    gui.get("viewer", {}).get("vessel_mode", "near")
+                ),
+                "viewer_vessel_limit": (
+                    gui.get("viewer", {}).get("vessel_limit", 5_000)
+                ),
+                "renderer_vessel_limit": int(
+                    getattr(self.preview.canvas, "vessel_preview_limit", 50_000)
+                ),
                 "sweeps": [
                     deepcopy(sweep)
                     for sweep in gui.get("sweeps", [])
@@ -720,7 +847,6 @@ class MainWindow(QMainWindow):
                     self._preview_seed_response = response
                     self._preview_failed_signature = ""
                     self._preview_failure_message = ""
-                    self.pages[2].set_radius_summary(response)
                     self._refresh_preview()
                     return
             except Exception:
@@ -728,12 +854,23 @@ class MainWindow(QMainWindow):
         preview_dir.mkdir(parents=True, exist_ok=True)
         request = preview_dir / "request.json"
         preview_config = deepcopy(config)
+        preview_config.setdefault("gui", {}).setdefault("viewer", {})[
+            "renderer_vessel_limit"
+        ] = int(getattr(self.preview.canvas, "vessel_preview_limit", 50_000))
         if preview_config.get("gui", {}).get("network_source") == "uploaded":
             raw_path = preview_config.get("network", {}).get("input_path")
             if raw_path:
                 path = Path(str(raw_path)).expanduser()
                 if not path.is_absolute():
                     preview_config["network"]["input_path"] = str(
+                        (self.project_dir / path).resolve()
+                    )
+        elif preview_config.get("gui", {}).get("network_source") == "custom":
+            raw_path = preview_config.get("network", {}).get("simple", {}).get("path")
+            if raw_path:
+                path = Path(str(raw_path)).expanduser()
+                if not path.is_absolute():
+                    preview_config["network"]["simple"]["path"] = str(
                         (self.project_dir / path).resolve()
                     )
         request.write_text(json.dumps(preview_config, indent=2), encoding="utf-8")
@@ -750,20 +887,22 @@ class MainWindow(QMainWindow):
         self._preview_pending_signature = signature
         self._preview_output_buffer = ""
         source = config.get("gui", {}).get("network_source")
-        if source == "svv_generated":
-            self.pages[2].set_radius_summary(calculating=True)
         uploaded_domain = str(config.get("domain", {}).get("type", "cube")) not in {
             "cube",
             "box",
             "sphere",
+            "cylinder",
+            "disk",
         }
         self.preview.status.setText(
             "Preparing the uploaded domain for preview…"
             if uploaded_domain
             else (
-                "Growing reusable preview seed  │  up to about 1,000 vessel segments total…"
+                "Growing reusable preview seed  │  up to the vessel display limit…"
                 if source == "svv_generated"
-                else "Loading a bounded network preview…"
+                else "Loading the imported network preview…"
+                if source in {"uploaded", "custom"}
+                else "Preparing the network preview…"
             )
         )
         process.start(
@@ -842,7 +981,7 @@ class MainWindow(QMainWindow):
                 self._preview_seed_signature = signature
                 self._preview_failed_signature = ""
                 self._preview_failure_message = ""
-                self.pages[2].set_radius_summary(self._preview_seed_response)
+                self._prepare_timer.start()
             except Exception:
                 self.preview.status.setText("preview seed unreadable")
         else:
@@ -850,20 +989,65 @@ class MainWindow(QMainWindow):
             summary = self._preview_failure_summary(output)
             self._preview_failure_message = f"Preview seed failed  │  {summary}"
             self.preview.status.setText(self._preview_failure_message)
-            self.pages[2].radius_summary.setText(
-                f"Radii could not be calculated. {summary}"
-            )
         if self.nav.currentRow() not in {6, 7}:
             self._refresh_preview()
+
+    def _prepare_interactive_case(self) -> None:
+        """Precompute the latest stable setup while the user is still editing."""
+        if (
+            not self.isVisible()
+            or self.runner.running
+            or QGuiApplication.platformName().lower() == "offscreen"
+        ):
+            return
+        config = self._collect(show_error=False)
+        if config is None or validate_project(config, self.project_dir).errors:
+            return
+        config = deepcopy(config)
+        if config.get("gui", {}).get("network_source") == "svv_generated":
+            signature = self._case_preview_signature(config)
+            seed_path = self._preview_seed_response.get("seed_path")
+            if (
+                signature != self._preview_seed_signature
+                or not seed_path
+                or not Path(str(seed_path)).exists()
+            ):
+                return
+            config.setdefault("network", {})["input_path"] = str(seed_path)
+            config.setdefault("growth", {})["enabled"] = True
+            config["growth"]["resume_from_checkpoint"] = False
+
+        # Queued settings use absolute project inputs.  Mirror that behavior so
+        # the preparation key is identical even though this snapshot lives in
+        # a hidden preload directory.
+        for section, key in (("domain", "path"), ("network", "input_path")):
+            value = config.get(section, {}).get(key)
+            if value:
+                path = Path(str(value)).expanduser()
+                if not path.is_absolute():
+                    config[section][key] = str((self.project_dir / path).resolve())
+
+        identity = deepcopy(config)
+        identity.pop("gui", None)
+        outputs = identity.setdefault("outputs", {})
+        outputs.pop("out_dir", None)
+        outputs.pop("prefix", None)
+        encoded = json.dumps(
+            identity, sort_keys=True, separators=(",", ":"), default=str
+        ).encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        preload_dir = self.project_dir / ".cascade_gui" / "preloads"
+        preload_dir.mkdir(parents=True, exist_ok=True)
+        config.setdefault("outputs", {})["out_dir"] = str(preload_dir / "unused-output")
+        settings_path = preload_dir / f"{digest[:24]}.json"
+        if not settings_path.exists():
+            settings_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+        self.runner.prepare(settings_path, f"live-{digest[:24]}")
 
     @staticmethod
     def _preview_failure_summary(output: str) -> str:
         text = str(output or "")
         lowered = text.lower()
-        if "tetgen" in lowered or "tetrahedraliz" in lowered:
-            if "after automatic manifold repair" in lowered:
-                return "The uploaded domain could not be volume-meshed after automatic repair."
-            return "The uploaded domain could not be volume-meshed."
         meaningful = [
             line.strip()
             for line in text.splitlines()
@@ -874,6 +1058,10 @@ class MainWindow(QMainWindow):
         for line in reversed(meaningful):
             if line.startswith(("ValueError:", "RuntimeError:")):
                 return line.split(":", 1)[1].strip()
+        if "tetgen" in lowered or "tetrahedraliz" in lowered:
+            if "after automatic manifold repair" in lowered:
+                return "The uploaded domain could not be volume-meshed after automatic repair."
+            return "The uploaded domain could not be volume-meshed."
         return (
             meaningful[-1][-180:]
             if meaningful
@@ -883,29 +1071,23 @@ class MainWindow(QMainWindow):
     def _refresh_status(self):
         config = self._collect(show_error=False)
         if config is None:
-            self.validation_pill.set_status("Needs attention", "danger")
-            self.validation_pill.setToolTip(
+            self.queue_btn.setToolTip(
                 "The current page contains a value that cannot be read. Click for details."
             )
             return
-        report = validate_project(config)
+        self._sync_queue_availability(config)
+        report = validate_project(config, self.project_dir)
         self._validation_report = report
+        self._sync_queue_warning_state(report)
         estimate = estimate_resources(config, self.hardware)
         if report.errors:
-            self.validation_pill.set_status(
-                f"{len(report.errors)} issue{'s' if len(report.errors) != 1 else ''}",
-                "danger",
-            )
+            self.queue_btn.setToolTip(self._validation_details(report))
         elif report.warnings:
-            self.validation_pill.set_status(
-                f"Ready  │  {len(report.warnings)} warning{'s' if len(report.warnings) != 1 else ''}",
-                "warning",
-            )
+            self.queue_btn.setToolTip(self._validation_details(report))
         else:
-            self.validation_pill.set_status("Ready to queue", "success")
+            self.queue_btn.setToolTip("Add the current setup to the run queue.")
         details = self._validation_details(report)
-        self.validation_pill.setToolTip(details)
-        self.validation_pill.setAccessibleDescription(details)
+        self.queue_btn.setAccessibleDescription(details)
         self._update_solver_status()
         self.pages[5].set_resource(estimate)
 
@@ -929,7 +1111,7 @@ class MainWindow(QMainWindow):
                 "A value on the current page cannot be read. Review highlighted inputs or try queueing to reveal the exact field error.",
             )
             return
-        report = validate_project(config)
+        report = validate_project(config, self.project_dir)
         text = self._validation_details(report)
         if report.errors:
             QMessageBox.warning(self, "Setup issues", text)
@@ -938,10 +1120,14 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.information(self, "Setup status", text)
 
-    def _enqueue(self, run_now=False):
+    def _enqueue(self, run_now=False, stay_on_page=False):
         config = self._collect()
         if config is None:
             return
+        if self.project_path is None and not self.save_as():
+            return
+        queue: QueuePage = self.pages[6]
+        config.setdefault("gui", {})["run_name"] = queue.requested_run_name()
         if config.get("gui", {}).get("network_source") == "svv_generated":
             signature = self._case_preview_signature(config)
             seed_path = self._preview_seed_response.get("seed_path")
@@ -964,7 +1150,7 @@ class MainWindow(QMainWindow):
                 config.setdefault("gui", {}).pop("preview_seed", None)
             config.setdefault("growth", {})["enabled"] = True
             config["growth"]["resume_from_checkpoint"] = False
-        report = validate_project(config)
+        report = validate_project(config, self.project_dir)
         if report.errors:
             QMessageBox.warning(
                 self, "Cannot queue this setup", "\n\n".join(report.errors)
@@ -981,13 +1167,18 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.Yes:
                 return
         self.project_dir.mkdir(parents=True, exist_ok=True)
-        if self.project_path is None:
-            self.project_path = self.project_dir / "project.cascade.json"
-        save_project(self.project_path, config)
+        queued_signature = self._setup_signature(config)
         records = create_jobs(config, self.project_dir)
         self.runner.add(records)
+        self._last_queued_signature = queued_signature
+        queue.set_setup_changed(False)
+        self.queue_btn.setEnabled(False)
+        queue.advance_run_name()
         self._update_project_label()
-        self.nav.setCurrentRow(6)
+        if not stay_on_page:
+            self.nav.setCurrentRow(6)
+        else:
+            self.statusBar().showMessage("Current setup added to the run queue", 2500)
         if run_now:
             self.runner.run([job.id for job in records])
 
@@ -1002,6 +1193,8 @@ class MainWindow(QMainWindow):
         self.config = default_project()
         self.project_path = None
         self.project_dir = _default_project_directory()
+        self._project_dirty = False
+        self._last_queued_signature = None
         self.runner.replace_project(self.project_dir)
         self._load_pages()
         self.nav.setCurrentRow(0)
@@ -1017,19 +1210,29 @@ class MainWindow(QMainWindow):
             return
         selected = choose_native_path(
             self,
-            mode="file",
-            caption="Open CASCADE project",
+            mode="directory",
+            caption="Choose a CASCADE project folder",
             start=str(self.project_dir),
-            file_filter="CASCADE project (*.json *.cascade.json);;All JSON (*.json)",
         )
         if not selected:
             return
         try:
-            self.config = load_project(selected)
-            self.project_path = Path(selected).resolve()
-            self.project_dir = self.project_path.parent
+            self.project_dir = Path(selected).resolve()
+            self.project_path = self.project_dir / PROJECT_FILENAME
+            if not self.project_path.is_file():
+                legacy = self.project_dir / "project.cascade.json"
+                if legacy.is_file():
+                    self.project_path = legacy
+                else:
+                    raise FileNotFoundError(
+                        f"No {PROJECT_FILENAME} was found in this folder."
+                    )
+            self.config = load_project(self.project_path)
             self.runner.replace_project(self.project_dir)
+            self._restore_last_queued_signature()
             self._load_pages()
+            self._project_dirty = False
+            self._update_project_label()
             self._refresh_status()
         except Exception as exc:
             QMessageBox.critical(self, "Could not open project", str(exc))
@@ -1042,6 +1245,7 @@ class MainWindow(QMainWindow):
             return
         try:
             save_project(self.project_path, config)
+            self._project_dirty = False
             self._update_project_label()
             self.statusBar().showMessage("Project saved", 2500)
         except Exception as exc:
@@ -1050,21 +1254,81 @@ class MainWindow(QMainWindow):
     def save_as(self):
         selected = choose_native_path(
             self,
-            mode="save",
-            caption="Save CASCADE project",
-            start=str(self.project_dir / "project.cascade.json"),
-            file_filter="CASCADE project (*.cascade.json);;JSON (*.json)",
+            mode="directory",
+            caption="Choose or create a CASCADE project folder",
+            start=str(self.project_dir),
         )
         if not selected:
-            return
-        self.project_path = Path(selected).resolve()
-        self.project_dir = self.project_path.parent
+            return False
+        self.project_dir = Path(selected).resolve()
+        self.project_path = self.project_dir / PROJECT_FILENAME
         try:
             self.runner.replace_project(self.project_dir)
         except Exception as exc:
             QMessageBox.warning(self, "Cannot move project", str(exc))
-            return
+            return False
         self.save()
+        return self.project_path.is_file()
+
+    def _use_run_as_setup(self, job_id: str) -> None:
+        job = next(
+            (item for item in self.runner.result_jobs() if item.id == job_id), None
+        )
+        if job is None:
+            return
+        try:
+            manifest_path = Path(job.manifest_path or "")
+            manifest = (
+                json.loads(manifest_path.read_text(encoding="utf-8"))
+                if manifest_path.is_file()
+                else {}
+            )
+            settings_path = Path(job.settings_path or "")
+            if settings_path.is_file():
+                raw = json.loads(settings_path.read_text(encoding="utf-8"))
+            else:
+                raw = manifest.get("settings")
+            if not isinstance(raw, dict):
+                raise ValueError("This run does not contain a settings snapshot.")
+            restored = merge_project(raw)
+            gui = restored.setdefault("gui", {})
+            for key in (
+                "job_id",
+                "sweep_batch_id",
+                "combined_sweep_csv_path",
+                "sweep_parameters",
+            ):
+                gui.pop(key, None)
+            gui["run_name"] = f"{job.name} copy"
+            outputs = dict(manifest.get("outputs", {}) or {})
+            domain_mesh = outputs.get("domain_mesh_vtu")
+            if domain_mesh and Path(str(domain_mesh)).is_file():
+                seed = restored.get("domain", {}).get("random_seed", 42)
+                restored["domain"] = {
+                    "type": "file",
+                    "path": str(domain_mesh),
+                    "random_seed": seed,
+                }
+            saved_network = dict(manifest.get("network", {}) or {}).get("saved_path")
+            if saved_network and Path(str(saved_network)).is_file():
+                mode = str(restored.get("network", {}).get("mode", "tree"))
+                restored["network"] = {
+                    "mode": mode if mode in {"tree", "forest"} else "tree",
+                    "input_path": str(saved_network),
+                }
+                restored.setdefault("growth", {})["enabled"] = False
+                gui["network_source"] = "uploaded"
+            restored.setdefault("outputs", {})["out_dir"] = "runs"
+            self.config = restored
+            self._load_pages()
+            self.pages[6].run_name.setText(str(gui["run_name"]))
+            self._project_dirty = True
+            self._update_project_label()
+            self.nav.setCurrentRow(4)
+            self._refresh_status()
+            self.statusBar().showMessage("Run restored as an editable setup", 3500)
+        except Exception as exc:
+            QMessageBox.critical(self, "Could not restore run setup", str(exc))
 
     def _sync_window_chrome(self):
         self.title_bar.sync_state()

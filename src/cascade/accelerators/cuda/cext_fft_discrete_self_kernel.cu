@@ -1,3 +1,5 @@
+// Interpolate the discrete FFT Green grids to obtain each source's self term.
+// hybrid_corrections.py JIT-compiles this packaged kernel through CuPy/NVRTC.
 extern "C" __global__ void cext_fft_discrete_self_kernel(
     const int* target_seg_ids,
     const float* gl_points_si,

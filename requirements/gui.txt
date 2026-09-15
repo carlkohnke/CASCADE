@@ -1,3 +1,5 @@
+# Core runtime plus CASCADE Studio dependencies. Install from the repository
+# root with: python -m pip install -r requirements/gui.txt
 -r base.txt
 PySide6>=6.6
 psutil>=5.9

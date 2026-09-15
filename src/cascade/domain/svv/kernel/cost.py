@@ -109,9 +109,9 @@ def cost(x, h_, n, d):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.kernel.cost import cost
-        from svtoolkit.domain.kernel.coordinate_system import sph2cart
-        from svtoolkit.domain.core.h_matrix import h_matrix
+        from cascade.domain.svv.kernel.cost import cost
+        from cascade.domain.svv.kernel.coordinate_system import sph2cart
+        from cascade.domain.svv.core.h_matrix import h_matrix
 
         # Number of points and dimensions
         n = 5
@@ -133,9 +133,9 @@ def cost(x, h_, n, d):
     .. code-block:: python
 
         import numpy as np
-        from svtoolkit.domain.kernel.cost import cost
-        from svtoolkit.domain.kernel.coordinate_system import sph2cart
-        from svtoolkit.domain.core.h_matrix import h_matrix
+        from cascade.domain.svv.kernel.cost import cost
+        from cascade.domain.svv.kernel.coordinate_system import sph2cart
+        from cascade.domain.svv.core.h_matrix import h_matrix
 
         # Number of points and dimensions
         n = 3

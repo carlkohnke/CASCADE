@@ -19,6 +19,7 @@ from cascade.concentration.external_field.state import (
     validate_cext_tissue_flux_consistency,
 )
 from cascade.concentration.vessel.greens import (
+    _cext_tissue_kernel_numba,
     _k_ratio,
     _tissue_dense_kernel_numba,
     _tissue_kernel_numba,
@@ -115,6 +116,21 @@ def compute_tissue_samples_greens_from_cext_state(
             }
         )
         return keep_mask, gpu_result
+
+    if tissue_cache is not None and tissue_cache.get("dense_fused_cpu"):
+        # The generic CPU tissue path can consume a geometry-only fused cache,
+        # whereas the Cext source solver needs nearest-source arrays.  Upgrade
+        # the shared dictionary in place so subsequent interactive/sweep cases
+        # reuse the complete CPU cache instead of rebuilding it every solve.
+        prepared = _prepare_tissue_geometry(
+            points,
+            starts,
+            ends,
+            radii,
+            max_nearby=max_nearby,
+        )
+        tissue_cache.clear()
+        tissue_cache.update(prepared)
 
     use_streaming = (
         tissue_cache is not None
@@ -243,7 +259,24 @@ def compute_tissue_samples_greens_from_cext_state(
             for i in range(0, len(points), _state.DISTANCE_CHUNK_SIZE)
         ]
         t0 = perf_counter()
-        if _state.TISSUE_PARALLEL_WORKERS > 1 and len(ranges) > 1:
+        if _state._HAVE_NUMBA and _state.TISSUE_USE_NUMBA:
+            result = _cext_tissue_kernel_numba(
+                np.asarray(points_si, dtype=np.float64),
+                np.asarray(nearest_idx, dtype=np.int64),
+                np.asarray(keep_mask, dtype=np.bool_),
+                np.asarray(valid_source_ids, dtype=np.int64),
+                np.asarray(gl_points_si, dtype=np.float32),
+                np.asarray(segment_vectors_state, dtype=np.float32),
+                np.asarray(lambda_iv_gl, dtype=np.float32),
+                np.asarray(q_weighted_gl, dtype=np.float32),
+                np.asarray(mono2_weight_gl, dtype=np.float32),
+                np.asarray(dipole2_weight_gl, dtype=np.float32),
+                np.asarray(seg_cap_gl, dtype=np.float32),
+                float(diffusivity_si),
+                float(window_factor),
+            )
+            cache_mode = "dense-numba"
+        elif _state.TISSUE_PARALLEL_WORKERS > 1 and len(ranges) > 1:
             with ThreadPoolExecutor(
                 max_workers=_state.TISSUE_PARALLEL_WORKERS
             ) as executor:
@@ -257,7 +290,8 @@ def compute_tissue_samples_greens_from_cext_state(
                 start_idx, out = _process_cext_tissue_chunk(*r, worker_data)
                 result[start_idx : start_idx + len(out)] = out
         t_kernel = perf_counter() - t0
-        cache_mode = "dense"
+        if not (_state._HAVE_NUMBA and _state.TISSUE_USE_NUMBA):
+            cache_mode = "dense"
         keep_k = int(nearest_idx.shape[1]) if nearest_idx.ndim == 2 else 0
         candidate_slots = (
             int(nearest_idx.shape[0] * nearest_idx.shape[1])

@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5` at `c232c4fdfce18fc4689545b694a4eae3dbd248ba` |
+| CASCADE candidate | `0.1.0rc5`, compatibility changes through `eeda05e0abbed451a41ac7309d89f9a116404b94` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -28,9 +28,9 @@ feature, WSL, or unrelated Python installation was changed.
 | Stage | Result | Evidence |
 | --- | --- | --- |
 | 0 — baseline audit | Pass | Clean `main` at the recorded baseline; five local branches retained; no remote configured |
-| 1 — packaging/dependencies | Pass | Python 3.12 Windows CPU/GUI/dev graph: 163 wheels, 0 sdists; CUDA 13 graph: 168 wheels, 0 sdists; wheel/sdist build, metadata, resource, entry-point, and Twine checks pass |
+| 1 — packaging/dependencies | Pass | Python 3.12 Windows CPU/GUI/dev graph: 163 wheels, 0 sdists; corrected CUDA 13 toolkit graph: 174 wheels, 0 sdists; wheel/sdist build, metadata, resource, entry-point, and Twine checks pass |
 | 2 — isolated installs | Pass | Separate CPU and CUDA Python 3.12 virtual environments installed the wheel from native NTFS with binary-only constraints; both pass `pip check` and import CASCADE from their own `site-packages` |
-| 3 — compatibility fixes | Pending | — |
+| 3 — compatibility fixes | Pass | Exact wheel installed on native NTFS; 18/18 focused filesystem, CUDA-bootstrap, host-memory, process-tree, atomic-state, and Studio lifecycle tests pass |
 | 4 — native CPU qualification | Pending | — |
 | 5 — filesystem torture | Pending | — |
 | 6 — Studio qualification | Pending | — |
@@ -58,7 +58,10 @@ Binary-only resolution succeeded for the declared CASCADE graph on CPython
 | USearch | 2.26.2 | `cp312-win_amd64` wheel |
 | PySide6 | 6.11.2 | `cp310-abi3-win_amd64` wheels |
 | CuPy CUDA 13 | 14.2.0 | `cp312-win_amd64` wheel |
-| NVIDIA runtime / cuFFT / nvJitLink | 13.2.86 / 12.3.0.29 / 13.2.86 | `win_amd64` wheels |
+| NVIDIA runtime / NVRTC | 13.4.49 / 13.4.59 | `win_amd64` wheels |
+| NVIDIA cuBLAS / cuFFT | 13.7.0.27 / 12.4.0.34 | `win_amd64` wheels |
+| NVIDIA cuRAND / cuSOLVER | 10.4.4.49 / 12.3.2.15 | `win_amd64` wheels |
+| NVIDIA cuSPARSE / nvJitLink | 12.8.6.49 / 13.4.52 | `win_amd64` wheels |
 
 SVV 0.0.48 declares `trimesh[all]`, PySide6, psutil, PyVistaQt, and a broad
 scientific/desktop dependency set. Consequently the normal dependency graph
@@ -70,14 +73,23 @@ is large. Qualification intentionally honors that metadata; it does not use
 - The previous package metadata rejected Python 3.12 and advertised no native
   Windows support.
 - Existing Windows launchers are WSL wrappers rather than native launchers.
-- CUDA configuration and cache locations are Linux-biased, and CuPy can be
-  imported before Windows DLL directories are configured.
-- Some runtime caches can resolve to POSIX home paths or package-adjacent
-  locations unsuitable for a read-only wheel installation.
-- Persistent-worker memory pressure uses `/proc` and is ineffective on native
-  Windows.
-- Native Windows process-tree cancellation, mmap cleanup, queue recovery,
-  path edge cases, GUI lifecycle, and CUDA kernel families lack qualification.
+- The initial GPU extra omitted NVRTC and other required toolkit components;
+  it now declares CuPy's complete wheel-provided CUDA toolkit extra.
+- CUDA bootstrap now discovers wheel-provided headers and nested DLLs before
+  CuPy is imported, retaining Windows DLL-directory handles for process life.
+- Runtime caches, configuration, state, logs, and Studio project defaults now
+  use deterministic platform-native user-writable directories.
+- Persistent-worker memory pressure now uses a cross-platform host-memory
+  provider rather than relying on Linux `/proc`.
+- Studio and TetGen workers are assigned to Windows Job Objects so cancellation
+  and shutdown terminate descendants rather than leaving orphan processes.
+- Queue, project, cache-manifest, and combined sweep state is published with
+  same-directory atomic replacement and bounded Windows sharing-violation
+  retries. A native concurrent-writer test reproduced and now covers this case.
+- Studio now has a per-user native instance lock and records unhandled GUI
+  exceptions outside the installed package for console-free launches.
+- Memory-map cleanup, queue recovery, path edge cases, complete GUI lifecycle,
+  and CUDA kernel families still require their later qualification stages.
 
 ## Known limitations and unperformed checks
 
@@ -106,3 +118,20 @@ The installed `cascade-gui.exe` has the Windows GUI PE subsystem, while
 passed CLI version/help and `cascade doctor --no-gpu-probe` smoke checks. The
 CUDA environment's distributions were verified from metadata without importing
 CuPy or creating a CUDA context; execution qualification remains Stage 7.
+
+## Stage 3 compatibility qualification
+
+The exact wheel built from commit `eeda05e0abbed451a41ac7309d89f9a116404b94`
+has SHA-256
+`76312cb98de8acfa93eddb519748cabbeef31994228d96ea14ebb4df955c93cf2`.
+It was force-installed into the native Windows CPU environment and tested from
+an unrelated NTFS working directory. CASCADE resolved from that environment's
+`site-packages`; no source checkout was on the import path.
+
+The focused suite passed 18 tests covering runtime directories, CUDA toolkit
+discovery and pre-import setup, Windows host-memory reporting, recursive
+process termination, Qt worker Job Object attachment, atomic state publishing,
+concurrent replacement, Studio instance locking, and persistent Studio error
+logging. The same wheel was installed into the CUDA environment, where all
+declared requirements pass `pip check`; wheel-provided CUDA headers and the
+NVRTC DLL were found without importing CuPy or creating a CUDA context.

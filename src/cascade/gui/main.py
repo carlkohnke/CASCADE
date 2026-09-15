@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from PySide6.QtWidgets import QApplication, QMessageBox as QtMessageBox
+from cascade.gui.errors import write_studio_exception
 from cascade.gui.instance import acquire_studio_lock
 from cascade.gui.ui_helpers import (
     APP_STYLE,
@@ -88,12 +89,33 @@ def main(argv: list[str] | None = None) -> int:
             "Another CASCADE Studio instance is already active for this user.",
         )
         return 2
-    window = MainWindow()
-    apply_wsl_windows_pointer(window)
-    window.show()
-    exit_code = app.exec()
-    instance_lock.unlock()
-    return exit_code
+
+    previous_hook = sys.excepthook
+
+    def report_exception(exception_type, exception, trace) -> None:
+        path = write_studio_exception(exception_type, exception, trace)
+        detail = f"\n\nDiagnostic log: {path}" if path is not None else ""
+        QtMessageBox.critical(
+            None,
+            "CASCADE Studio error",
+            f"{exception_type.__name__}: {exception}{detail}",
+        )
+        previous_hook(exception_type, exception, trace)
+
+    sys.excepthook = report_exception
+    try:
+        window = MainWindow()
+        apply_wsl_windows_pointer(window)
+        window.show()
+        return app.exec()
+    except BaseException:
+        exception_type, exception, trace = sys.exc_info()
+        if exception_type is not None and exception is not None:
+            report_exception(exception_type, exception, trace)
+        return 1
+    finally:
+        instance_lock.unlock()
+        sys.excepthook = previous_hook
 
 
 if __name__ == "__main__":

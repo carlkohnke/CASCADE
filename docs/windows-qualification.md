@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, native CUDA qualification through `855989981a8be684e0ff5cae5455fa0538465a14` |
+| CASCADE candidate | `0.1.0rc5`, Windows CUDA qualification through `855989981a8be684e0ff5cae5455fa0538465a14`; Linux regression through `331be35f55030ab3870f26b03aa1c149254749cb` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -35,7 +35,7 @@ feature, WSL, or unrelated Python installation was changed.
 | 5 — filesystem torture | Pass | Exact installed wheel: 66/66 tests pass from an NTFS-only test snapshot; deep space/Unicode paths, stale caches, mmap release, repeat writes, lock contention/recovery, and a read-only installed package pass |
 | 6 — Studio qualification | Partial | Exact installed wheel: 76/76 native tests pass; persistent worker reuse, cancellation/recovery, preview recovery, launch subsystems, native OpenGL/software rendering, and 125% scaling pass; remaining physical UI checks are recorded below |
 | 7 — native CUDA qualification | Pass | Exact installed wheel: `doctor --require-gpu`, `self-test --require-gpu`, and 78/78 tests pass; all CUDA kernel families, CPU/GPU comparisons, repeated persistent-worker jobs, cancellation/recovery, and memory stability are covered |
-| 8 — Linux regression | Pending | — |
+| 8 — Linux regression | Pass | CPython 3.12 isolated environment: dependency integrity and static checks pass; 65 tests pass with 13 intentional Windows/GPU skips; installed-package CPU self-test passes and scientific outputs match Windows |
 | 9 — clean install | Pending | — |
 | 10 — user tooling/docs | Pending | — |
 | 11 — CI | Pending | — |
@@ -120,7 +120,7 @@ is large. Qualification intentionally honors that metadata; it does not use
   worker. Device-level VRAM was measured instead and remained flat across the
   repeated persistent-worker jobs.
 - No clean-install acceptance run has yet been performed.
-- Windows CI workflow execution and final Linux regression are pending.
+- Windows CI workflow execution is pending.
 
 ## Stage 2 installed-wheel isolation
 
@@ -294,3 +294,28 @@ worker and descendant PIDs exited, and a subsequent GPU job completed in a
 fresh worker. Final shutdown removed that worker and its descendants as well.
 This covers stable repeated execution, cancellation without poisoning the next
 run, and clean CUDA worker teardown on the qualification host.
+
+## Stage 8 Linux regression
+
+Linux regression was run from the source repository at commit
+`331be35f55030ab3870f26b03aa1c149254749cb` using CPython 3.12.3 in an isolated,
+repository-local environment. The environment, package downloads, temporary
+files, caches, configuration, state, logs, and test reports remained beneath
+the ignored `.venv` directory. No system Python packages or user configuration
+were changed.
+
+`pip check` reported no broken requirements, and the fatal/static Ruff
+selection passed across `src`, `setup_env.py`, and `tests`. The full suite
+completed with 65 passes and 13 intentional skips in 56.40 seconds. Skips were
+limited to tests requiring native Windows DLL, PE, Job Object, or QProcess
+semantics and the explicitly opt-in dedicated-CUDA qualification cases.
+
+The Linux environment installed a non-editable wheel built from the repository;
+`cascade.__file__` resolved from its environment's `site-packages`. Its CPU
+`cascade self-test` completed in 5.18 seconds with all evidence retained inside
+the repository-local environment. The Windows and Linux self-test `segments.csv`
+and `points.csv` files were byte-for-byte identical. All 137 non-timing
+scientific fields in `summary.csv` also matched; only expected elapsed/timing
+measurements differed. These results provide direct regression evidence that
+the Windows filesystem, process, GUI, packaging, and CUDA changes did not alter
+the existing Linux scientific path.

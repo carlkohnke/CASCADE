@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, CPU qualification through `7cc16555b0afb1939f77b64c3797f6b1d9b5f0cb` |
+| CASCADE candidate | `0.1.0rc5`, filesystem qualification through `363e7f7aa0f95b9349cec09830d2ee0654a1db79` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -32,7 +32,7 @@ feature, WSL, or unrelated Python installation was changed.
 | 2 — isolated installs | Pass | Separate CPU and CUDA Python 3.12 virtual environments installed the wheel from native NTFS with binary-only constraints; both pass `pip check` and import CASCADE from their own `site-packages` |
 | 3 — compatibility fixes | Pass | Exact wheel installed on native NTFS; 18/18 focused filesystem, CUDA-bootstrap, host-memory, process-tree, atomic-state, and Studio lifecycle tests pass |
 | 4 — native CPU qualification | Pass | Exact installed wheel: fatal/static check passes and 62/62 tests pass; all documented CLI commands and the CPU self-test complete from native NTFS |
-| 5 — filesystem torture | Pending | — |
+| 5 — filesystem torture | Pass | Exact installed wheel: 66/66 tests pass from an NTFS-only test snapshot; deep space/Unicode paths, stale caches, mmap release, repeat writes, lock contention/recovery, and a read-only installed package pass |
 | 6 — Studio qualification | Pending | — |
 | 7 — native CUDA qualification | Pending | Artifact resolution only; no CUDA execution claimed |
 | 8 — Linux regression | Pending | — |
@@ -88,8 +88,13 @@ is large. Qualification intentionally honors that metadata; it does not use
   retries. A native concurrent-writer test reproduced and now covers this case.
 - Studio now has a per-user native instance lock and records unhandled GUI
   exceptions outside the installed package for console-free launches.
-- Memory-map cleanup, queue recovery, path edge cases, complete GUI lifecycle,
-  and CUDA kernel families still require their later qualification stages.
+- Redirected Windows command output now escapes only characters unsupported by
+  the active console encoding instead of crashing on a valid Unicode path.
+- The Windows simulation lock now reserves a byte solely for locking, keeps
+  holder metadata readable during contention, and tolerates the brief release
+  delay observed after forced process termination.
+- Queue recovery, complete GUI lifecycle, and CUDA kernel families still
+  require their later qualification stages.
 
 ## Known limitations and unperformed checks
 
@@ -167,3 +172,32 @@ projects forced GPU despite the documented CPU-safe contract; network archive
 inspection and preparation used a NumPy private header function removed in
 NumPy 2.5; and simple-network pressure runs omitted the aggregate pressure-drop
 field. Regression tests cover each fix.
+
+## Stage 5 Windows filesystem qualification
+
+The exact wheel built from commit `363e7f7aa0f95b9349cec09830d2ee0654a1db79`
+has SHA-256
+`4bc70c6cdf013408d386ce045f6d79cf97b4204fc65db639df169d00926b972a`.
+The test sources and their standalone setup helper were copied to a fresh NTFS
+sandbox snapshot; CASCADE imported from the CPU environment's `site-packages`,
+not from that snapshot or the WSL repository. All 66 tests passed in 152.88
+seconds.
+
+The Windows-specific cases exercised a path longer than 200 characters with
+spaces and the Unicode components `血管` and `Ω`; absolute and relative settings
+and input paths; execution from different current working directories; stale
+uploaded-STL domain-cache detection and rebuild; repeated replacement of an
+existing result and manifest; release of prepared-tree memory maps followed by
+an immediate directory rename; and cross-process simulation-lock contention,
+forced owner termination, and immediate recovery. The broader suite retained
+the atomic concurrent queue/state writers and process-tree interruption tests.
+
+A second, disposable native environment installed the same wheel and its
+declared dependency graph. Its installed `cascade` package was ACL-restricted
+to read and execute access; an attempted write failed with
+`UnauthorizedAccessException`. Version reporting, JSON doctor without a GPU
+probe, and the installed-package CPU self-test then passed from an external
+NTFS project directory. The package contained 244 files, and its aggregate
+content digest was unchanged before and after the run. The self-test completed
+in 39.594 seconds with all outputs, logs, temporary files, bytecode, and CASCADE
+state redirected beneath the Windows sandbox.

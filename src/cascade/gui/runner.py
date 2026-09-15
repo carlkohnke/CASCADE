@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import re
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Iterable
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
@@ -215,6 +215,11 @@ class JobRunner(QObject):
         self._release_process_job()
 
     def _start_next(self) -> None:
+        # A completion schedules queue advancement on the next event-loop turn.
+        # The user may start another run before that callback fires; in that
+        # case the stale callback must not clear the newly active job.
+        if self.current is not None:
+            return
         if not self._scheduled_ids:
             self._flush_save_emit()
             self._flush_combined_sweep_csvs()

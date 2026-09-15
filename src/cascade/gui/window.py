@@ -10,12 +10,17 @@ import hashlib
 import json
 import re
 import sys
+from copy import deepcopy
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
 from PySide6.QtCore import (
     QEvent,
     QProcess,
     QSize,
-    QTimer,
     Qt,
+    QTimer,
 )
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import (
@@ -39,16 +44,41 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from cascade.gui.model import (
+    PROJECT_FILENAME,
     create_jobs,
     default_project,
     estimate_resources,
     hardware_info,
     load_project,
     merge_project,
-    PROJECT_FILENAME,
     save_project,
     validate_project,
+)
+from cascade.gui.pages.analysis import (
+    AnalysisPage,
+)
+from cascade.gui.pages.domain import (
+    DomainPage,
+)
+from cascade.gui.pages.outputs import (
+    OutputsPage,
+)
+from cascade.gui.pages.overview import (
+    OverviewPage,
+)
+from cascade.gui.pages.physics import (
+    PhysicsPage,
+)
+from cascade.gui.pages.queue import (
+    QueuePage,
+)
+from cascade.gui.pages.solver import (
+    SolverPage,
+)
+from cascade.gui.pages.vessels import (
+    VesselsPage,
 )
 from cascade.gui.preview import (
     CasePreview,
@@ -56,52 +86,16 @@ from cascade.gui.preview import (
 )
 from cascade.gui.runner import JobRunner
 from cascade.gui.theme import Tokens
-from cascade.gui.widgets import (
-    cancel_native_pickers,
-    choose_native_path,
-)
-from cascade.utils.processes import ChildProcessJob
-from copy import deepcopy
-from datetime import datetime
-from pathlib import Path
-from typing import Any
 from cascade.gui.ui_helpers import (
     QMessageBox,
     _default_project_directory,
     _workflow_icon,
 )
-
-from cascade.gui.pages.analysis import (
-    AnalysisPage,
+from cascade.gui.widgets import (
+    cancel_native_pickers,
+    choose_native_path,
 )
-
-from cascade.gui.pages.vessels import (
-    VesselsPage,
-)
-
-from cascade.gui.pages.queue import (
-    QueuePage,
-)
-
-from cascade.gui.pages.domain import (
-    DomainPage,
-)
-
-from cascade.gui.pages.physics import (
-    PhysicsPage,
-)
-
-from cascade.gui.pages.solver import (
-    SolverPage,
-)
-
-from cascade.gui.pages.outputs import (
-    OutputsPage,
-)
-
-from cascade.gui.pages.overview import (
-    OverviewPage,
-)
+from cascade.utils.processes import ChildProcessJob
 
 
 class WindowResizeHandle(QWidget):
@@ -630,10 +624,20 @@ class MainWindow(QMainWindow):
         display_path = self.project_path
         while display_path.suffix:
             display_path = display_path.with_suffix("")
+        if not self.project_path.is_file():
+            label = f"Project {display_path.parent.name}: Not saved yet"
+            self.project_label.setText(label)
+            self.project_label.setToolTip("")
+            self.project_label.setAccessibleDescription(label)
+            return
         saved_at = datetime.fromtimestamp(
             self.project_path.stat().st_mtime
         ).astimezone()
-        saved_text = saved_at.strftime("%b %-d, %Y, %-I:%M %p")
+        hour = saved_at.hour % 12 or 12
+        saved_text = (
+            f"{saved_at:%b} {saved_at.day}, {saved_at.year}, "
+            f"{hour}:{saved_at:%M %p}"
+        )
         dirty = " | Unsaved changes" if self._project_dirty else ""
         label = f"Project {display_path.parent.name}: Last saved {saved_text}{dirty}"
         self.project_label.setText(label)

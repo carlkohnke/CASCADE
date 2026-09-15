@@ -209,10 +209,30 @@ def release_completed_case_memory(
 
 
 def host_memory_snapshot() -> dict[str, int | None]:
-    """Return current process RSS and system RAM headroom without dependencies."""
+    """Return current process RSS and system RAM headroom across platforms."""
     rss: int | None = None
     available: int | None = None
     total: int | None = None
+    try:
+        import psutil
+    except ImportError:
+        pass
+    else:
+        try:
+            rss = int(psutil.Process().memory_info().rss)
+            memory = psutil.virtual_memory()
+            available = int(memory.available)
+            total = int(memory.total)
+        except (AttributeError, OSError, RuntimeError, psutil.Error):
+            pass
+    if rss is not None and available is not None and total is not None:
+        return {
+            "process_rss_bytes": rss,
+            "host_available_bytes": available,
+            "host_total_bytes": total,
+        }
+
+    # Retain a dependency-free Linux fallback for constrained deployments.
     try:
         page = int(os.sysconf("SC_PAGE_SIZE"))
         with Path("/proc/self/statm").open("r", encoding="ascii") as handle:

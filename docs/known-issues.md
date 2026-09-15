@@ -5,11 +5,12 @@ errors or solver failures.
 
 ## Platform support
 
-- The supported desktop environments are Linux and WSL2 on x86-64 with Python
-  3.9. The bundled Windows launchers require WSL and a distribution named
-  `Ubuntu`; future releases may support Windows and/or macOS.
+- Native Windows 10/11 and Linux on x86-64 with CPython 3.12 are supported.
+  Native Windows installation uses the released wheel and does not require WSL.
+  Windows on ARM, 32-bit Python, and macOS are not currently qualified.
 - GPU execution requires an NVIDIA driver compatible with the selected CuPy
-  CUDA package. Use `cascade doctor --require-gpu` before GPU-accelerated production runs.
+  CUDA package. CUDA 13 is the qualified native Windows GPU option. Use
+  `cascade doctor --require-gpu` before GPU-accelerated production runs.
 
 ## Flow and transport models
 

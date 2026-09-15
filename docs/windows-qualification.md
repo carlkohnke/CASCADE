@@ -72,7 +72,9 @@ is large. Qualification intentionally honors that metadata; it does not use
 
 - The previous package metadata rejected Python 3.12 and advertised no native
   Windows support.
-- Existing Windows launchers are WSL wrappers rather than native launchers.
+- The source tree's historical `.bat` and `.vbs` launchers are WSL development
+  helpers. Native wheel installations now expose a GUI-subsystem Studio
+  launcher and a separate console-subsystem diagnostic launcher.
 - The initial GPU extra omitted NVRTC and other required toolkit components;
   it now declares CuPy's complete wheel-provided CUDA toolkit extra.
 - CUDA bootstrap now discovers wheel-provided headers and nested DLLs before

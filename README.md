@@ -44,7 +44,13 @@ the package map and compatibility boundaries.
 
 ## Install
 
-Create a CPU environment with Studio from the repository root:
+For a released wheel on native Windows, follow the
+[native Windows installation guide](docs/windows.md). The supported CPU and
+CUDA 13 installations use an isolated CPython 3.12 environment, install binary
+wheels, and launch Studio without WSL or a console window.
+
+For Linux development from the repository, create a CPU environment with
+Studio from the repository root:
 
 ```bash
 python setup_env.py \
@@ -67,7 +73,8 @@ source .venv/bin/activate
 cascade doctor --require-gpu
 ```
 
-The GPU extra installs CuPy plus the matching CUDA runtime, cuFFT, and nvJitLink component wheels. A compatible host NVIDIA driver is still required.
+The GPU extra installs CuPy plus the matching wheel-provided CUDA toolkit. A
+compatible host NVIDIA driver is still required.
 
 Normal package installation is also supported:
 
@@ -332,6 +339,10 @@ After installing the `gui` extra:
 cascade-gui
 ```
 
+On Windows, `cascade-gui.exe` is the normal console-free launcher and
+`cascade-gui-console.exe` is the diagnostic launcher. See the
+[native Windows guide](docs/windows.md).
+
 The GUI configures domains, networks, solver settings, sweeps, queued runs, and
 result visualization. Its persistent local worker reuses compatible geometry
 and accelerator state between serial jobs, evicts incompatible state before
@@ -355,6 +366,7 @@ See [docs/gui.md](docs/gui.md).
 ## Documentation
 
 - [CASCADE Studio guide](docs/gui.md)
+- [Native Windows installation](docs/windows.md)
 - [Custom vascular geometry format](docs/custom-geometry.md)
 - [Architecture and package map](docs/architecture.md)
 - [Public svVascularize compatibility](docs/svv-compatibility.md)

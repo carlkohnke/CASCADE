@@ -2,7 +2,7 @@
 include README.md LICENSE
 include pyproject.toml setup_env.py
 recursive-include requirements *.txt *.md *.yml
-include docs/architecture.md docs/custom-geometry.md docs/gui.md docs/known-issues.md docs/svv-compatibility.md docs/windows-qualification.md
+include docs/architecture.md docs/custom-geometry.md docs/gui.md docs/known-issues.md docs/svv-compatibility.md docs/windows.md docs/windows-qualification.md
 recursive-include src/cascade/gui/assets *.svg
 recursive-include src/cascade/gui/native *.cs
 recursive-include src/cascade/gui/shaders *.frag *.vert

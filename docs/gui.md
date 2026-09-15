@@ -4,6 +4,20 @@ CASCADE Studio is the native graphical interface for CASCADE. It is designed for
 
 ## Install and launch
 
+For a released wheel on native Windows, install the `gui` extra and use the
+wheel-generated launchers:
+
+```powershell
+& "$env:USERPROFILE\CASCADE\Scripts\cascade-gui.exe"
+```
+
+This normal launcher uses the Windows GUI subsystem and does not retain a
+console. `cascade-gui-console.exe` is the visible diagnostic launcher. Complete
+CPU and CUDA 13 setup commands, log locations, and troubleshooting are in the
+[native Windows installation guide](windows.md).
+
+For Linux development from the repository:
+
 From the repository root:
 
 ```bash
@@ -17,7 +31,12 @@ uses a sibling `CASCADE-workbench/projects/CASCADE_Project` directory when that
 workbench exists, keeping generated projects and GUI state out of the source
 tree.
 
-Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit `--gpu` for CPU-only work). After an editable install, `cascade-gui` is equivalent. On WSL with a distribution named `Ubuntu`, double-click `GUI Launchers/launch_gui_windows_silent.vbs` for a console-free launch; `GUI Launchers/launch_gui_windows_shell.bat` is the visible diagnostic fallback. Both Windows launchers resolve the checkout containing their folder, so they do not depend on a user-specific path. Linux and WSL users can run `./GUI\ Launchers/launch_gui_linux.sh` after making it executable.
+Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit
+`--gpu` for CPU-only work). After an editable install, `cascade-gui` is
+equivalent. Linux and WSL source developers can run
+`./GUI\ Launchers/launch_gui_linux.sh` after making it executable. The `.bat`
+and `.vbs` files in that source-only directory are legacy WSL helpers and are
+not the native Windows launch path.
 
 The WSL launchers use Qt through WSLg's XWayland compatibility transport by
 default. This avoids the blank `[WARN:COPY MODE]` window produced by the native

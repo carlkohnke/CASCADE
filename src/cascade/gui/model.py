@@ -23,6 +23,7 @@ from typing import Any, Iterable
 from uuid import uuid4
 
 from cascade.configuration.schema import example_config, parse_config
+from cascade.utils.files import atomic_write_text
 from cascade.vessels.lattice import channel_count, resolve_lattice_layout
 from cascade.utils.resources import resolve_domain_path
 
@@ -1149,10 +1150,11 @@ def _float_at(config: dict[str, Any], path: str, fallback: float) -> float:
 
 
 def _atomic_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(json.dumps(value, indent=2, allow_nan=False), encoding="utf-8")
-    temp.replace(path)
+    atomic_write_text(
+        path,
+        json.dumps(value, indent=2, allow_nan=False),
+        encoding="utf-8",
+    )
 
 
 def _gpu_info() -> tuple[str, int]:

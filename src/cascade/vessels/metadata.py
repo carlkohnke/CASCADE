@@ -20,6 +20,8 @@ from typing import Any
 
 import numpy as np
 
+from cascade.utils.files import atomic_write_text
+
 _SIDECAR_FORMAT = "cascade_network_metadata"
 _SIDECAR_VERSION = 1
 _SIMCACHE_DATA = re.compile(r"^tree_\d+_\d+_data\.npy$")
@@ -201,9 +203,7 @@ def write_network_sidecar(
         "network": metadata.to_dict(),
     }
     target = sidecar_path(source)
-    temporary = target.with_name(target.name + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    temporary.replace(target)
+    atomic_write_text(target, json.dumps(payload, indent=2), encoding="utf-8")
     return target
 
 

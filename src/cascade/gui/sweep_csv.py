@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
+from cascade.utils.files import atomic_text_writer
 
 PROVENANCE_FIELDS = [
     "run_id",
@@ -72,12 +73,10 @@ def rebuild_combined_sweep_csv(jobs: Iterable[Any], output_path: str | Path) -> 
     fields = PROVENANCE_FIELDS + sweep_fields + metric_fields
     fields.extend(field for field in extra_fields if field not in fields)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("w", newline="", encoding="utf-8") as handle:
+    with atomic_text_writer(path, newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
-    temporary.replace(path)
     return path
 
 

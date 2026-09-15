@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from cascade.configuration.schema import RunConfig
+from cascade.utils.files import atomic_write_text
 from cascade.utils.resources import resolve_path
 from cascade.vessels.generation.svv_adapter import Domain, Forest, Tree
 from cascade.vessels.results import (
@@ -113,9 +114,11 @@ def _save_shared_geometry_cache(
             "domain": domain_saved.name,
             "network": None if network_saved is None else network_saved.name,
         }
-        temporary = cache_dir / "ready.json.tmp"
-        temporary.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        temporary.replace(manifest_path)
+        atomic_write_text(
+            manifest_path,
+            json.dumps(manifest, indent=2),
+            encoding="utf-8",
+        )
         print(f"Saved sweep geometry cache: {cache_dir}", flush=True)
     except Exception as exc:
         # Caching is an optimization: never discard a completed simulation

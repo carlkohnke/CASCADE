@@ -25,6 +25,7 @@ from cascade.gui.model import (
     default_project,
     load_project,
 )
+from cascade.gui.native_windows import WINDOWS_SNAP_STYLE, snap_eligible_style
 from cascade.gui.runner import JobRunner
 from cascade.gui.window import MainWindow
 
@@ -348,6 +349,38 @@ def test_window_fits_available_desktop_and_keeps_compact_pages_reachable(
             assert page.viewport().height() > 0
         assert window.pages[4].horizontalScrollBar().maximum() > 0
         assert window.pages[4].verticalScrollBar().maximum() > 0
+    finally:
+        window._prepare_timer.stop()
+        window.runner.shutdown()
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+
+def test_windows_snap_style_contract() -> None:
+    baseline = 0x80000000
+    updated = snap_eligible_style(baseline)
+    assert updated & baseline
+    assert updated & WINDOWS_SNAP_STYLE == WINDOWS_SNAP_STYLE
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows window styles")
+def test_native_windows_studio_window_is_snap_eligible(qapp: QApplication) -> None:
+    if qapp.platformName() != "windows":
+        pytest.skip("requires the native Windows Qt platform plugin")
+
+    import ctypes
+
+    window = MainWindow()
+    try:
+        window.show()
+        assert _wait_until(qapp, window.isVisible, 5.0)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        get_window_long = user32.GetWindowLongPtrW
+        get_window_long.argtypes = (ctypes.c_void_p, ctypes.c_int)
+        get_window_long.restype = ctypes.c_ssize_t
+        style = int(get_window_long(ctypes.c_void_p(int(window.winId())), -16))
+        assert style & WINDOWS_SNAP_STYLE == WINDOWS_SNAP_STYLE
     finally:
         window._prepare_timer.stop()
         window.runner.shutdown()

@@ -56,6 +56,7 @@ from cascade.gui.model import (
     save_project,
     validate_project,
 )
+from cascade.gui.native_windows import enable_windows_snap
 from cascade.gui.pages.analysis import (
     AnalysisPage,
 )
@@ -250,6 +251,7 @@ class MainWindow(QMainWindow):
         self._prepare_timer.setInterval(1200)
         self._prepare_timer.timeout.connect(self._prepare_interactive_case)
         self._build_ui()
+        enable_windows_snap(self)
         self._build_menu()
         self._load_pages()
         self._initializing = False

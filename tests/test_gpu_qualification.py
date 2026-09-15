@@ -5,17 +5,115 @@ import json
 import os
 import subprocess
 import sys
+import time
 from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
+import psutil
 import pytest
 import pyvista as pv
+from cascade.gui.model import create_jobs
+from cascade.gui.runner import JobRunner
+from PySide6.QtCore import QProcess
+from PySide6.QtWidgets import QApplication
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("CASCADE_RUN_GPU_QUALIFICATION") != "1",
     reason="set CASCADE_RUN_GPU_QUALIFICATION=1 on a dedicated CUDA runner",
 )
+
+
+@pytest.fixture(scope="module")
+def qapp() -> QApplication:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    instance = QApplication.instance()
+    if instance is not None:
+        assert isinstance(instance, QApplication)
+        return instance
+    return QApplication([])
+
+
+def _wait_until(qapp: QApplication, predicate, timeout_s: float = 180.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        if predicate():
+            return True
+        time.sleep(0.02)
+    qapp.processEvents()
+    return bool(predicate())
+
+
+def _process_stopped(pid: int) -> bool:
+    if pid <= 0:
+        return True
+    try:
+        process = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return True
+    return not process.is_running() or process.status() == psutil.STATUS_ZOMBIE
+
+
+def _process_tree(pid: int) -> list[psutil.Process]:
+    root = psutil.Process(pid)
+    return [root, *root.children(recursive=True)]
+
+
+def _host_memory_bytes(processes: list[psutil.Process]) -> int:
+    total = 0
+    for process in processes:
+        try:
+            total += process.memory_info().rss
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            continue
+    return total
+
+
+def _gpu_memory_mib(pids: set[int]) -> tuple[int, str]:
+    process_query = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-compute-apps=pid,used_gpu_memory",
+            "--format=csv,noheader,nounits",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    if process_query.returncode == 0:
+        process_values: list[int] = []
+        for line in process_query.stdout.splitlines():
+            fields = [field.strip() for field in line.split(",")]
+            if (
+                len(fields) >= 2
+                and fields[0].isdigit()
+                and int(fields[0]) in pids
+                and fields[1].isdigit()
+            ):
+                process_values.append(int(fields[1]))
+        if process_values:
+            return sum(process_values), "process-tree"
+    device_query = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-gpu=memory.used",
+            "--format=csv,noheader,nounits",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert device_query.returncode == 0, device_query.stderr
+    values = [
+        int(line.strip())
+        for line in device_query.stdout.splitlines()
+        if line.strip().isdigit()
+    ]
+    assert values, device_query.stdout
+    return sum(values), "device"
 
 
 def _run_cli(cwd: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -341,3 +439,115 @@ def test_native_cuda_kernel_families_and_cpu_agreement(tmp_path: Path) -> None:
     assert gpu_direct_cell["oxygen"].points.dtype == np.float32
     assert gpu_direct_dense["vessels"].points.dtype == np.float64
     assert gpu_direct_dense["oxygen"].points.dtype == np.float64
+
+
+def _studio_gpu_config(tree_path: Path, project: Path, name: str, samples: int) -> dict:
+    config = _base_case(tree_path, project / "placeholder")
+    config["simulation"]["distance_sample_count"] = samples
+    config.setdefault("gui", {}).update(
+        {"project_name": "Native CUDA qualification", "run_name": name}
+    )
+    return config
+
+
+def test_native_cuda_persistent_worker_reuse_cancel_and_shutdown(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    tree_path = _generate_tree(tmp_path)
+    project = tmp_path / "Persistent CUDA Worker"
+    project.mkdir()
+    runner = JobRunner(project)
+    worker_pid = 0
+    recovery_pid = 0
+    recovery_pids: list[int] = []
+    host_samples: list[int] = []
+    gpu_samples: list[int] = []
+    gpu_sample_mode = ""
+    try:
+        for index in range(3):
+            config = _studio_gpu_config(tree_path, project, f"Repeat {index + 1}", 64)
+            job = create_jobs(config, project)[0]
+            runner.add([job])
+            runner.run([job.id])
+            assert _wait_until(qapp, lambda: job.status == "Completed", 240.0), (
+                job.error,
+                job.stage,
+            )
+            assert Path(job.manifest_path or "").is_file()
+            assert runner.process is not None
+            assert runner.process.state() == QProcess.Running
+            current_pid = int(runner.process.processId())
+            if worker_pid:
+                assert current_pid == worker_pid
+            else:
+                worker_pid = current_pid
+            processes = _process_tree(worker_pid)
+            host_samples.append(_host_memory_bytes(processes))
+            gpu_memory, mode = _gpu_memory_mib({process.pid for process in processes})
+            if gpu_sample_mode:
+                assert mode == gpu_sample_mode
+            else:
+                gpu_sample_mode = mode
+            gpu_samples.append(gpu_memory)
+
+        host_growth = max(host_samples) - min(host_samples)
+        gpu_growth = max(gpu_samples) - min(gpu_samples)
+        assert host_growth <= 768 * 1024 * 1024, host_samples
+        gpu_limit_mib = 512 if gpu_sample_mode == "process-tree" else 1024
+        assert gpu_growth <= gpu_limit_mib, gpu_samples
+        print(
+            "Persistent CUDA worker memory: "
+            f"pid={worker_pid} host_mib={[round(v / 2**20, 1) for v in host_samples]} "
+            f"gpu_mib={gpu_samples} gpu_scope={gpu_sample_mode}"
+        )
+
+        cancel_config = _studio_gpu_config(
+            tree_path, project, "Cancel after CUDA", 2_000_000
+        )
+        cancelled = create_jobs(cancel_config, project)[0]
+        runner.add([cancelled])
+        runner.run([cancelled.id])
+        assert _wait_until(
+            qapp,
+            lambda: (
+                runner.current is cancelled
+                and runner.process is not None
+                and runner.process.state() == QProcess.Running
+                and cancelled.progress >= 55
+            ),
+            240.0,
+        ), (cancelled.error, cancelled.stage, cancelled.progress)
+        cancelled_processes = _process_tree(int(runner.process.processId()))
+        cancelled_pids = [process.pid for process in cancelled_processes]
+        runner.cancel_current()
+        assert _wait_until(
+            qapp,
+            lambda: cancelled.status == "Cancelled" and runner.current is None,
+            30.0,
+        )
+        assert _wait_until(
+            qapp, lambda: all(_process_stopped(pid) for pid in cancelled_pids), 20.0
+        )
+
+        recovery_config = _studio_gpu_config(tree_path, project, "Recovery", 64)
+        recovery = create_jobs(recovery_config, project)[0]
+        runner.add([recovery])
+        runner.run([recovery.id])
+        assert _wait_until(qapp, lambda: recovery.status == "Completed", 240.0), (
+            recovery.error,
+            recovery.stage,
+        )
+        assert Path(recovery.manifest_path or "").is_file()
+        assert runner.process is not None
+        recovery_pid = int(runner.process.processId())
+        assert recovery_pid not in cancelled_pids
+        recovery_processes = _process_tree(recovery_pid)
+        recovery_pids = [process.pid for process in recovery_processes]
+        _gpu_memory_mib(set(recovery_pids))
+    finally:
+        runner.shutdown()
+        qapp.processEvents()
+    final_pids = recovery_pids if recovery_pid else [worker_pid]
+    assert _wait_until(
+        qapp, lambda: all(_process_stopped(pid) for pid in final_pids), 20.0
+    )

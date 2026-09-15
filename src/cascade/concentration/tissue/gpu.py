@@ -7,22 +7,22 @@ for optional cross-validation remain local to avoid a circular solver import.
 from __future__ import annotations
 
 import math
-from time import perf_counter
 import threading
 import traceback
+from time import perf_counter
 
 import numpy as np
 
-from cascade.configuration import solver_state as _state
+from cascade.accelerators.cuda import load_cuda_source
 from cascade.concentration.properties import get_concentration_inlet
+from cascade.concentration.quadrature import _get_gl_nodes_weights
 from cascade.concentration.vessel.greens import _k_ratio
+from cascade.configuration import solver_state as _state
 from cascade.diagnostics.runtime import (
     _ckdtree_query,
     _fmt_seconds,
     _resolve_tissue_accel_mode,
 )
-from cascade.concentration.quadrature import _get_gl_nodes_weights
-from cascade.accelerators.cuda import load_cuda_source
 
 from .geometry import (
     _build_tissue_geometry_context,
@@ -370,6 +370,7 @@ def _compute_tissue_samples_greens_gpu(
     if validate_n > 0:
         from .greens import compute_tissue_samples_greens
 
+        gpu_timings = dict(_state._LAST_TISSUE_TIMINGS)
         old_accel = _state.TISSUE_ACCEL_MODE
         old_streaming = _state.TISSUE_STREAMING_ENABLED
         try:
@@ -392,6 +393,7 @@ def _compute_tissue_samples_greens_gpu(
         finally:
             _state.TISSUE_ACCEL_MODE = old_accel
             _state.TISSUE_STREAMING_ENABLED = old_streaming
+            _state._LAST_TISSUE_TIMINGS = gpu_timings
         gpu_mask = keep_mask_all[:validate_n]
         gpu_vals = result[:validate_n].astype(float)
         mask_disagree = int(np.count_nonzero(gpu_mask != cpu_mask))
@@ -1125,6 +1127,7 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
     if validate_n > 0:
         from .greens import compute_tissue_samples_greens_from_cext_state
 
+        gpu_timings = dict(_state._LAST_TISSUE_TIMINGS)
         old_accel = _state.TISSUE_ACCEL_MODE
         old_streaming = _state.TISSUE_STREAMING_ENABLED
         try:
@@ -1141,6 +1144,7 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
         finally:
             _state.TISSUE_ACCEL_MODE = old_accel
             _state.TISSUE_STREAMING_ENABLED = old_streaming
+            _state._LAST_TISSUE_TIMINGS = gpu_timings
         gpu_mask = keep_mask_all[:validate_n]
         gpu_vals = result[:validate_n].astype(float)
         mask_disagree = int(np.count_nonzero(gpu_mask != cpu_mask))

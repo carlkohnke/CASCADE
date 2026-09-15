@@ -2,7 +2,13 @@
 # Pass this file to pip with `-c`; it is not a requirements file.
 -c py312-win-amd64-common.txt
 cuda-pathfinder==1.8.1
+cuda-toolkit==13.4.1.0
 cupy-cuda13x==14.2.0
-nvidia-cuda-runtime==13.2.86
-nvidia-cufft==12.3.0.29
-nvidia-nvjitlink==13.2.86
+nvidia-cublas==13.7.0.27
+nvidia-cuda-nvrtc==13.4.59
+nvidia-cuda-runtime==13.4.49
+nvidia-cufft==12.4.0.34
+nvidia-curand==10.4.4.49
+nvidia-cusolver==12.3.2.15
+nvidia-cusparse==12.8.6.49
+nvidia-nvjitlink==13.4.52

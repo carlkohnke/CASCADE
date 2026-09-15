@@ -43,10 +43,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu-cu13 = [
-    "cupy-cuda13x>=13",
-    "nvidia-cuda-runtime==13.2.*",
-    "nvidia-cufft==12.3.0.29",
-    "nvidia-nvjitlink==13.2.86",
+    "cupy-cuda13x[ctk]>=14,<15",
 ]
 gpu-cu12 = ["cupy-cuda12x>=13"]
 gpu-cu11 = ["cupy-cuda11x>=13"]

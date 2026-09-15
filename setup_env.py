@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 
@@ -58,7 +58,8 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "CUDA toolkit root for CuPy/NVRTC, for example "
-            "/usr/local/cuda or /path/to/targets/x86_64-linux. "
+            r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0, "
+            "/usr/local/cuda, or /path/to/targets/x86_64-linux. "
             "When omitted, setup tries to auto-detect one."
         ),
     )
@@ -257,24 +258,44 @@ def _resolve_cuda_path(value: str | None) -> Path | None:
         env_path = None
     if env_path:
         candidates.append(Path(env_path).expanduser())
-    candidates.extend(
-        [
-            Path(sys.prefix) / "targets" / "x86_64-linux",
-            Path("/usr/local/cuda"),
-            Path("/usr/local/cuda-13"),
-            Path("/usr/local/cuda-12"),
-        ]
-    )
+    candidates.append(Path(sys.prefix) / "targets" / "x86_64-linux")
+    if sys.platform == "win32":
+        program_files = os.environ.get("ProgramFiles")
+        if program_files:
+            toolkit_root = (
+                Path(program_files) / "NVIDIA GPU Computing Toolkit" / "CUDA"
+            )
+            try:
+                candidates.extend(
+                    sorted(toolkit_root.glob("v*"), key=_cuda_version_key, reverse=True)
+                )
+            except OSError:
+                pass
+    else:
+        candidates.extend(
+            [
+                Path("/usr/local/cuda"),
+                Path("/usr/local/cuda-13"),
+                Path("/usr/local/cuda-12"),
+            ]
+        )
     for path in candidates:
         if _is_cuda_root(path):
             return path.resolve()
     return None
 
 
+def _cuda_version_key(path: Path) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", path.name))
+
+
 def _is_cuda_root(path: Path) -> bool:
-    return (path / "include" / "cuda_fp16.h").exists() and (
-        (path / "lib" / "libnvrtc.so").exists()
-        or any((path / "lib").glob("libnvrtc.so*"))
+    if not (path / "include" / "cuda_fp16.h").exists():
+        return False
+    if sys.platform == "win32":
+        return any(path.glob("bin/**/nvrtc*.dll"))
+    return (path / "lib" / "libnvrtc.so").exists() or any(
+        (path / "lib").glob("libnvrtc.so*")
     )
 
 

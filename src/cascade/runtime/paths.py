@@ -12,7 +12,9 @@ from pathlib import Path
 
 from platformdirs import PlatformDirs
 
-_DIRECTORIES = PlatformDirs("CASCADE", appauthor=False, roaming=False)
+# Keep Linux's historical ``~/.config/cascade`` and ``~/.cache/cascade``
+# spelling. Windows paths are case-insensitive and resolve beneath LocalAppData.
+_DIRECTORIES = PlatformDirs("cascade", appauthor=False, roaming=False)
 
 
 def _location(variable: str, default: str | Path) -> Path:

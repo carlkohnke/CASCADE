@@ -7,18 +7,23 @@ executing this module directly is a minimal GPU-only diagnostic.
 
 from __future__ import annotations
 
-import ctypes
-from dataclasses import dataclass
-from importlib import metadata
-import os
-from pathlib import Path
 import subprocess
 import sys
+from dataclasses import dataclass
 from typing import Any
 
+from cascade.accelerators.cuda_runtime import (
+    configure_cuda_runtime,
+    cuda_component_library_dirs,
+    cuda_subprocess_environment,
+    preload_cuda_component_libraries,
+)
 
 _PROBE_MARKER = "CASCADE_GPU_READY"
 _PROBE_CODE = r"""
+from cascade.accelerators.cuda_runtime import configure_cuda_runtime
+
+configure_cuda_runtime()
 import cupy as cp
 
 device_count = int(cp.cuda.runtime.getDeviceCount())
@@ -52,72 +57,7 @@ class GpuProbeResult:
     detail: str = ""
 
 
-_DLL_DIRECTORY_HANDLES: list[Any] = []
 _GPU_PROBE_SUCCESS: GpuProbeResult | None = None
-
-
-def cuda_component_library_dirs() -> tuple[Path, ...]:
-    """Return library directories supplied by NVIDIA CUDA component wheels."""
-    candidates: list[Path] = []
-    for distribution_name in (
-        "nvidia-cuda-runtime",
-        "nvidia-cufft",
-        "nvidia-nvjitlink",
-    ):
-        try:
-            distribution = metadata.distribution(distribution_name)
-        except metadata.PackageNotFoundError:
-            continue
-        for relative in (
-            "nvidia/cu13/lib",
-            "nvidia/cu13/bin",
-            "nvidia/cufft/lib",
-            "nvidia/cufft/bin",
-            "nvidia/nvjitlink/lib",
-            "nvidia/nvjitlink/bin",
-        ):
-            candidate = Path(distribution.locate_file(relative)).resolve()
-            if candidate.is_dir() and candidate not in candidates:
-                candidates.append(candidate)
-    return tuple(candidates)
-
-
-def preload_cuda_component_libraries() -> tuple[str, ...]:
-    """Make wheel-provided CUDA libraries visible to the current process."""
-    directories = cuda_component_library_dirs()
-    if not directories:
-        return ()
-
-    if os.name == "nt":
-        add_directory = getattr(os, "add_dll_directory", None)
-        if add_directory is not None:
-            for directory in directories:
-                _DLL_DIRECTORY_HANDLES.append(add_directory(str(directory)))
-        return tuple(str(path) for path in directories)
-
-    if not sys.platform.startswith("linux"):
-        return tuple(str(path) for path in directories)
-
-    # Load by absolute path so a user does not need to export LD_LIBRARY_PATH.
-    # nvJitLink must be globally visible before cuFFT is loaded.
-    for library_name in ("libnvJitLink.so.13", "libcufft.so.12"):
-        library_path = next(
-            (
-                directory / library_name
-                for directory in directories
-                if (directory / library_name).is_file()
-            ),
-            None,
-        )
-        if library_path is None:
-            continue
-        try:
-            ctypes.CDLL(str(library_path), mode=ctypes.RTLD_GLOBAL)
-        except OSError as exc:
-            raise RuntimeError(
-                f"Could not load CUDA component library {library_path}: {exc}"
-            ) from exc
-    return tuple(str(path) for path in directories)
 
 
 def gpu_requested(config: Any) -> bool:
@@ -148,51 +88,7 @@ def gpu_requested(config: Any) -> bool:
 
 def probe_gpu_runtime(*, timeout_s: float = 30.0) -> GpuProbeResult:
     """Test CUDA in an isolated process so the caller keeps no GPU context."""
-    probe_env = os.environ.copy()
-    component_dirs = cuda_component_library_dirs()
-    if component_dirs:
-        variable = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
-        existing = probe_env.get(variable, "")
-        prefix = os.pathsep.join(str(path) for path in component_dirs)
-        probe_env[variable] = prefix if not existing else prefix + os.pathsep + existing
-    if not probe_env.get("CUDA_PATH"):
-        candidates = [Path(sys.prefix) / "targets" / "x86_64-linux"]
-        try:
-            runtime_dist = metadata.distribution("nvidia-cuda-runtime")
-            candidates.append(Path(runtime_dist.locate_file("nvidia/cu13")))
-        except metadata.PackageNotFoundError:
-            pass
-        source_root = Path(__file__).resolve().parents[2]
-        config_roots = []
-        if os.environ.get("CASCADE_CONFIG_DIR"):
-            config_roots.append(Path(os.environ["CASCADE_CONFIG_DIR"]).expanduser())
-        config_roots.extend(
-            [
-                source_root.parent / "CASCADE-workbench" / "config",
-                source_root,
-                Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-                / "cascade",
-            ]
-        )
-        for config_root in config_roots:
-            source_config = config_root / ".cascade_cuda_path"
-            if source_config.is_file():
-                try:
-                    candidates.append(
-                        Path(
-                            source_config.read_text(encoding="utf-8").strip()
-                        ).expanduser()
-                    )
-                except OSError:
-                    pass
-        candidates.extend(
-            Path(value)
-            for value in ("/usr/local/cuda", "/usr/local/cuda-13", "/usr/local/cuda-12")
-        )
-        for candidate in candidates:
-            if (candidate / "include" / "cuda_fp16.h").is_file():
-                probe_env["CUDA_PATH"] = str(candidate)
-                break
+    probe_env = cuda_subprocess_environment()
     try:
         completed = subprocess.run(
             [sys.executable, "-c", _PROBE_CODE],
@@ -240,7 +136,7 @@ def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
         return None
     if _GPU_PROBE_SUCCESS is not None:
         return _GPU_PROBE_SUCCESS
-    preload_cuda_component_libraries()
+    configure_cuda_runtime()
     result = probe_gpu_runtime()
     if result.ready:
         _GPU_PROBE_SUCCESS = result
@@ -254,6 +150,16 @@ def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
         "settings in Advanced solver settings.\n\n"
         f"Technical detail:\n{result.detail}"
     )
+
+
+__all__ = [
+    "GpuProbeResult",
+    "cuda_component_library_dirs",
+    "gpu_requested",
+    "preload_cuda_component_libraries",
+    "probe_gpu_runtime",
+    "require_gpu_runtime",
+]
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, final exact artifact from `b5b282439cefddc37be60117e62d3c1cdf357964` |
+| CASCADE candidate | `0.1.0rc5`, final exact artifact from `73100dba591e920d05a9d488392233dcae3a8364` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -34,9 +34,9 @@ feature, WSL, or unrelated Python installation was changed.
 | 3 — compatibility fixes | Pass | Exact wheel installed on native NTFS; 18/18 focused filesystem, CUDA-bootstrap, host-memory, process-tree, atomic-state, and Studio lifecycle tests pass |
 | 4 — native CPU qualification | Pass | Exact installed wheel: fatal/static check passes and 62/62 tests pass; all documented CLI commands and the CPU self-test complete from native NTFS |
 | 5 — filesystem torture | Pass | Exact installed wheel: 66/66 tests pass from an NTFS-only test snapshot; deep space/Unicode paths, stale caches, mmap release, repeat writes, lock contention/recovery, and a read-only installed package pass |
-| 6 — Studio qualification | Partial | Exact installed wheel: 76/76 native tests pass; persistent worker reuse, cancellation/recovery, preview recovery, launch subsystems, native OpenGL/software rendering, and 125% scaling pass; remaining physical UI checks are recorded below |
-| 7 — native CUDA qualification | Pass | Exact installed wheel: `doctor --require-gpu`, `self-test --require-gpu`, and 78/78 tests pass; all CUDA kernel families, CPU/GPU comparisons, repeated persistent-worker jobs, cancellation/recovery, and memory stability are covered |
-| 8 — Linux regression | Pass | CPython 3.12 isolated environment: dependency integrity and static checks pass; 65 tests pass with 13 intentional Windows/GPU skips; installed-package CPU self-test passes and scientific outputs match Windows |
+| 6 — Studio qualification | Partial | Exact installed wheel: 77 native CPU tests pass; persistent worker reuse, cancellation/recovery, preview recovery, launch subsystems, native OpenGL/software rendering, and automated native 100%/125%/150%/200% scale-factor checks pass; remaining physical UI checks are recorded below |
+| 7 — native CUDA qualification | Pass | Exact installed wheel: `doctor --require-gpu`, `self-test --require-gpu`, and 79/79 tests pass; all CUDA kernel families, CPU/GPU comparisons, repeated persistent-worker jobs, cancellation/recovery, and memory stability are covered |
+| 8 — Linux regression | Pass | CPython 3.12 isolated environment: dependency integrity and static checks pass; 66 tests pass with 13 intentional Windows/GPU skips; installed-package CPU self-test passes and scientific outputs match Windows |
 | 9 — clean install | Pass | Fresh CPU and CUDA environments installed the exact wheel and declared dependencies as binary wheels; version, doctor, self-test, Studio launch/project/run/cancel/recovery, exports, and GPU acceleration pass without source, compiler, WSL, PATH, or DLL workarounds |
 | 10 — user tooling/docs | Pass | Native CPU/CUDA wheel installation, console-free and diagnostic launchers, CLI use, state paths, troubleshooting, uninstall, and support boundaries are documented and validated against the clean-install workflow |
 | 11 — CI | Implemented, not hosted | Ubuntu 22.04 and Windows Python 3.12 installed-wheel CPU lanes plus a self-hosted native Windows/NVIDIA release gate are defined and locally validated; no remote is configured, so no GitHub run is claimed |
@@ -105,6 +105,12 @@ is large. Qualification intentionally honors that metadata; it does not use
 - Studio's native OpenGL selector imported the renderer from a nonexistent
   subpackage and silently fell back to software. The corrected import is
   covered by a regression test and the native Windows renderer now initializes.
+- Studio enforced an 1180-by-720 logical-pixel minimum, which exceeded the
+  usable desktop on a 1920-by-1080 display at 150% and 200% Windows scaling.
+  The initial and minimum sizes are now capped to the current usable desktop,
+  the navigation/preview/inspector can contract, and page scroll areas keep
+  wide or tall controls reachable. A compact-layout regression and native
+  100%/125%/150%/200% render matrix cover the fix.
 - GPU validation previously replaced the real CUDA timing record with its
   internal CPU reference timings, causing diagnostics to report CPU execution
   after a successful GPU run. The GPU timing record is now preserved and the
@@ -117,8 +123,10 @@ is large. Qualification intentionally honors that metadata; it does not use
   not expose native applications. Open/Save/folder dialogs, title-bar dragging,
   Windows Snap, visible Explorer/result-viewer behavior, and the visible
   second-instance notice were therefore not manually verified.
-- The host exposed one display at 125% scaling. Native 100%, 150%, and 200%
-  scaling and multiple-monitor movement remain unperformed physical checks.
+- The host physically exposed one display at 125% scaling. Separate native Qt
+  processes rendered and passed geometry checks at effective 100%, 125%, 150%,
+  and 200% scale factors, but changing the physical Windows display setting and
+  moving Studio between differently scaled monitors remain manual checks.
 - Windows WDDM did not expose per-process VRAM counters for the qualification
   worker. Device-level VRAM was measured instead and remained flat across the
   repeated persistent-worker jobs.
@@ -257,6 +265,18 @@ Physical interaction checks that could not be automated are explicitly left
 open in the limitations above. Stage 6 is therefore recorded as partial rather
 than silently treating those manual checks as passed.
 
+A final high-DPI follow-up found that the original 1180-by-720 logical minimum
+would not fit the usable desktop at 150% or 200% scaling. Commit `73100db`
+makes the shell screen-aware and its panes contractible while retaining access
+through page scroll areas. Native Windows processes were then run with exact
+effective device-pixel ratios of 1.0, 1.25, 1.5, and 2.0. At every ratio the
+maximized window matched the usable desktop, its navigation, workspace, and
+bottom workflow controls remained inside the client area, and all eight page
+viewports remained accessible. The four rendered screenshots were inspected;
+at 200%, intentionally exposed horizontal and vertical scroll bars retained
+access to oversized content. The complete final CPU suite, including the new
+compact-layout regression, passed 77 tests with two GPU-only skips.
+
 ## Stage 7 native CUDA qualification
 
 The exact wheel built from commit `855989981a8be684e0ff5cae5455fa0538465a14`
@@ -323,6 +343,10 @@ scientific fields in `summary.csv` also matched; only expected elapsed/timing
 measurements differed. These results provide direct regression evidence that
 the Windows filesystem, process, GUI, packaging, and CUDA changes did not alter
 the existing Linux scientific path.
+
+After the high-DPI follow-up, the complete Linux suite was rerun at commit
+`73100db` and completed with 66 passes and 13 intentional Windows/GPU skips in
+59.32 seconds.
 
 ## Stage 9 clean-install qualification
 
@@ -415,23 +439,30 @@ recorded as implemented rather than as a hosted CI pass.
 
 ## Final exact-candidate gate
 
-The final wheel built from commit `b5b282439cefddc37be60117e62d3c1cdf357964`
+The final wheel built from commit `73100dba591e920d05a9d488392233dcae3a8364`
 has SHA-256
-`d8ca856337fa4630f16cb85fba95fa13e30d1cac5db4754639277e1c60c39519`.
+`23b2b0ad160db0ff67f45e798eb94658743dc172e9424a063cce745630e28efd`.
 The matching sdist has SHA-256
-`1be5ebb5c38055b15eb96e1bdbdac001f27ade1164ec194b050670816a9391bd`.
+`a5fee289b81e69db8cc2525a812c961c68d81ade5ff5fa909f3f7a1876d5525`.
 Both artifacts passed Twine checks.
 
 The exact wheel was installed over the previously clean native Windows CPU and
 CUDA environments with no dependency or source-tree substitution. The CPU
-environment passed `pip check`, fatal/static checks, and the complete native
-CPU suite: 76 passes and two intentional dedicated-GPU skips in 116.65 seconds.
-The CUDA environment passed `pip check`, `doctor --require-gpu`, the
-installed-package GPU self-test in 12.76 seconds, and the complete suite with
-the GPU qualification flag: 78 passes in 273.12 seconds. Both imports resolved
+environment passed the repository's fatal/static checks and the complete native
+CPU suite: 77 passes and two intentional dedicated-GPU skips in 118.64 seconds.
+The CUDA environment passed `doctor --require-gpu`, the installed-package GPU
+self-test in 12.433 seconds, and the complete suite with the GPU qualification
+flag: 79 passes in 279.62 seconds. Both imports resolved
 from their environment's `site-packages`; `PYTHONPATH` and `CUDA_PATH` were
 absent, and all caches, logs, temporary data, and evidence remained in the
 Windows sandbox.
+
+Native Windows scale-factor evidence for this final code was collected in four
+separate real `windows` Qt platform processes. Effective device-pixel ratios of
+1.0, 1.25, 1.5, and 2.0 reported usable logical desktops of 1920x1020,
+1536x816, 1280x680, and 960x510 respectively. The maximized Studio window fit
+each desktop exactly, every primary page constructed, and the screenshots and
+widget bounds showed no shell controls outside the client area.
 
 This closes all automatable local gates for the current candidate. It does not
 convert the explicitly listed physical UI checks or unexecuted hosted CI jobs

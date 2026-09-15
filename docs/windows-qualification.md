@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, Studio qualification through `6fa6a42b78af915cdd925e4562897691906cb4a1` |
+| CASCADE candidate | `0.1.0rc5`, native CUDA qualification through `855989981a8be684e0ff5cae5455fa0538465a14` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -34,7 +34,7 @@ feature, WSL, or unrelated Python installation was changed.
 | 4 — native CPU qualification | Pass | Exact installed wheel: fatal/static check passes and 62/62 tests pass; all documented CLI commands and the CPU self-test complete from native NTFS |
 | 5 — filesystem torture | Pass | Exact installed wheel: 66/66 tests pass from an NTFS-only test snapshot; deep space/Unicode paths, stale caches, mmap release, repeat writes, lock contention/recovery, and a read-only installed package pass |
 | 6 — Studio qualification | Partial | Exact installed wheel: 76/76 native tests pass; persistent worker reuse, cancellation/recovery, preview recovery, launch subsystems, native OpenGL/software rendering, and 125% scaling pass; remaining physical UI checks are recorded below |
-| 7 — native CUDA qualification | Pending | Artifact resolution only; no CUDA execution claimed |
+| 7 — native CUDA qualification | Pass | Exact installed wheel: `doctor --require-gpu`, `self-test --require-gpu`, and 78/78 tests pass; all CUDA kernel families, CPU/GPU comparisons, repeated persistent-worker jobs, cancellation/recovery, and memory stability are covered |
 | 8 — Linux regression | Pending | — |
 | 9 — clean install | Pending | — |
 | 10 — user tooling/docs | Pending | — |
@@ -102,7 +102,10 @@ is large. Qualification intentionally honors that metadata; it does not use
 - Studio's native OpenGL selector imported the renderer from a nonexistent
   subpackage and silently fell back to software. The corrected import is
   covered by a regression test and the native Windows renderer now initializes.
-- Complete CUDA kernel-family execution still requires Stage 7 qualification.
+- GPU validation previously replaced the real CUDA timing record with its
+  internal CPU reference timings, causing diagnostics to report CPU execution
+  after a successful GPU run. The GPU timing record is now preserved and the
+  regression is covered by the native kernel-family qualification test.
 
 ## Known limitations and unperformed checks
 
@@ -113,7 +116,9 @@ is large. Qualification intentionally honors that metadata; it does not use
   second-instance notice were therefore not manually verified.
 - The host exposed one display at 125% scaling. Native 100%, 150%, and 200%
   scaling and multiple-monitor movement remain unperformed physical checks.
-- CUDA has not yet been imported or exercised in the candidate environment.
+- Windows WDDM did not expose per-process VRAM counters for the qualification
+  worker. Device-level VRAM was measured instead and remained flat across the
+  repeated persistent-worker jobs.
 - No clean-install acceptance run has yet been performed.
 - Windows CI workflow execution and final Linux regression are pending.
 
@@ -247,3 +252,45 @@ sandbox-environment child process remained.
 Physical interaction checks that could not be automated are explicitly left
 open in the limitations above. Stage 6 is therefore recorded as partial rather
 than silently treating those manual checks as passed.
+
+## Stage 7 native CUDA qualification
+
+The exact wheel built from commit `855989981a8be684e0ff5cae5455fa0538465a14`
+has SHA-256
+`c5038a6d3b375c59f601562681cf371b500ba4a1c0d51e5f1c985e2bfea8a1ae`.
+It was installed into the isolated native Windows CUDA environment and imported
+from that environment's `site-packages` with `PYTHONPATH` and `CUDA_PATH`
+removed. Wheel-provided CUDA components and every runtime cache remained in the
+Windows sandbox. `pip check` passed.
+
+The device was an NVIDIA GeForce RTX 3080 Laptop GPU with compute capability
+8.6 and 16 GiB of memory. CuPy reported driver API 13.4 and CUDA runtime 13.2.
+`cascade doctor --require-gpu` passed after a cold toolkit/bootstrap probe, and
+`cascade self-test --require-gpu` completed in 18.58 seconds with its outputs
+retained in the sandbox. The complete installed-wheel suite, including the
+opt-in GPU qualification cases, passed 78 tests in 283.85 seconds.
+
+The qualification test forces execution through the direct Cext solver, the
+frozen/top-down solver, treecode, pure FFT deposition/correction/sampling,
+hybrid FFT with local correction, dense fused tissue kernels, and sparse
+cell-list/KD-tree tissue kernels. It checks pressure, flow, vessel
+concentration, tissue concentration, viability/statistics, and VTK exports
+against CPU references or equivalent CUDA formulations. Export paths were
+tested in both float32 and float64; CASCADE's CUDA Cext working arrays remain
+float32 by design, so this record does not claim float64 CUDA arithmetic.
+
+For the deterministic five-segment qualification tree, the largest observed
+relative vessel-concentration error was approximately `1.58e-7` for direct GPU
+versus CPU and `8.59e-6` for hybrid-local versus direct GPU. Top-down tissue
+concentration differed from the CPU reference by approximately `6.33e-6` in
+dense mode and `8.37e-6` in sparse mode. Pressure and flow satisfied the tighter
+solver tolerances, tissue masks matched, and exported VTP/VTU data reopened
+successfully with PyVista.
+
+Three consecutive GPU jobs in one persistent Studio worker held aggregate
+worker-process-tree RAM at 677.9 MiB and device VRAM at 145 MiB for all three
+runs. A job was then cancelled after entering CUDA coupling, all recorded
+worker and descendant PIDs exited, and a subsequent GPU job completed in a
+fresh worker. Final shutdown removed that worker and its descendants as well.
+This covers stable repeated execution, cancellation without poisoning the next
+run, and clean CUDA worker teardown on the qualification host.

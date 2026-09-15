@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from cascade.gui import model as gui_model
 from cascade.gui import viewer as viewer_module
+from cascade.gui import widgets as gui_widgets
 from cascade.gui.model import (
     PROJECT_FILENAME,
     JobRecord,
@@ -211,6 +213,99 @@ def test_interrupted_queue_recovery_and_windows_openers(
     gui_model.open_path(result)
 
     assert opened == [str(folder.resolve()), str(result.resolve())]
+
+
+def test_native_windows_dialogs_use_qt_without_wsl_bridge(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    selected = {
+        "directory": str(tmp_path / "chosen folder"),
+        "open": str(tmp_path / "chosen input.stl"),
+        "save": str(tmp_path / "chosen project.json"),
+    }
+    monkeypatch.setattr(gui_widgets, "_running_in_wsl", lambda: False)
+    monkeypatch.setattr(
+        gui_widgets.QFileDialog,
+        "getExistingDirectory",
+        lambda *_args, **_kwargs: selected["directory"],
+    )
+    monkeypatch.setattr(
+        gui_widgets.QFileDialog,
+        "getOpenFileName",
+        lambda *_args, **_kwargs: (selected["open"], "Surface (*.stl)"),
+    )
+    monkeypatch.setattr(
+        gui_widgets.QFileDialog,
+        "getSaveFileName",
+        lambda *_args, **_kwargs: (selected["save"], "JSON (*.json)"),
+    )
+
+    assert gui_widgets.choose_native_path(
+        None,
+        mode="directory",
+        caption="Choose folder",
+        start=str(tmp_path),
+    ) == selected["directory"]
+    assert gui_widgets.choose_native_path(
+        None,
+        mode="open",
+        caption="Open surface",
+        start=str(tmp_path),
+        file_filter="Surface (*.stl)",
+    ) == selected["open"]
+    assert gui_widgets.choose_native_path(
+        None,
+        mode="save",
+        caption="Save project",
+        start=str(tmp_path),
+        file_filter="JSON (*.json)",
+    ) == selected["save"]
+
+
+def test_window_state_transitions_and_title_bar_controls(qapp: QApplication) -> None:
+    window = MainWindow()
+    try:
+        window.show()
+        assert _wait_until(qapp, window.isVisible, 5.0)
+        window.resize(1280, 760)
+        qapp.processEvents()
+        assert window.width() == 1280
+        assert window.height() == 760
+
+        window.title_bar.toggle_maximized()
+        assert _wait_until(qapp, window.isMaximized, 5.0)
+        window.title_bar.toggle_maximized()
+        assert _wait_until(qapp, lambda: not window.isMaximized(), 5.0)
+
+        window.showMinimized()
+        assert _wait_until(qapp, window.isMinimized, 5.0)
+        window.showNormal()
+        assert _wait_until(qapp, lambda: not window.isMinimized(), 5.0)
+    finally:
+        window._prepare_timer.stop()
+        window.runner.shutdown()
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+
+def _pe_subsystem(path: Path) -> int:
+    data = path.read_bytes()
+    pe_offset = int.from_bytes(data[0x3C:0x40], "little")
+    assert data[pe_offset : pe_offset + 4] == b"PE\0\0"
+    optional_header = pe_offset + 24
+    return int.from_bytes(
+        data[optional_header + 68 : optional_header + 70], "little"
+    )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows PE launcher subsystems")
+def test_normal_launchers_are_gui_subsystem_and_diagnostics_keep_console() -> None:
+    scripts = Path(sys.executable).resolve().parent
+    assert _pe_subsystem(scripts / "cascade-gui.exe") == 2
+    assert _pe_subsystem(scripts / "cascade-viewer.exe") == 2
+    assert _pe_subsystem(scripts / "cascade-gui-console.exe") == 3
+    assert _pe_subsystem(scripts / "cascade-viewer-console.exe") == 3
 
 
 def test_result_viewer_loads_exported_arrays_without_source_tree(

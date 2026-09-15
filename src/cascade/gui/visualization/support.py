@@ -147,7 +147,7 @@ def _create_geometry_canvas(parent: QWidget) -> QWidget:
         )
     if use_gpu and _opengl_33_available():
         try:
-            from .gpu_preview import OpenGLGeometryCanvas
+            from ..gpu_preview import OpenGLGeometryCanvas
 
             return OpenGLGeometryCanvas(parent)
         except (ImportError, RuntimeError):

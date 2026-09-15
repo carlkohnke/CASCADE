@@ -262,6 +262,30 @@ def test_native_windows_dialogs_use_qt_without_wsl_bridge(
     ) == selected["save"]
 
 
+def test_opengl_canvas_factory_imports_renderer_from_gui_package(
+    monkeypatch: pytest.MonkeyPatch, qapp: QApplication
+) -> None:
+    from cascade.gui.gpu_preview import OpenGLGeometryCanvas
+    from cascade.gui.visualization import support
+
+    class _NativePlatform:
+        @staticmethod
+        def platformName() -> str:
+            return "windows"
+
+    monkeypatch.setattr(support, "QApplication", _NativePlatform)
+    monkeypatch.setattr(support, "_opengl_33_available", lambda: True)
+    monkeypatch.setenv("CASCADE_RENDER_BACKEND", "opengl")
+    monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
+    monkeypatch.delenv("WSL_INTEROP", raising=False)
+    parent = QWidget()
+    canvas = support._create_geometry_canvas(parent)
+    assert isinstance(canvas, OpenGLGeometryCanvas)
+    parent.close()
+    parent.deleteLater()
+    qapp.processEvents()
+
+
 def test_window_state_transitions_and_title_bar_controls(qapp: QApplication) -> None:
     window = MainWindow()
     try:

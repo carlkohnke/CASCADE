@@ -151,7 +151,7 @@ def default_project() -> dict[str, Any]:
                 "gl_order_cext": 1,
             },
             "cext": {
-                "accel_mode": "gpu",
+                "accel_mode": "auto",
                 "vess_coupling_max_iter": 1,
                 "vess_coupling_tol": 1e-3,
                 "window_factor": 6,
@@ -162,7 +162,7 @@ def default_project() -> dict[str, Any]:
                 "index_dtype": "int32",
             },
             "tissue": {
-                "accel_mode": "gpu",
+                "accel_mode": "auto",
                 "nearest_vessels": 250,
                 "window_factor": 6,
                 "streaming_enabled": False,

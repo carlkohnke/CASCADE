@@ -18,8 +18,8 @@ def test_cli_example_matches_studio_defaults():
     assert config["simulation"]["qin_target_ul_min"] == 100.0
     assert config["simulation"]["distance_sample_count"] == 10000
     assert config["simulation"]["concentration_solver"] == "network_ext"
-    assert config["simulation"]["tissue_accel"] == "gpu"
-    assert config["settings"]["cext"]["accel_mode"] == "gpu"
+    assert config["simulation"]["tissue_accel"] == "auto"
+    assert config["settings"]["cext"]["accel_mode"] == "auto"
 
 
 @pytest.mark.parametrize("fluid", [{"density": 1.0}])

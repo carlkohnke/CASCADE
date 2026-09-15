@@ -171,7 +171,7 @@ TISSUE_STREAMING_NUMBA_THREADS_PER_WORKER = 1
 SOLVER_TIMING_DETAILS = True
 TISSUE_CACHE_CHUNK_SIZE = 512
 TISSUE_KDTREE_WORKERS = max((os.cpu_count() or 1) - 2, 1)
-TISSUE_ACCEL_MODE = "gpu"  # "cpu", "gpu", or "auto".
+TISSUE_ACCEL_MODE = "auto"  # "cpu", "gpu", or "auto".
 TISSUE_GPU_CHUNK_POINTS = 8192
 TISSUE_GPU_MIN_CHUNK_POINTS = 512
 TISSUE_GPU_VALIDATE_POINTS = 0
@@ -191,8 +191,8 @@ CEXT_TRACE_TISSUE_ENABLED = False
 CEXT_TRACE_TISSUE_POINTS = None
 CEXT_TRACE_TISSUE_CACHE = None
 
-CEXT_ACCEL_MODE = "gpu"  # "cpu", "gpu", or "auto".
-CEXT_FROZEN_ACCEL_MODE = "gpu"  # "cpu", "gpu", or "auto".
+CEXT_ACCEL_MODE = "auto"  # "cpu", "gpu", or "auto".
+CEXT_FROZEN_ACCEL_MODE = "auto"  # "cpu", "gpu", or "auto".
 CEXT_INIT_MODE = "decoupled_greens"  # "zero" or "decoupled_greens".
 CEXT_LAMBDA_SOURCE = (
     os.environ.get("SVV_CEXT_LAMBDA_SOURCE", "lambda_t").strip().lower()

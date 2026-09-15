@@ -35,7 +35,7 @@ Run files override these defaults with a top-level `settings` object:
       "vess_coupling_omega_max": 1.4
     },
     "tissue": {
-      "accel_mode": "gpu",
+      "accel_mode": "auto",
       "nearest_vessels": 250,
       "gpu_chunk_points": 8192
     },

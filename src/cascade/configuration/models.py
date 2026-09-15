@@ -113,7 +113,7 @@ class SimulationConfig:
     geometry_only: bool = False
     skip_tissue_oxygen: bool = False
     compute_avg_distance_to_channel: bool = False
-    tissue_accel: str | None = "gpu"
+    tissue_accel: str | None = "auto"
     tissue_gpu_validate_points: int | None = None
     viability_threshold: float | None = None
     occlusion: OcclusionConfig | None = None

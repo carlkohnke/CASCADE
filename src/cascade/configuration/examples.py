@@ -27,7 +27,7 @@ def example_config() -> dict[str, Any]:
             "concentration_solver": "network_ext",
             "distance_sample_count": 10000,
             "sample_mode": "random",
-            "tissue_accel": "gpu",
+            "tissue_accel": "auto",
             "geometry_only": False,
         },
         "settings": {
@@ -37,8 +37,8 @@ def example_config() -> dict[str, Any]:
                 "finite_radius_o2_terms": "both",
                 "lumen_wall_closure": "graetz",
             },
-            "cext": {"accel_mode": "gpu", "vess_coupling_accel": "anderson"},
-            "tissue": {"accel_mode": "gpu", "nearest_vessels": 250},
+            "cext": {"accel_mode": "auto", "vess_coupling_accel": "anderson"},
+            "tissue": {"accel_mode": "auto", "nearest_vessels": 250},
         },
         "outputs": {
             "out_dir": "cascade_run",

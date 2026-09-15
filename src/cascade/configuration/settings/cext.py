@@ -7,9 +7,9 @@ import numpy as np
 
 DEFAULTS = {
     # Device used for the main explicit extravascular concentration solve: "gpu", "cpu", or "auto".
-    "CEXT_ACCEL_MODE": "gpu",
+    "CEXT_ACCEL_MODE": "auto",
     # Device used for frozen-source Cext steps, which reuse fixed vessel source strengths.
-    "CEXT_FROZEN_ACCEL_MODE": "gpu",
+    "CEXT_FROZEN_ACCEL_MODE": "auto",
     # Initial guess for Cext before vessel/extravascular coupling iterations begin.
     "CEXT_INIT_MODE": "decoupled_greens",
     # Source of the screening length lambda used by Cext kernels, usually tissue lambda from local uptake.

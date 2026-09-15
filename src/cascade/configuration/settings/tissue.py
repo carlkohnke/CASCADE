@@ -58,7 +58,7 @@ DEFAULTS = {
     # Worker count used for KD-tree queries while building tissue caches.
     "TISSUE_KDTREE_WORKERS": max((os.cpu_count() or 1) - 2, 1),
     # Tissue oxygen backend selection: "gpu", "cpu", or "auto".
-    "TISSUE_ACCEL_MODE": "gpu",
+    "TISSUE_ACCEL_MODE": "auto",
     # Number of tissue points processed per GPU kernel launch.
     "TISSUE_GPU_CHUNK_POINTS": 8192,
     # Lower bound for GPU chunk size when automatic chunk sizing is used.

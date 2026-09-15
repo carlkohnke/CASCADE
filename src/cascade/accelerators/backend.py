@@ -70,9 +70,11 @@ def gpu_requested(config: Any) -> bool:
     solver = str(simulation.concentration_solver or "topdown").strip().lower()
     cext = settings.get("cext", {})
     tissue = settings.get("tissue", {})
-    cext_mode = str(cext.get("accel_mode", "gpu")).strip().lower()
+    cext_mode = str(cext.get("accel_mode", "auto")).strip().lower()
     tissue_mode = (
-        str(simulation.tissue_accel or tissue.get("accel_mode", "gpu")).strip().lower()
+        str(simulation.tissue_accel or tissue.get("accel_mode", "auto"))
+        .strip()
+        .lower()
     )
 
     if solver in {

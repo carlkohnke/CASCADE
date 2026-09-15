@@ -507,7 +507,7 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
         compute_avg_distance_to_channel=_as_bool(
             data.get("compute_avg_distance_to_channel"), False
         ),
-        tissue_accel=data.get("tissue_accel", "gpu"),
+        tissue_accel=data.get("tissue_accel", "auto"),
         tissue_gpu_validate_points=(
             None
             if data.get("tissue_gpu_validate_points") is None

@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, Windows documentation/tooling through `a8aea69cb013d296c6366fb7496809206d728e0d` |
+| CASCADE candidate | `0.1.0rc5`, Windows CI implementation through `373af104761c3ec9e48ee6f75abeb2baace889f2` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -38,7 +38,7 @@ feature, WSL, or unrelated Python installation was changed.
 | 8 — Linux regression | Pass | CPython 3.12 isolated environment: dependency integrity and static checks pass; 65 tests pass with 13 intentional Windows/GPU skips; installed-package CPU self-test passes and scientific outputs match Windows |
 | 9 — clean install | Pass | Fresh CPU and CUDA environments installed the exact wheel and declared dependencies as binary wheels; version, doctor, self-test, Studio launch/project/run/cancel/recovery, exports, and GPU acceleration pass without source, compiler, WSL, PATH, or DLL workarounds |
 | 10 — user tooling/docs | Pass | Native CPU/CUDA wheel installation, console-free and diagnostic launchers, CLI use, state paths, troubleshooting, uninstall, and support boundaries are documented and validated against the clean-install workflow |
-| 11 — CI | Pending | — |
+| 11 — CI | Implemented, not hosted | Ubuntu 22.04 and Windows Python 3.12 installed-wheel CPU lanes plus a self-hosted native Windows/NVIDIA release gate are defined and locally validated; no remote is configured, so no GitHub run is claimed |
 
 ## Windows dependency evidence
 
@@ -121,7 +121,9 @@ is large. Qualification intentionally honors that metadata; it does not use
 - Windows WDDM did not expose per-process VRAM counters for the qualification
   worker. Device-level VRAM was measured instead and remained flat across the
   repeated persistent-worker jobs.
-- Windows CI workflow execution is pending.
+- The CI workflows have not executed on GitHub because this repository has no
+  remote configured. The GPU workflow additionally requires a real self-hosted
+  Windows x64 runner labeled `cascade-gpu`; no such runner is fabricated here.
 
 ## Stage 2 installed-wheel isolation
 
@@ -384,3 +386,28 @@ native workflow and no longer describe WSL as the supported Windows runtime.
 Local Markdown links were checked, fatal/static checks passed, and a fresh
 sdist/wheel build succeeded. The sdist allowlist was updated and its archive
 was inspected to confirm that the new Windows guide is included.
+
+## Stage 11 CI support
+
+The primary workflow now runs a Python 3.12 matrix on Ubuntu 22.04 and
+`windows-latest`. Each lane builds the wheel and sdist, checks both artifacts,
+installs the wheel with its declared GUI and test extras, proves that CASCADE is
+imported from the active environment's `site-packages`, runs fatal/static
+checks and the complete test suite, and executes version, doctor, and
+installed-package self-test smoke checks. Build products are retained as CI
+artifacts. Runtime state, logs, caches, and self-test outputs are directed to
+the runner's temporary directory.
+
+The separate Windows GPU workflow is both manually dispatchable and reusable.
+It requires the labels `self-hosted`, `Windows`, `X64`, and `cascade-gpu`,
+installs the exact built wheel with `[dev,gui,gpu-cu13]` using binary artifacts,
+runs required-GPU diagnostics and self-test, enables the opt-in CUDA
+qualification suite, and uploads release-gate evidence even on failure. It does
+not imply that a GitHub-hosted GPU runner exists.
+
+Both workflow files passed local YAML syntax and structural checks. Their build,
+install, isolation, CPU test, CUDA diagnostic, CUDA kernel-family, and
+installed-package self-test operations were exercised in the preceding local
+Linux and native Windows stages. With no Git remote configured, neither
+workflow has been submitted to or executed by GitHub; Stage 11 is therefore
+recorded as implemented rather than as a hosted CI pass.

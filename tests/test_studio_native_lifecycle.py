@@ -11,7 +11,7 @@ import numpy as np
 import psutil
 import pytest
 import pyvista as pv
-from PySide6.QtCore import QProcess
+from PySide6.QtCore import QPoint, QProcess
 from PySide6.QtWidgets import QApplication, QWidget
 
 from cascade.gui import model as gui_model
@@ -305,6 +305,49 @@ def test_window_state_transitions_and_title_bar_controls(qapp: QApplication) -> 
         assert _wait_until(qapp, window.isMinimized, 5.0)
         window.showNormal()
         assert _wait_until(qapp, lambda: not window.isMinimized(), 5.0)
+    finally:
+        window._prepare_timer.stop()
+        window.runner.shutdown()
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+
+def test_window_fits_available_desktop_and_keeps_compact_pages_reachable(
+    qapp: QApplication,
+) -> None:
+    window = MainWindow()
+    try:
+        available = qapp.primaryScreen().availableGeometry()
+        assert window.minimumWidth() <= available.width()
+        assert window.minimumHeight() <= available.height()
+        assert window.width() <= available.width()
+        assert window.height() <= available.height()
+
+        window.show()
+        assert _wait_until(qapp, window.isVisible, 5.0)
+        window.resize(window.minimumSize())
+        qapp.processEvents()
+        assert window.size() == window.minimumSize()
+
+        for widget in (window.sidebar, window.workspace_stack, window.back_btn):
+            top_left = widget.mapTo(window, QPoint(0, 0))
+            bottom_right = widget.mapTo(
+                window,
+                QPoint(max(0, widget.width() - 1), max(0, widget.height() - 1)),
+            )
+            assert top_left.x() >= 0
+            assert top_left.y() >= 0
+            assert bottom_right.x() < window.width()
+            assert bottom_right.y() < window.height()
+
+        for index, page in enumerate(window.pages):
+            window.nav.setCurrentRow(index)
+            qapp.processEvents()
+            assert page.viewport().width() > 0
+            assert page.viewport().height() > 0
+        assert window.pages[4].horizontalScrollBar().maximum() > 0
+        assert window.pages[4].verticalScrollBar().maximum() > 0
     finally:
         window._prepare_timer.stop()
         window.runner.shutdown()

@@ -205,8 +205,23 @@ class MainWindow(QMainWindow):
         self.setWindowFlag(Qt.FramelessWindowHint, True)
         self._initializing = True
         self.setWindowTitle("CASCADE O2 Simulation Studio")
-        self.resize(1580, 940)
-        self.setMinimumSize(1180, 720)
+        screen = QGuiApplication.primaryScreen()
+        available = (
+            screen.availableGeometry().size()
+            if screen is not None
+            else QSize(1580, 940)
+        )
+        # Logical screen dimensions contract as Windows display scaling rises.
+        # Keep the shell on-screen at 200% and on compact displays while the
+        # page scroll areas preserve access to controls that need more room.
+        self.setMinimumSize(
+            min(760, available.width()),
+            min(480, available.height()),
+        )
+        self.resize(
+            min(1580, available.width()),
+            min(940, available.height()),
+        )
         self.config = default_project()
         self.project_path: Path | None = None
         self.project_dir = _default_project_directory()
@@ -293,8 +308,10 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         sidebar = QFrame()
+        self.sidebar = sidebar
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(216)
+        sidebar.setMinimumWidth(172)
+        sidebar.setMaximumWidth(216)
         side = QVBoxLayout(sidebar)
         side.setContentsMargins(14, 20, 14, 14)
         brand = QLabel("CASCADE")
@@ -376,7 +393,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.preview)
         inspector = QFrame()
         inspector.setObjectName("inspector")
-        inspector.setMinimumWidth(470)
+        inspector.setMinimumWidth(300)
         inspector.setMaximumWidth(1000)
         inspector_layout = QVBoxLayout(inspector)
         inspector_layout.setContentsMargins(0, 0, 0, 0)

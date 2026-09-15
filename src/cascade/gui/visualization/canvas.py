@@ -145,7 +145,7 @@ class GeometryCanvas(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setMinimumSize(300, 320)
+        self.setMinimumSize(180, 180)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMouseTracking(True)
         self.domain_lines = np.empty((0, 2, 3), dtype=np.float32)

@@ -125,7 +125,7 @@ class OpenGLGeometryCanvas(QOpenGLWidget):
         surface.setSamples(4)
         super().__init__(parent)
         self.setFormat(surface)
-        self.setMinimumSize(300, 320)
+        self.setMinimumSize(180, 180)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMouseTracking(True)
         self.domain_lines = np.empty((0, 2, 3), dtype=np.float32)

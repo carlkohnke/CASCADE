@@ -62,7 +62,7 @@ class CasePreview(QFrame):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("previewPanel")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(240)
         self._result_cache: dict[str, Any] = {}
         self._visible_result_indices = np.empty((0,), dtype=int)
         self._visible_tissue_indices = np.empty((0,), dtype=int)

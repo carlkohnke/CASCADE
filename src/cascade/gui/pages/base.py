@@ -23,7 +23,10 @@ class Page(QScrollArea):
         super().__init__(parent)
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # At high Windows display scaling the inspector is intentionally
+        # allowed to contract.  Keep unusually wide controls reachable rather
+        # than clipping them when the available logical desktop is narrow.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.body = QWidget()
         self.body.setObjectName("page")
         self.column = QVBoxLayout(self.body)

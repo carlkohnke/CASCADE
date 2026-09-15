@@ -257,6 +257,10 @@ def simple_details(
         "pressure_out_terminals": float(
             getattr(network.parameters, "terminal_pressure", np.nan)
         ),
+        "pressure_drop": float(
+            getattr(network.parameters, "root_pressure", np.nan)
+            - getattr(network.parameters, "terminal_pressure", np.nan)
+        ),
         "avg_radius": float(np.nanmean(network.radii))
         if network.radii.size
         else np.nan,

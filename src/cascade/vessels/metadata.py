@@ -281,15 +281,7 @@ def _read_member_header(archive: zipfile.ZipFile, member: str) -> ArrayHeader:
 
 
 def _read_header(handle) -> ArrayHeader:
-    version = np.lib.format.read_magic(handle)
-    if version == (1, 0):
-        shape, fortran_order, dtype = np.lib.format.read_array_header_1_0(handle)
-    elif version == (2, 0):
-        shape, fortran_order, dtype = np.lib.format.read_array_header_2_0(handle)
-    elif version == (3, 0):
-        shape, fortran_order, dtype = _read_v3_header(handle)
-    else:
-        raise ValueError(f"Unsupported NPY format version: {version!r}")
+    shape, fortran_order, dtype = read_npy_header_stream(handle)
     normalized_dtype = np.dtype(dtype)
     return ArrayHeader(
         shape=tuple(int(value) for value in shape),
@@ -300,6 +292,20 @@ def _read_header(handle) -> ArrayHeader:
         ),
         fortran_order=bool(fortran_order),
     )
+
+
+def read_npy_header_stream(handle) -> tuple[tuple[int, ...], bool, np.dtype]:
+    """Read an NPY header and leave the stream at the array payload."""
+    version = np.lib.format.read_magic(handle)
+    if version == (1, 0):
+        shape, fortran_order, dtype = np.lib.format.read_array_header_1_0(handle)
+    elif version == (2, 0):
+        shape, fortran_order, dtype = np.lib.format.read_array_header_2_0(handle)
+    elif version == (3, 0):
+        shape, fortran_order, dtype = _read_v3_header(handle)
+    else:
+        raise ValueError(f"Unsupported NPY format version: {version!r}")
+    return tuple(int(value) for value in shape), bool(fortran_order), np.dtype(dtype)
 
 
 def _read_v3_header(handle) -> tuple[tuple[int, ...], bool, np.dtype]:
@@ -400,6 +406,7 @@ __all__ = [
     "inspect_array",
     "inspect_network",
     "read_npy_header",
+    "read_npy_header_stream",
     "sidecar_path",
     "write_network_sidecar",
 ]

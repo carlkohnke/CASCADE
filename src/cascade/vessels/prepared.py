@@ -15,7 +15,11 @@ from typing import Any
 import numpy as np
 
 from cascade.runtime.paths import cache_directory
-from cascade.vessels.metadata import inspect_network, read_npy_header
+from cascade.vessels.metadata import (
+    inspect_network,
+    read_npy_header,
+    read_npy_header_stream,
+)
 
 _FORMAT = "cascade_prepared_tree"
 _VERSION = 1
@@ -241,10 +245,7 @@ def _stream_tree_arrays(
         if "data.npy" not in archive.namelist():
             raise ValueError("Tree archive does not contain data.npy.")
         with archive.open("data.npy", "r") as handle:
-            version = np.lib.format.read_magic(handle)
-            shape, fortran_order, source_dtype = np.lib.format._read_array_header(
-                handle, version
-            )
+            shape, fortran_order, source_dtype = read_npy_header_stream(handle)
             source_dtype = np.dtype(source_dtype)
             if source_dtype.hasobject or source_dtype.kind != "f":
                 raise ValueError("Tree vessel data must use a floating dtype.")

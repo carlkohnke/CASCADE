@@ -15,6 +15,8 @@ import zipfile
 
 import numpy
 
+from cascade.vessels.metadata import read_npy_header_stream
+
 class _ProgressReader:
     def __init__(self, raw, total, desc):
         self._raw = raw
@@ -185,8 +187,9 @@ class ForestCompatibilityMixin:
                 """
                 with archive.open(member, "r") as raw_handle:
                     handle = _SharedProgressReader(raw_handle, load_progress)
-                    version = np.lib.format.read_magic(handle)
-                    shape, fortran_order, source_dtype = np.lib.format._read_array_header(handle, version)
+                    shape, fortran_order, source_dtype = read_npy_header_stream(
+                        handle
+                    )
                     source_dtype = np.dtype(source_dtype)
                     if source_dtype.hasobject:
                         raise ValueError(f"Simulation cache member {member!r} contains object data.")
@@ -461,11 +464,7 @@ class ForestCompatibilityMixin:
 
     @staticmethod
     def _npy_header_from_stream(handle):
-        import numpy as np
-
-        version = np.lib.format.read_magic(handle)
-        shape, fortran_order, dtype = np.lib.format._read_array_header(handle, version)
-        return shape, fortran_order, dtype
+        return read_npy_header_stream(handle)
 
     @staticmethod
     def _candidate_data_block(buffer, offset, total_trees):

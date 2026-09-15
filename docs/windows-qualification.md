@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, filesystem qualification through `363e7f7aa0f95b9349cec09830d2ee0654a1db79` |
+| CASCADE candidate | `0.1.0rc5`, Studio qualification through `6fa6a42b78af915cdd925e4562897691906cb4a1` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -33,7 +33,7 @@ feature, WSL, or unrelated Python installation was changed.
 | 3 — compatibility fixes | Pass | Exact wheel installed on native NTFS; 18/18 focused filesystem, CUDA-bootstrap, host-memory, process-tree, atomic-state, and Studio lifecycle tests pass |
 | 4 — native CPU qualification | Pass | Exact installed wheel: fatal/static check passes and 62/62 tests pass; all documented CLI commands and the CPU self-test complete from native NTFS |
 | 5 — filesystem torture | Pass | Exact installed wheel: 66/66 tests pass from an NTFS-only test snapshot; deep space/Unicode paths, stale caches, mmap release, repeat writes, lock contention/recovery, and a read-only installed package pass |
-| 6 — Studio qualification | Pending | — |
+| 6 — Studio qualification | Partial | Exact installed wheel: 76/76 native tests pass; persistent worker reuse, cancellation/recovery, preview recovery, launch subsystems, native OpenGL/software rendering, and 125% scaling pass; remaining physical UI checks are recorded below |
 | 7 — native CUDA qualification | Pending | Artifact resolution only; no CUDA execution claimed |
 | 8 — Linux regression | Pending | — |
 | 9 — clean install | Pending | — |
@@ -93,14 +93,26 @@ is large. Qualification intentionally honors that metadata; it does not use
 - The Windows simulation lock now reserves a byte solely for locking, keeps
   holder metadata readable during contention, and tolerates the brief release
   delay observed after forced process termination.
-- Queue recovery, complete GUI lifecycle, and CUDA kernel families still
-  require their later qualification stages.
+- A deferred queue callback could clear a newly active Studio job; queue
+  scheduling is now guarded against stale callbacks and cancellation is
+  followed by a successful job in the native lifecycle suite.
+- New-project display and timestamp formatting contained Windows-specific
+  failures: the UI attempted to stat an unsaved project and used POSIX-only
+  `strftime` directives. Both paths are now platform-neutral.
+- Studio's native OpenGL selector imported the renderer from a nonexistent
+  subpackage and silently fell back to software. The corrected import is
+  covered by a regression test and the native Windows renderer now initializes.
+- Complete CUDA kernel-family execution still requires Stage 7 qualification.
 
 ## Known limitations and unperformed checks
 
-- Native interactive Studio behavior has not yet been qualified; only
-  installed-wheel imports, page construction, and offscreen startup/shutdown
-  have passed.
+- Native automated and programmatic Studio checks pass, including real Windows
+  OpenGL and software rendering, but the available computer-control surface did
+  not expose native applications. Open/Save/folder dialogs, title-bar dragging,
+  Windows Snap, visible Explorer/result-viewer behavior, and the visible
+  second-instance notice were therefore not manually verified.
+- The host exposed one display at 125% scaling. Native 100%, 150%, and 200%
+  scaling and multiple-monitor movement remain unperformed physical checks.
 - CUDA has not yet been imported or exercised in the candidate environment.
 - No clean-install acceptance run has yet been performed.
 - Windows CI workflow execution and final Linux regression are pending.
@@ -201,3 +213,37 @@ NTFS project directory. The package contained 244 files, and its aggregate
 content digest was unchanged before and after the run. The self-test completed
 in 39.594 seconds with all outputs, logs, temporary files, bytecode, and CASCADE
 state redirected beneath the Windows sandbox.
+
+## Stage 6 native Studio qualification
+
+The exact wheel built from commit `6fa6a42b78af915cdd925e4562897691906cb4a1`
+has SHA-256
+`1542ed556743d0b83bfe71601d5f860ca5e88ae6760b546d94bc6f70597c74f9`.
+It was force-installed into the native CPU environment and imported from that
+environment's `site-packages` in a fresh NTFS test snapshot. After correcting a
+qualification-harness omission of the standalone `setup_env.py` fixture, the
+complete installed-wheel suite passed 76 tests in 110.70 seconds. The initial
+74-pass/2-fail result and successful rerun are both retained in sandbox logs;
+the two failures were missing-fixture errors, not CASCADE runtime failures.
+
+Automated native Windows coverage now constructs every primary Studio page;
+creates, saves, and reopens a project; restores interrupted queue state; loads
+exported result arrays; starts, reuses, stops, and restarts the persistent
+`QProcess` worker; cancels a running job and completes the following job; and
+cancels and recovers the preview worker. Native Qt dialog selection is tested
+without invoking WSL, and PE headers verify that `cascade-gui.exe` is a GUI
+subsystem launcher while `cascade-gui-console.exe` retains a diagnostic console.
+
+Separate real Windows-platform probes—not Qt's offscreen plugin—initialized
+both the software renderer and the OpenGL instanced renderer. OpenGL preflight
+reported 3.3 support, the widget became valid, and the active renderer was
+Intel UHD Graphics. The normal auto-selected GUI path used OpenGL, ran at the
+host's native 125% scale factor, exercised minimize/maximize/restore and resize
+state transitions, started and stopped its worker, closed cleanly, and reported
+no attached console window. An actual normal GUI launcher process was also
+started and its exact sandbox process tree was terminated for cleanup; no
+sandbox-environment child process remained.
+
+Physical interaction checks that could not be automated are explicitly left
+open in the limitations above. Stage 6 is therefore recorded as partial rather
+than silently treating those manual checks as passed.

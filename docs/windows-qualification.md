@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, compatibility changes through `eeda05e0abbed451a41ac7309d89f9a116404b94` |
+| CASCADE candidate | `0.1.0rc5`, CPU qualification through `7cc16555b0afb1939f77b64c3797f6b1d9b5f0cb` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -31,7 +31,7 @@ feature, WSL, or unrelated Python installation was changed.
 | 1 — packaging/dependencies | Pass | Python 3.12 Windows CPU/GUI/dev graph: 163 wheels, 0 sdists; corrected CUDA 13 toolkit graph: 174 wheels, 0 sdists; wheel/sdist build, metadata, resource, entry-point, and Twine checks pass |
 | 2 — isolated installs | Pass | Separate CPU and CUDA Python 3.12 virtual environments installed the wheel from native NTFS with binary-only constraints; both pass `pip check` and import CASCADE from their own `site-packages` |
 | 3 — compatibility fixes | Pass | Exact wheel installed on native NTFS; 18/18 focused filesystem, CUDA-bootstrap, host-memory, process-tree, atomic-state, and Studio lifecycle tests pass |
-| 4 — native CPU qualification | Pending | — |
+| 4 — native CPU qualification | Pass | Exact installed wheel: fatal/static check passes and 62/62 tests pass; all documented CLI commands and the CPU self-test complete from native NTFS |
 | 5 — filesystem torture | Pending | — |
 | 6 — Studio qualification | Pending | — |
 | 7 — native CUDA qualification | Pending | Artifact resolution only; no CUDA execution claimed |
@@ -93,9 +93,9 @@ is large. Qualification intentionally honors that metadata; it does not use
 
 ## Known limitations and unperformed checks
 
-- CPU scientific workflows have not yet been executed from the installed
-  wheel.
-- Studio has not yet been launched from the installed wheel.
+- Native interactive Studio behavior has not yet been qualified; only
+  installed-wheel imports, page construction, and offscreen startup/shutdown
+  have passed.
 - CUDA has not yet been imported or exercised in the candidate environment.
 - No clean-install acceptance run has yet been performed.
 - Windows CI workflow execution and final Linux regression are pending.
@@ -135,3 +135,35 @@ concurrent replacement, Studio instance locking, and persistent Studio error
 logging. The same wheel was installed into the CUDA environment, where all
 declared requirements pass `pip check`; wheel-provided CUDA headers and the
 NVRTC DLL were found without importing CuPy or creating a CUDA context.
+
+## Stage 4 native CPU qualification
+
+The exact wheel built from commit `7cc16555b0afb1939f77b64c3797f6b1d9b5f0cb`
+has SHA-256
+`7d122d06d1f25c0ae621265dad1a71339b46ee12b8f5abefc81d5591bc95dafa`.
+It was installed into the native CPU environment and executed from a separate
+NTFS working directory. The repository's fatal/static Ruff selection passed,
+and the complete installed-wheel suite passed 62 tests in 80.07 seconds.
+
+The command-level qualification covered version and help output,
+`init-settings`, both `doctor` modes, `self-test`, `inspect`, `prepare`, `run`,
+`batch`, and `sweep`. Scientific cases covered cube, sphere, and uploaded STL
+domains; TetGen volume construction; custom CSV and NPZ networks; generated,
+saved, and loaded vascular trees; generated, saved, and loaded legacy forests
+and simulation caches; and a prepared memory-mapped tree. Both flow-driven and
+pressure-pressure boundary modes completed, as did custom constant-density and
+viscosity fluid settings. CSV, VTP, and VTU outputs were reopened with PyVista;
+required geometry and pressure, flow, oxygen, and viability arrays were
+verified.
+
+The installed-wheel CPU self-test completed in 13.63 seconds and retained its
+manifest, command log, saved tree, CSV tables, and VTK-family artifacts in the
+Windows sandbox. Native offscreen Qt constructed the Studio window and all
+primary pages, then shut down cleanly with exit code zero. Interactive GUI
+qualification remains Stage 6.
+
+Stage 4 found and fixed three non-platform-specific release blockers: generated
+projects forced GPU despite the documented CPU-safe contract; network archive
+inspection and preparation used a NumPy private header function removed in
+NumPy 2.5; and simple-network pressure runs omitted the aggregate pressure-drop
+field. Regression tests cover each fix.

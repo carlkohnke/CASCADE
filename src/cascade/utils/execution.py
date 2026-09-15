@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from functools import wraps
 import gc
 import getpass
 import json
 import os
-from pathlib import Path
 import re
-import tempfile
 import sys
-from typing import Any, Callable, Iterator, TypeVar
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from functools import wraps
+from pathlib import Path
+from typing import Any, TypeVar
+
+from cascade.runtime.paths import state_directory
 
 
 class SimulationAlreadyRunningError(RuntimeError):
@@ -32,7 +34,7 @@ def simulation_lock_path() -> Path:
         identity = f"uid-{os.getuid()}"
     except AttributeError:  # pragma: no cover - Windows only
         identity = re.sub(r"[^A-Za-z0-9_.-]+", "-", getpass.getuser()) or "user"
-    return Path(tempfile.gettempdir()) / f"cascade-simulation-{identity}.lock"
+    return state_directory("locks", f"simulation-{identity}.lock")
 
 
 @contextmanager

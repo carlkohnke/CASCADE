@@ -6,6 +6,7 @@ import importlib.metadata
 import os
 from pathlib import Path
 
+from cascade.runtime.paths import cache_directory
 from cascade.utils.hashing import file_sha256
 
 
@@ -14,9 +15,7 @@ def default_domain_cache_dir() -> Path:
     override = os.environ.get("CASCADE_DOMAIN_CACHE_DIR")
     if override:
         return Path(override).expanduser().resolve()
-    xdg = os.environ.get("XDG_CACHE_HOME")
-    root = Path(xdg).expanduser() if xdg else Path.home() / ".cache"
-    return (root / "cascade" / "domains").resolve()
+    return cache_directory("domains")
 
 
 def domain_cache_path(source: str | Path, cache_dir: str | Path | None = None) -> Path:

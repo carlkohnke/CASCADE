@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import os
 from pathlib import Path
 from typing import Any
 
@@ -11,16 +10,17 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QComboBox,
-    QDoubleSpinBox,
     QDialog,
+    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
-    QMessageBox as QtMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
 )
+from PySide6.QtWidgets import QMessageBox as QtMessageBox
 
+from cascade.runtime.paths import project_directory
 
 from .theme import Tokens, stylesheet
 from .widgets import (
@@ -30,10 +30,7 @@ from .widgets import (
 
 
 def _default_project_directory() -> Path:
-    configured = os.environ.get("CASCADE_PROJECT_DIR")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return (Path.home() / "CASCADE Projects" / "Untitled").resolve()
+    return project_directory()
 
 
 class QMessageBox:

@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from cascade.runtime.paths import log_directory
+
 
 def output_directory() -> Path:
     """Return the root directory used for relative generated-output paths."""
@@ -30,12 +32,7 @@ def resolve_output_path(value: str | Path) -> Path:
 
 def diagnostic_log_path(filename: str) -> Path:
     """Return a writable location for a diagnostic log and create its directory."""
-    configured = os.environ.get("CASCADE_LOG_DIR")
-    directory = (
-        Path(configured).expanduser().resolve()
-        if configured
-        else output_directory() / "logs"
-    )
+    directory = log_directory()
     directory.mkdir(parents=True, exist_ok=True)
     return directory / filename
 

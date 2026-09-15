@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 
+from cascade.runtime.paths import cache_directory
 from cascade.vessels.metadata import inspect_network, read_npy_header
 
 _FORMAT = "cascade_prepared_tree"
@@ -188,7 +189,7 @@ def default_prepared_cache_root() -> Path:
     override = os.environ.get("CASCADE_PREPARED_CACHE_DIR")
     if override:
         return Path(override).expanduser().resolve()
-    return (Path.home() / ".cache" / "cascade" / "prepared-trees").resolve()
+    return cache_directory("prepared-trees")
 
 
 def _entry_root(

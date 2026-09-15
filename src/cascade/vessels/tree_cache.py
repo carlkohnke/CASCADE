@@ -9,15 +9,16 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import time
+from collections.abc import Iterable, Sequence
 from numbers import Number
 from pathlib import Path
-import time
-from typing import Iterable, Sequence
 
 import numpy as np
 
 from cascade.configuration import solver_state as _state
 from cascade.diagnostics.runtime import _require_tree_class
+from cascade.runtime.paths import cache_directory
 from cascade.vessels.generation.tree_ops import _apply_equal_bifurcation, set_tree_fluid
 
 
@@ -25,7 +26,7 @@ def _tree_cache_dir() -> Path:
     root = Path(_state.TREE_CACHE_DIRNAME)
     if root.is_absolute():
         return root
-    return Path(__file__).resolve().parent / root
+    return cache_directory(root.as_posix())
 
 
 def _tree_cache_index_path() -> Path:

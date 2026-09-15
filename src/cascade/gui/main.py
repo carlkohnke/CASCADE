@@ -8,7 +8,8 @@ platform launchers under ``GUI Launchers/`` resolve the same entry point.
 from __future__ import annotations
 
 import sys
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox as QtMessageBox
+from cascade.gui.instance import acquire_studio_lock
 from cascade.gui.ui_helpers import (
     APP_STYLE,
     QMessageBox,
@@ -79,10 +80,20 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationName("CASCADE")
     app.setStyle("Fusion")
     app.setStyleSheet(APP_STYLE)
+    instance_lock = acquire_studio_lock()
+    if instance_lock is None:
+        QtMessageBox.information(
+            None,
+            "CASCADE Studio is already running",
+            "Another CASCADE Studio instance is already active for this user.",
+        )
+        return 2
     window = MainWindow()
     apply_wsl_windows_pointer(window)
     window.show()
-    return app.exec()
+    exit_code = app.exec()
+    instance_lock.unlock()
+    return exit_code
 
 
 if __name__ == "__main__":

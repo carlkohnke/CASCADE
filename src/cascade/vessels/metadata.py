@@ -9,9 +9,11 @@ legacy forest containers become exactly countable on their next save.
 
 from __future__ import annotations
 
-import json
+import ast
 import csv
+import json
 import re
+import struct
 import zipfile
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
@@ -280,12 +282,60 @@ def _read_member_header(archive: zipfile.ZipFile, member: str) -> ArrayHeader:
 
 def _read_header(handle) -> ArrayHeader:
     version = np.lib.format.read_magic(handle)
-    shape, fortran_order, dtype = np.lib.format._read_array_header(handle, version)
+    if version == (1, 0):
+        shape, fortran_order, dtype = np.lib.format.read_array_header_1_0(handle)
+    elif version == (2, 0):
+        shape, fortran_order, dtype = np.lib.format.read_array_header_2_0(handle)
+    elif version == (3, 0):
+        shape, fortran_order, dtype = _read_v3_header(handle)
+    else:
+        raise ValueError(f"Unsupported NPY format version: {version!r}")
+    normalized_dtype = np.dtype(dtype)
     return ArrayHeader(
         shape=tuple(int(value) for value in shape),
-        dtype=str(np.dtype(dtype)),
+        dtype=str(
+            normalized_dtype.str
+            if normalized_dtype.fields is not None
+            else normalized_dtype.name
+        ),
         fortran_order=bool(fortran_order),
     )
+
+
+def _read_v3_header(handle) -> tuple[tuple[int, ...], bool, np.dtype]:
+    """Read an NPY 3.0 header without relying on NumPy's private API."""
+    length_bytes = handle.read(4)
+    if len(length_bytes) != 4:
+        raise EOFError("truncated NPY 3.0 header length")
+    header_length = struct.unpack("<I", length_bytes)[0]
+    if header_length > 10_000:
+        raise ValueError(f"NPY header is too large to inspect safely: {header_length}")
+    header_bytes = handle.read(header_length)
+    if len(header_bytes) != header_length:
+        raise EOFError("truncated NPY 3.0 header")
+    try:
+        payload = ast.literal_eval(header_bytes.decode("utf-8"))
+    except (SyntaxError, UnicodeDecodeError) as exc:
+        raise ValueError("invalid NPY 3.0 header") from exc
+    if not isinstance(payload, dict) or set(payload) != {
+        "descr",
+        "fortran_order",
+        "shape",
+    }:
+        raise ValueError("invalid NPY 3.0 header fields")
+    shape = payload["shape"]
+    fortran_order = payload["fortran_order"]
+    if not isinstance(shape, tuple) or not all(
+        isinstance(value, int) for value in shape
+    ):
+        raise ValueError("invalid NPY 3.0 array shape")
+    if not isinstance(fortran_order, bool):
+        raise ValueError("invalid NPY 3.0 Fortran-order flag")
+    try:
+        dtype = np.lib.format.descr_to_dtype(payload["descr"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid NPY 3.0 dtype descriptor") from exc
+    return shape, fortran_order, dtype
 
 
 def _read_fresh_sidecar(

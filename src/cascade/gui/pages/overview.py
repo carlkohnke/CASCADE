@@ -12,10 +12,6 @@ from PySide6.QtWidgets import (
 )
 from cascade.gui.model import human_bytes
 from cascade.gui.theme import Tokens
-from cascade.gui.widgets import (
-    Card,
-    labeled,
-)
 from cascade.gui.widgets import Card as LegacyCard
 
 from cascade.gui.pages.base import (

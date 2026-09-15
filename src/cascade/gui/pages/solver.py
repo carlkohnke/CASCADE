@@ -18,9 +18,6 @@ from PySide6.QtWidgets import (
 from cascade.configuration.settings import SETTINGS_SECTIONS
 from cascade.gui.widgets import (
     Banner,
-    Card,
-    labeled,
-    row_of,
 )
 from cascade.gui.ui_helpers import (
     _combo,

@@ -1,0 +1,8 @@
+# Windows x86-64/Python 3.12 CUDA 13 constraints.
+# Pass this file to pip with `-c`; it is not a requirements file.
+-c py312-win-amd64-common.txt
+cuda-pathfinder==1.8.1
+cupy-cuda13x==14.2.0
+nvidia-cuda-runtime==13.2.86
+nvidia-cufft==12.3.0.29
+nvidia-nvjitlink==13.2.86

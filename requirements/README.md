@@ -21,10 +21,13 @@ python -m pip install -r requirements/dev.txt
 
 ## Reproducible locks
 
-`locks/` contains the fully pinned Python 3.9 environments used for reproducible
-CPU and CUDA installations. Pass these files with pip's `-c` option; they are
-constraints, not standalone installation lists.
+`locks/` contains fully pinned platform-specific environments used for
+reproducible CPU and CUDA installations. Pass these files with pip's `-c`
+option; they are constraints, not standalone installation lists. The
+`py312-win-amd64-*` files are the binary-only native Windows qualification
+candidates. The retained `py39-*` files describe the earlier Linux release
+environment and are not compatible with the current Python requirement.
 
-```bash
-python -m pip install -c requirements/locks/py39-cpu.txt '.[dev,gui]'
+```text
+python -m pip install -c requirements/locks/py312-win-amd64-cpu.txt ".[dev,gui]"
 ```

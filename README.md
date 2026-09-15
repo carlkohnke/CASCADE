@@ -23,7 +23,7 @@ This repository targets the public `svv==0.0.48` API. CASCADE-owned compatibilit
 
 ## Status
 
-The current version is `0.1.0rc4`. This is a release candidate: configuration
+The current version is `0.1.0rc5`. This is a release candidate: configuration
 and output formats may still change before the first stable release. See
 [known issues](docs/known-issues.md) for current platform and scientific
 limitations.
@@ -36,8 +36,9 @@ the package map and compatibility boundaries.
 
 ## Requirements
 
-- Linux or WSL2 on x86-64.
-- Python 3.9 (Python 3.9.20 is the tested release environment).
+- Windows 10/11 or Linux on x86-64. Native Windows qualification status is
+  tracked in [docs/windows-qualification.md](docs/windows-qualification.md).
+- Python 3.12.
 - For GPU execution, an NVIDIA driver compatible with the selected CUDA package.
 - ParaView is optional and is used only to inspect exported VTK files.
 
@@ -48,8 +49,7 @@ Create a CPU environment with Studio from the repository root:
 ```bash
 python setup_env.py \
   --venv .venv \
-  --gui \
-  --constraints requirements/locks/py39-cpu.txt
+  --gui
 source .venv/bin/activate
 cascade doctor --no-gpu-probe
 ```
@@ -61,7 +61,6 @@ python setup_env.py \
   --venv .venv \
   --gui \
   --gpu cu13 \
-  --constraints requirements/locks/py39-cu13.txt \
   --cuda-path /path/to/targets/x86_64-linux
 
 source .venv/bin/activate

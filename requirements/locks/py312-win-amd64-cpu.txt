@@ -1,0 +1,3 @@
+# Windows x86-64/Python 3.12 CPU constraints.
+# Pass this file to pip with `-c`; it is not a requirements file.
+-c py312-win-amd64-common.txt

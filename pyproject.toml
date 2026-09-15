@@ -4,29 +4,41 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cascade-vascular"
-version = "0.1.0rc4"
+version = "0.1.0rc5"
 description = "CASCADE vascular growth, simulation, and tissue oxygen workflows."
 readme = "README.md"
 license-files = ["LICENSE"]
-requires-python = ">=3.9,<3.10"
+requires-python = ">=3.12,<3.13"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Science/Research",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "svv==0.0.48",
     "numpy>=1.26,<3",
-    "scipy>=1.11",
-    "pyvista>=0.43",
-    "pymeshfix>=0.17",
+    "scipy>=1.12",
+    "pyvista>=0.44.2",
+    "pymeshfix==0.17.0",
     "vtk>=9.2",
     "numba>=0.59",
     "numexpr>=2.8",
     "tqdm>=4.66",
-    "matplotlib>=3.7",
+    "matplotlib>=3.8",
     "scikit-learn>=1.3",
     "scikit-image>=0.22",
     "meshio>=5.3",
-    "tetgen>=0.6",
+    "tetgen>=0.8",
     "trimesh>=4.0",
     "open3d>=0.18",
     "usearch>=2.10",
+    "platformdirs>=4.2",
 ]
 
 [project.optional-dependencies]
@@ -43,9 +55,13 @@ dev = ["pytest>=8", "ruff>=0.16"]
 
 [project.scripts]
 cascade = "cascade.commands.main:main"
+cascade-doctor = "cascade.diagnostics.environment:main"
+cascade-gui-console = "cascade.gui.main:main"
+cascade-viewer-console = "cascade.gui.viewer:main"
+
+[project.gui-scripts]
 cascade-gui = "cascade.gui.main:main"
 cascade-viewer = "cascade.gui.viewer:main"
-cascade-doctor = "cascade.diagnostics.environment:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

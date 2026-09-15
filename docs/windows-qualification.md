@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, Windows CUDA qualification through `855989981a8be684e0ff5cae5455fa0538465a14`; Linux regression through `331be35f55030ab3870f26b03aa1c149254749cb` |
+| CASCADE candidate | `0.1.0rc5`, clean-install qualification through `623901534a1fbb6ca51d21462276d594f22ac9db` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -36,7 +36,7 @@ feature, WSL, or unrelated Python installation was changed.
 | 6 — Studio qualification | Partial | Exact installed wheel: 76/76 native tests pass; persistent worker reuse, cancellation/recovery, preview recovery, launch subsystems, native OpenGL/software rendering, and 125% scaling pass; remaining physical UI checks are recorded below |
 | 7 — native CUDA qualification | Pass | Exact installed wheel: `doctor --require-gpu`, `self-test --require-gpu`, and 78/78 tests pass; all CUDA kernel families, CPU/GPU comparisons, repeated persistent-worker jobs, cancellation/recovery, and memory stability are covered |
 | 8 — Linux regression | Pass | CPython 3.12 isolated environment: dependency integrity and static checks pass; 65 tests pass with 13 intentional Windows/GPU skips; installed-package CPU self-test passes and scientific outputs match Windows |
-| 9 — clean install | Pending | — |
+| 9 — clean install | Pass | Fresh CPU and CUDA environments installed the exact wheel and declared dependencies as binary wheels; version, doctor, self-test, Studio launch/project/run/cancel/recovery, exports, and GPU acceleration pass without source, compiler, WSL, PATH, or DLL workarounds |
 | 10 — user tooling/docs | Pending | — |
 | 11 — CI | Pending | — |
 
@@ -119,7 +119,6 @@ is large. Qualification intentionally honors that metadata; it does not use
 - Windows WDDM did not expose per-process VRAM counters for the qualification
   worker. Device-level VRAM was measured instead and remained flat across the
   repeated persistent-worker jobs.
-- No clean-install acceptance run has yet been performed.
 - Windows CI workflow execution is pending.
 
 ## Stage 2 installed-wheel isolation
@@ -319,3 +318,43 @@ scientific fields in `summary.csv` also matched; only expected elapsed/timing
 measurements differed. These results provide direct regression evidence that
 the Windows filesystem, process, GUI, packaging, and CUDA changes did not alter
 the existing Linux scientific path.
+
+## Stage 9 clean-install qualification
+
+The exact wheel built from commit `623901534a1fbb6ca51d21462276d594f22ac9db`
+has SHA-256
+`1c5152f221548caaa26fdbcee9f9ec63acbc7234206b484d07eed2b1ae6d5345`.
+The corresponding sdist has SHA-256
+`dc2edfab425ca1afbf97e1ff039c2d0f6f86603dbb984e537f0a1232bd2dcdb6`.
+Both were built from a fresh Git archive copied to native NTFS rather than from
+the WSL checkout.
+
+A fresh CPU environment installed the exact wheel with the GUI extra using
+only binary Windows wheels. It contained no editable install or source-tree
+path, passed `pip check`, imported CASCADE from `site-packages`, reported the
+expected version, passed both doctor modes, and completed the installed-package
+CPU self-test in 9.81 seconds. The normal GUI-subsystem launcher stayed running
+without a startup error or stderr output and left no process behind when closed.
+
+In that environment, Studio created and saved a project whose path and name
+contained Unicode, reopened its materialized portable project configuration,
+and completed a scientific CPU run through its persistent worker. The run
+produced CSV, VTP, and VTU outputs; PyVista reopened the exports and verified
+the pressure, flow, concentration, tissue concentration, and viability arrays.
+A subsequent job was cancelled, its worker exited, a recovery job completed,
+and final shutdown left no worker process behind.
+
+A separate fresh CUDA environment installed the same exact wheel with
+`[gui,gpu-cu13]` from normal package indexes using `--only-binary=:all:`. Pip
+resolved CuPy and the complete wheel-provided CUDA 13 toolkit without a compiler
+or system CUDA installation, and `pip check` passed. With inherited
+`PYTHONPATH`, `CUDA_PATH`, and source access absent, `doctor --require-gpu`
+identified the RTX 3080 Laptop GPU and the installed-package GPU self-test
+completed in 14.73 seconds.
+
+Two earlier CUDA environment attempts are retained as failed qualification
+fixtures. They stopped before installing CASCADE because the local GPU
+wheelhouse was only a CUDA delta and did not contain the common dependency or
+`cuda-toolkit` metapackage wheels. The normal release-user installation path
+resolved those declared dependencies correctly; no package metadata or runtime
+workaround was needed.

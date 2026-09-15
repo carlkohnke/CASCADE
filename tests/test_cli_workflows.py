@@ -88,6 +88,16 @@ def _assert_full_exports(out_dir: Path) -> None:
     assert volume.n_cells > 0
 
 
+def _assert_geometry_exports(out_dir: Path) -> None:
+    vessels = pv.read(out_dir / "vessels.vtp")
+    boundary = pv.read(out_dir / "domain_boundary.vtp")
+    volume = pv.read(out_dir / "domain_mesh.vtu")
+    assert vessels.n_points > 0
+    assert boundary.n_points > 0
+    assert volume.n_cells > 0
+    assert (out_dir / "manifest.json").is_file()
+
+
 def test_custom_csv_and_npz_runs_cover_flow_pressure_and_custom_fluid(
     tmp_path: Path,
 ) -> None:
@@ -215,3 +225,147 @@ def test_batch_and_sweep_complete_with_serial_cpu_reuse(tmp_path: Path) -> None:
     assert len(rows) == 4
     assert {row["fluid"] for row in rows} == {"water", "custom"}
     assert (tmp_path / "sweep-summary_manifest.json").is_file()
+
+
+def test_sphere_and_stl_domains_run_through_native_cli(tmp_path: Path) -> None:
+    sphere_config = _base_simple_config(tmp_path / "sphere-output")
+    sphere_config["domain"] = {
+        "type": "sphere",
+        "side_length": 1.0,
+        "radius": 0.5,
+        "theta_resolution": 12,
+        "phi_resolution": 12,
+        "random_seed": 42,
+    }
+    sphere_config["simulation"].update(
+        {"geometry_only": True, "distance_sample_count": 0}
+    )
+    _run_cli(
+        tmp_path,
+        "run",
+        "--settings",
+        str(_write_json(tmp_path / "sphere.json", sphere_config)),
+    )
+    _assert_geometry_exports(tmp_path / "sphere-output")
+
+    surface_path = tmp_path / "uploaded-domain.stl"
+    pv.Sphere(
+        radius=0.5,
+        theta_resolution=12,
+        phi_resolution=12,
+    ).triangulate().save(surface_path)
+    file_config = _base_simple_config(tmp_path / "stl-output")
+    file_config["domain"] = {
+        "type": "file",
+        "path": "uploaded-domain.stl",
+        "side_length": 1.0,
+        "random_seed": 42,
+        "use_cache": True,
+        "cache_dir": str(tmp_path / "domain-cache"),
+    }
+    file_config["simulation"].update(
+        {"geometry_only": True, "distance_sample_count": 0}
+    )
+    _run_cli(
+        tmp_path,
+        "run",
+        "--settings",
+        str(_write_json(tmp_path / "stl.json", file_config)),
+    )
+    _assert_geometry_exports(tmp_path / "stl-output")
+    assert any((tmp_path / "domain-cache").iterdir())
+
+
+def test_generated_tree_and_forest_are_saved_and_reloaded(tmp_path: Path) -> None:
+    growth = {
+        "enabled": True,
+        "n_closest_vessels": 2,
+        "n_points": 20,
+        "ignore_collisions": True,
+        "allow_inside_vessels": True,
+    }
+    simulation = {
+        "fluid": "water",
+        "qin_target_ul_min": 2.0,
+        "concentration_solver": "topdown",
+        "distance_sample_count": 0,
+        "tissue_accel": "cpu",
+        "geometry_only": True,
+    }
+    settings = {
+        "hematocrit": {"flow_iterations": 0},
+        "cext": {"accel_mode": "cpu"},
+        "tissue": {"accel_mode": "cpu"},
+    }
+    tree_config = {
+        "domain": {"type": "cube", "side_length": 1.0, "random_seed": 42},
+        "network": {
+            "mode": "tree",
+            "target_terminal_count": 2,
+            "root": {
+                "start": [0.49, -0.49, -0.49],
+                "direction": [-0.49, 0.49, 0.49],
+            },
+        },
+        "growth": growth,
+        "simulation": simulation,
+        "settings": settings,
+        "outputs": {
+            "out_dir": str(tmp_path / "generated-tree"),
+            "prefix": "generated",
+            "write_paraview": True,
+            "save_network": True,
+        },
+    }
+    _run_cli(
+        tmp_path,
+        "run",
+        "--settings",
+        str(_write_json(tmp_path / "generated-tree.json", tree_config)),
+    )
+    tree_path = tmp_path / "generated-tree" / "generated.tree.npz"
+    assert tree_path.is_file()
+    _assert_geometry_exports(tmp_path / "generated-tree")
+
+    forest_config = deepcopy(tree_config)
+    forest_config["network"] = {
+        "mode": "forest",
+        "target_terminal_counts": [2, 2],
+        "roots": [
+            {
+                "start": [0.49, -0.25, -0.49],
+                "direction": [-0.49, 0.25, 0.49],
+            },
+            {
+                "start": [-0.49, 0.25, -0.49],
+                "direction": [0.49, -0.25, 0.49],
+            },
+        ],
+    }
+    forest_config["outputs"]["out_dir"] = str(tmp_path / "generated-forest")
+    forest_config["outputs"]["prefix"] = "generated"
+    _run_cli(
+        tmp_path,
+        "run",
+        "--settings",
+        str(_write_json(tmp_path / "generated-forest.json", forest_config)),
+    )
+    forest_path = tmp_path / "generated-forest" / "generated.forest"
+    simcache_path = tmp_path / "generated-forest" / "generated.forest.simcache"
+    assert forest_path.is_file()
+    assert simcache_path.is_file()
+    _assert_geometry_exports(tmp_path / "generated-forest")
+
+    for label, source in (("forest", forest_path), ("simcache", simcache_path)):
+        loaded = deepcopy(forest_config)
+        loaded["network"] = {"mode": "forest", "input_path": str(source)}
+        loaded["growth"] = {"enabled": False}
+        loaded["outputs"]["out_dir"] = str(tmp_path / f"loaded-{label}")
+        loaded["outputs"]["save_network"] = False
+        _run_cli(
+            tmp_path,
+            "run",
+            "--settings",
+            str(_write_json(tmp_path / f"loaded-{label}.json", loaded)),
+        )
+        _assert_geometry_exports(tmp_path / f"loaded-{label}")

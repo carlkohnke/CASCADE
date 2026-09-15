@@ -1,6 +1,7 @@
 # Native Windows qualification record
 
-Status: **in progress — not release-qualified**
+Status: **automated qualification complete — physical UI and hosted CI evidence
+remain outstanding**
 
 This record distinguishes artifact availability from behavior that has been
 executed successfully. A blank or pending result must not be interpreted as a
@@ -13,7 +14,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, Windows CI implementation through `373af104761c3ec9e48ee6f75abeb2baace889f2` |
+| CASCADE candidate | `0.1.0rc5`, final exact artifact from `b5b282439cefddc37be60117e62d3c1cdf357964` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -411,3 +412,27 @@ installed-package self-test operations were exercised in the preceding local
 Linux and native Windows stages. With no Git remote configured, neither
 workflow has been submitted to or executed by GitHub; Stage 11 is therefore
 recorded as implemented rather than as a hosted CI pass.
+
+## Final exact-candidate gate
+
+The final wheel built from commit `b5b282439cefddc37be60117e62d3c1cdf357964`
+has SHA-256
+`d8ca856337fa4630f16cb85fba95fa13e30d1cac5db4754639277e1c60c39519`.
+The matching sdist has SHA-256
+`1be5ebb5c38055b15eb96e1bdbdac001f27ade1164ec194b050670816a9391bd`.
+Both artifacts passed Twine checks.
+
+The exact wheel was installed over the previously clean native Windows CPU and
+CUDA environments with no dependency or source-tree substitution. The CPU
+environment passed `pip check`, fatal/static checks, and the complete native
+CPU suite: 76 passes and two intentional dedicated-GPU skips in 116.65 seconds.
+The CUDA environment passed `pip check`, `doctor --require-gpu`, the
+installed-package GPU self-test in 12.76 seconds, and the complete suite with
+the GPU qualification flag: 78 passes in 273.12 seconds. Both imports resolved
+from their environment's `site-packages`; `PYTHONPATH` and `CUDA_PATH` were
+absent, and all caches, logs, temporary data, and evidence remained in the
+Windows sandbox.
+
+This closes all automatable local gates for the current candidate. It does not
+convert the explicitly listed physical UI checks or unexecuted hosted CI jobs
+into passes.

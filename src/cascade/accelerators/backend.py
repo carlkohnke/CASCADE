@@ -60,22 +60,30 @@ class GpuProbeResult:
 _GPU_PROBE_SUCCESS: GpuProbeResult | None = None
 
 
+def _configured_gpu_modes(config: Any) -> tuple[str, str, str]:
+    """Return the solver and effective Cext/tissue acceleration policies."""
+    simulation = config.simulation
+    settings = config.runtime_settings
+    solver = str(simulation.concentration_solver or "topdown").strip().lower()
+    cext = settings.get("cext", {})
+    tissue = settings.get("tissue", {})
+    simulation_cext = simulation.cext or {}
+    cext_mode = str(
+        cext.get("accel_mode", simulation_cext.get("accel_mode", "auto"))
+    ).strip().lower()
+    tissue_mode = str(
+        tissue.get("accel_mode", simulation.tissue_accel or "auto")
+    ).strip().lower()
+    return solver, cext_mode, tissue_mode
+
+
 def gpu_requested(config: Any) -> bool:
     """Return whether this run can enter a CuPy-backed solver path."""
     simulation = config.simulation
     if bool(simulation.geometry_only):
         return False
 
-    settings = config.runtime_settings
-    solver = str(simulation.concentration_solver or "topdown").strip().lower()
-    cext = settings.get("cext", {})
-    tissue = settings.get("tissue", {})
-    cext_mode = str(cext.get("accel_mode", "auto")).strip().lower()
-    tissue_mode = (
-        str(simulation.tissue_accel or tissue.get("accel_mode", "auto"))
-        .strip()
-        .lower()
-    )
+    solver, cext_mode, tissue_mode = _configured_gpu_modes(config)
 
     if solver in {
         "network_ext",
@@ -86,6 +94,50 @@ def gpu_requested(config: Any) -> bool:
     } and cext_mode in {"gpu", "auto"}:
         return True
     return not bool(simulation.skip_tissue_oxygen) and tissue_mode in {"gpu", "auto"}
+
+
+def _gpu_required(config: Any) -> bool:
+    """Return whether CPU fallback would change an explicit run requirement."""
+    simulation = config.simulation
+    if bool(simulation.geometry_only):
+        return False
+
+    solver, cext_mode, tissue_mode = _configured_gpu_modes(config)
+
+    # The general-network hybrid FFT formulation has no CPU implementation.
+    if solver == "network_ext_hybrid_bg":
+        return True
+    if solver in {
+        "network_ext",
+        "topdown_ext",
+        "topdown_ext_hybrid_bg",
+        "topdown_ext_treecode",
+    } and cext_mode == "gpu":
+        return True
+    return not bool(simulation.skip_tissue_oxygen) and tissue_mode == "gpu"
+
+
+def _select_cpu_for_auto_modes(config: Any) -> None:
+    """Pin unresolved automatic modes to CPU after a failed CUDA preflight."""
+    simulation = config.simulation
+    settings = config.runtime_settings
+    solver, cext_mode, tissue_mode = _configured_gpu_modes(config)
+
+    if cext_mode == "auto" and solver in {
+        "network_ext",
+        "topdown_ext",
+        "topdown_ext_hybrid_bg",
+        "topdown_ext_treecode",
+    }:
+        cext = settings.setdefault("cext", {})
+        cext["accel_mode"] = "cpu"
+        simulation_cext = simulation.cext
+        if str(simulation_cext.get("accel_mode", "auto")).strip().lower() == "auto":
+            simulation_cext["accel_mode"] = "cpu"
+
+    if tissue_mode == "auto":
+        simulation.tissue_accel = "cpu"
+        settings.setdefault("tissue", {})["accel_mode"] = "cpu"
 
 
 def probe_gpu_runtime(*, timeout_s: float = 30.0) -> GpuProbeResult:
@@ -132,7 +184,7 @@ def probe_gpu_runtime(*, timeout_s: float = 30.0) -> GpuProbeResult:
 
 
 def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
-    """Fail early with an actionable message when a configured GPU path is broken."""
+    """Validate required CUDA paths and let automatic modes fall back to CPU."""
     global _GPU_PROBE_SUCCESS
     if not gpu_requested(config):
         return None
@@ -143,6 +195,13 @@ def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
     if result.ready:
         _GPU_PROBE_SUCCESS = result
         return result
+    if not _gpu_required(config):
+        _select_cpu_for_auto_modes(config)
+        print(
+            "GPU auto-detection was unavailable; using CPU-compatible solver paths.",
+            flush=True,
+        )
+        return None
     raise RuntimeError(
         "GPU preflight failed before vessel generation. This simulation requests a "
         "CUDA backend, but CuPy could not run CASCADE's kernel/FFT preflight.\n\n"

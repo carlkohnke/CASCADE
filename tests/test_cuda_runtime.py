@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -115,3 +116,67 @@ def test_isolated_probe_bootstraps_before_importing_cupy() -> None:
     assert backend._PROBE_CODE.index("configure_cuda_runtime()") < (
         backend._PROBE_CODE.index("import cupy")
     )
+
+
+def _run_config(*, cext_mode: str, tissue_mode: str, solver: str = "network_ext"):
+    return SimpleNamespace(
+        simulation=SimpleNamespace(
+            geometry_only=False,
+            concentration_solver=solver,
+            skip_tissue_oxygen=False,
+            tissue_accel=tissue_mode,
+            cext={},
+        ),
+        runtime_settings={
+            "cext": {"accel_mode": cext_mode},
+            "tissue": {"accel_mode": tissue_mode},
+        },
+    )
+
+
+def test_auto_acceleration_falls_back_to_cpu_when_gpu_probe_fails(
+    monkeypatch, capsys
+) -> None:
+    config = _run_config(cext_mode="auto", tissue_mode="auto")
+    monkeypatch.setattr(backend, "_GPU_PROBE_SUCCESS", None)
+    monkeypatch.setattr(
+        backend,
+        "probe_gpu_runtime",
+        lambda: backend.GpuProbeResult(False, "GPU unavailable", "No CuPy"),
+    )
+
+    assert backend.require_gpu_runtime(config) is None
+    assert config.runtime_settings["cext"]["accel_mode"] == "cpu"
+    assert config.runtime_settings["tissue"]["accel_mode"] == "cpu"
+    assert config.simulation.tissue_accel == "cpu"
+    assert "using CPU-compatible solver paths" in capsys.readouterr().out
+
+
+def test_explicit_gpu_acceleration_still_fails_when_gpu_probe_fails(
+    monkeypatch,
+) -> None:
+    config = _run_config(cext_mode="gpu", tissue_mode="cpu")
+    monkeypatch.setattr(backend, "_GPU_PROBE_SUCCESS", None)
+    monkeypatch.setattr(
+        backend,
+        "probe_gpu_runtime",
+        lambda: backend.GpuProbeResult(False, "GPU unavailable", "No CuPy"),
+    )
+
+    with pytest.raises(RuntimeError, match="GPU preflight failed"):
+        backend.require_gpu_runtime(config)
+
+
+def test_gpu_only_solver_still_fails_when_auto_probe_fails(monkeypatch) -> None:
+    config = _run_config(
+        cext_mode="auto", tissue_mode="cpu", solver="network_ext_hybrid_bg"
+    )
+    monkeypatch.setattr(backend, "_GPU_PROBE_SUCCESS", None)
+    monkeypatch.setattr(
+        backend,
+        "probe_gpu_runtime",
+        lambda: backend.GpuProbeResult(False, "GPU unavailable", "No CuPy"),
+    )
+
+    with pytest.raises(RuntimeError, match="GPU preflight failed"):
+        backend.require_gpu_runtime(config)

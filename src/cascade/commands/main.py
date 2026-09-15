@@ -16,10 +16,12 @@ from time import perf_counter
 
 from cascade import __version__
 from cascade.configuration.schema import example_config, load_config
+from cascade.utils.console import configure_console_error_handling
 from cascade.utils.execution import guard_simulation
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_console_error_handling()
     command_args = list(sys.argv[1:] if argv is None else argv)
     debug = "--debug" in command_args
     command_args = [value for value in command_args if value != "--debug"]

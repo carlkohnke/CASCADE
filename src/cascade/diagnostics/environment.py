@@ -8,17 +8,17 @@ machine-readable output, ``--no-gpu-probe`` on CPU-only systems, or
 from __future__ import annotations
 
 import importlib
-from importlib import metadata
 import json
 import os
-from pathlib import Path
 import platform
 import sys
+from importlib import metadata
+from pathlib import Path
 from typing import Any
 
 from cascade import __version__
 from cascade.accelerators.backend import probe_gpu_runtime
-
+from cascade.utils.console import configure_console_error_handling
 
 _DEPENDENCIES = (
     "svv",
@@ -76,6 +76,7 @@ def collect_diagnostics(*, probe_gpu: bool = True) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
+    configure_console_error_handling()
     parser = argparse.ArgumentParser(
         description="Inspect the installed CASCADE runtime."
     )

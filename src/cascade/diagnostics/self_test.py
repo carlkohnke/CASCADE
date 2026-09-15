@@ -8,20 +8,21 @@ and ``--require-gpu`` additionally exercises the CUDA Cext and tissue paths.
 from __future__ import annotations
 
 import argparse
-from importlib import metadata
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from importlib import metadata
+from pathlib import Path
 from time import perf_counter
 from typing import Any
 
 import numpy as np
 
 from cascade import __version__
-from cascade.configuration.schema import example_config, parse_config
 from cascade.accelerators.backend import gpu_requested
+from cascade.configuration.schema import example_config, parse_config
+from cascade.utils.console import configure_console_error_handling
 
 
 def _run_case(root: Path, *, require_gpu: bool) -> dict[str, Any]:
@@ -189,6 +190,7 @@ def _run_case(root: Path, *, require_gpu: bool) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_console_error_handling()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--require-gpu", action="store_true")
     parser.add_argument("--output-dir")

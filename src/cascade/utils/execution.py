@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import wraps
@@ -58,7 +59,7 @@ def single_simulation(
     acquired = False
     try:
         try:
-            _lock_nonblocking(handle)
+            _lock_nonblocking_with_retry(handle)
             acquired = True
         except (BlockingIOError, OSError) as exc:
             holder = _read_lock_metadata(handle)
@@ -73,7 +74,7 @@ def single_simulation(
             "pid": int(os.getpid()),
             "operation": str(operation),
         }
-        handle.seek(0)
+        handle.seek(1)
         handle.truncate()
         handle.write((json.dumps(metadata, sort_keys=True) + "\n").encode("utf-8"))
         handle.flush()
@@ -81,7 +82,7 @@ def single_simulation(
     finally:
         if acquired:
             try:
-                handle.seek(0)
+                handle.seek(1)
                 handle.truncate()
                 handle.flush()
             finally:
@@ -271,7 +272,7 @@ def _trim_host_allocator() -> bool:
 
 def _read_lock_metadata(handle) -> str:
     try:
-        handle.seek(0)
+        handle.seek(1)
         return handle.read(512).decode("utf-8", errors="replace").strip()
     except Exception:
         return ""
@@ -281,8 +282,7 @@ if os.name == "nt":  # pragma: no cover - exercised on Windows installations
     import msvcrt
 
     def _lock_nonblocking(handle) -> None:
-        handle.seek(0)
-        if not handle.read(1):
+        if os.fstat(handle.fileno()).st_size < 1:
             handle.seek(0)
             handle.write(b"\0")
             handle.flush()
@@ -301,3 +301,22 @@ else:
 
     def _unlock(handle) -> None:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _lock_nonblocking_with_retry(handle) -> None:
+    delays = (
+        (0.0,)
+        if os.name != "nt"
+        else (0.0, 0.005, 0.01, 0.02, 0.04, 0.08, 0.16)
+    )
+    last_error: OSError | None = None
+    for delay in delays:
+        if delay:
+            time.sleep(delay)
+        try:
+            _lock_nonblocking(handle)
+            return
+        except OSError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error

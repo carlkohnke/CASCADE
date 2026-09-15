@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`; Stage 1 checkpoint recorded in repository history |
+| CASCADE candidate | `0.1.0rc5` at `c232c4fdfce18fc4689545b694a4eae3dbd248ba` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -29,7 +29,7 @@ feature, WSL, or unrelated Python installation was changed.
 | --- | --- | --- |
 | 0 — baseline audit | Pass | Clean `main` at the recorded baseline; five local branches retained; no remote configured |
 | 1 — packaging/dependencies | Pass | Python 3.12 Windows CPU/GUI/dev graph: 163 wheels, 0 sdists; CUDA 13 graph: 168 wheels, 0 sdists; wheel/sdist build, metadata, resource, entry-point, and Twine checks pass |
-| 2 — isolated installs | Pending | — |
+| 2 — isolated installs | Pass | Separate CPU and CUDA Python 3.12 virtual environments installed the wheel from native NTFS with binary-only constraints; both pass `pip check` and import CASCADE from their own `site-packages` |
 | 3 — compatibility fixes | Pending | — |
 | 4 — native CPU qualification | Pending | — |
 | 5 — filesystem torture | Pending | — |
@@ -87,3 +87,22 @@ is large. Qualification intentionally honors that metadata; it does not use
 - CUDA has not yet been imported or exercised in the candidate environment.
 - No clean-install acceptance run has yet been performed.
 - Windows CI workflow execution and final Linux regression are pending.
+
+## Stage 2 installed-wheel isolation
+
+The Stage 1 wheel (`SHA-256
+ cce75d0d98ad3d10b0e17485a5be9367e99ddfe2a60f8bef12c1c15cd3703cba`)
+was installed into independent CPU and CUDA virtual environments. Checks were
+run from an unrelated NTFS directory with `PYTHONPATH` removed. In both
+environments:
+
+- `cascade.__file__` resolves beneath the environment's `site-packages`;
+- CASCADE reports version `0.1.0rc5` on CPython 3.12.14;
+- no `.pth` file refers to the WSL checkout;
+- `pip check` reports no broken requirements.
+
+The installed `cascade-gui.exe` has the Windows GUI PE subsystem, while
+`cascade-gui-console.exe` has the console subsystem. The CPU environment also
+passed CLI version/help and `cascade doctor --no-gpu-probe` smoke checks. The
+CUDA environment's distributions were verified from metadata without importing
+CuPy or creating a CUDA context; execution qualification remains Stage 7.

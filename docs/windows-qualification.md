@@ -13,7 +13,7 @@ pass.
 | Host | Windows 11 x86-64, build 22621 |
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
-| CASCADE candidate | `0.1.0rc5`, clean-install qualification through `623901534a1fbb6ca51d21462276d594f22ac9db` |
+| CASCADE candidate | `0.1.0rc5`, Windows documentation/tooling through `a8aea69cb013d296c6366fb7496809206d728e0d` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -37,7 +37,7 @@ feature, WSL, or unrelated Python installation was changed.
 | 7 — native CUDA qualification | Pass | Exact installed wheel: `doctor --require-gpu`, `self-test --require-gpu`, and 78/78 tests pass; all CUDA kernel families, CPU/GPU comparisons, repeated persistent-worker jobs, cancellation/recovery, and memory stability are covered |
 | 8 — Linux regression | Pass | CPython 3.12 isolated environment: dependency integrity and static checks pass; 65 tests pass with 13 intentional Windows/GPU skips; installed-package CPU self-test passes and scientific outputs match Windows |
 | 9 — clean install | Pass | Fresh CPU and CUDA environments installed the exact wheel and declared dependencies as binary wheels; version, doctor, self-test, Studio launch/project/run/cancel/recovery, exports, and GPU acceleration pass without source, compiler, WSL, PATH, or DLL workarounds |
-| 10 — user tooling/docs | Pending | — |
+| 10 — user tooling/docs | Pass | Native CPU/CUDA wheel installation, console-free and diagnostic launchers, CLI use, state paths, troubleshooting, uninstall, and support boundaries are documented and validated against the clean-install workflow |
 | 11 — CI | Pending | — |
 
 ## Windows dependency evidence
@@ -360,3 +360,27 @@ wheelhouse was only a CUDA delta and did not contain the common dependency or
 `cuda-toolkit` metapackage wheels. The normal release-user installation path
 resolved those declared dependencies correctly; no package metadata or runtime
 workaround was needed.
+
+## Stage 10 Windows tooling and documentation
+
+The native Windows guide at `docs/windows.md` records the clean, released-wheel
+workflow for CPU and CUDA 13 environments. Its commands select CPython 3.12
+explicitly, keep the environment isolated, require no global `PATH` change, and
+invoke the environment's executables directly. The documented CUDA path relies
+only on the NVIDIA driver and wheel-provided toolkit; it explicitly rejects
+manual DLL copying and a system CUDA installation as setup steps.
+
+The wheel-generated `cascade-gui.exe` is the normal GUI-subsystem launcher and
+`cascade-gui-console.exe` is the diagnostic console launcher. Both resolve the
+Python environment that installed them and neither invokes WSL. The guide also
+documents the persistent Studio error log, software-renderer fallback,
+platform-native configuration/cache/state/log locations, environment-specific
+overrides, safe uninstall behavior, common NVIDIA failures, and the precise
+supported/unsupported platform boundary. Historical source-tree `.bat` and
+`.vbs` wrappers are clearly labeled as legacy WSL development helpers.
+
+README, Studio, and known-issues documentation now direct Windows users to the
+native workflow and no longer describe WSL as the supported Windows runtime.
+Local Markdown links were checked, fatal/static checks passed, and a fresh
+sdist/wheel build succeeded. The sdist allowlist was updated and its archive
+was inspected to confirm that the new Windows guide is included.

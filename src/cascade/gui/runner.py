@@ -12,6 +12,8 @@ from typing import Iterable
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
+from cascade.utils.processes import ChildProcessJob
+
 from .model import JobRecord, QueueStore
 from .sweep_csv import rebuild_combined_sweep_csv
 
@@ -30,6 +32,8 @@ class JobRunner(QObject):
         self.store = QueueStore(project_dir)
         self.jobs = self.store.load()
         self.process: QProcess | None = None
+        self._process_job: ChildProcessJob | None = None
+        self._process_job_error = ""
         self.current: JobRecord | None = None
         self._scheduled_ids: list[str] = []
         self._cancelled = False
@@ -172,8 +176,11 @@ class JobRunner(QObject):
         self._cancelled = True
         self.current.stage = "Cancelling"
         self.job_updated.emit(self.current.id)
-        self.process.terminate()
-        QTimer.singleShot(5000, self._kill_if_running)
+        if os.name == "nt" and self._process_job is not None:
+            self._terminate_process_tree(self.process)
+        else:
+            self.process.terminate()
+            QTimer.singleShot(5000, self._kill_if_running)
 
     def cancel_pending(self) -> None:
         scheduled = set(self._scheduled_ids)
@@ -197,10 +204,15 @@ class JobRunner(QObject):
             process.write((json.dumps(request) + "\n").encode("utf-8"))
             process.waitForFinished(1500)
         if process.state() != QProcess.NotRunning:
-            process.terminate()
-            if not process.waitForFinished(1500):
-                process.kill()
+            if os.name == "nt" and self._process_job is not None:
+                self._terminate_process_tree(process)
                 process.waitForFinished(1500)
+            else:
+                process.terminate()
+                if not process.waitForFinished(1500):
+                    process.kill()
+                    process.waitForFinished(1500)
+        self._release_process_job()
 
     def _start_next(self) -> None:
         if not self._scheduled_ids:
@@ -243,7 +255,9 @@ class JobRunner(QObject):
             return
         process = QProcess(self)
         process.setProcessChannelMode(QProcess.MergedChannels)
-        process.setWorkingDirectory(str(Path(__file__).resolve().parents[2]))
+        working_directory = self.store.root.parent
+        working_directory.mkdir(parents=True, exist_ok=True)
+        process.setWorkingDirectory(str(working_directory))
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
         # The worker's adaptive case cleanup enforces a VRAM headroom bound.
@@ -252,6 +266,7 @@ class JobRunner(QObject):
         env.insert("SVV_CEXT_GPU_POOL_TRIM", "false")
         process.setProcessEnvironment(env)
         process.readyReadStandardOutput.connect(self._read_output)
+        process.started.connect(self._attach_worker_process)
         process.finished.connect(self._worker_finished)
         process.errorOccurred.connect(self._process_error)
         self.process = process
@@ -263,6 +278,19 @@ class JobRunner(QObject):
             sys.executable,
             ["-m", "cascade.commands.main", "worker"],
         )
+
+    def _attach_worker_process(self) -> None:
+        process = self.process
+        if process is None:
+            return
+        try:
+            self._process_job = ChildProcessJob(int(process.processId()))
+            self._process_job_error = ""
+        except OSError as exc:
+            self._process_job = None
+            self._process_job_error = f"Could not own worker process tree: {exc}"
+            if self.current is not None:
+                self.log_line.emit(self.current.id, self._process_job_error)
 
     def _queue_preparation(self, job: JobRecord) -> None:
         """Prepare the first immutable queued case while Studio is idle."""
@@ -315,6 +343,9 @@ class JobRunner(QObject):
             "id": self.current.id,
             "settings": self.current.settings_path,
         }
+        if self._process_job_error:
+            self.log_line.emit(self.current.id, self._process_job_error)
+            self._process_job_error = ""
         self.process.write((json.dumps(request) + "\n").encode("utf-8"))
         self._job_dispatched = True
         self.current.stage = "Starting simulation"
@@ -469,6 +500,7 @@ class JobRunner(QObject):
         self._preparing_id = None
         self._preparing_job_id = None
         self._idle_timer.stop()
+        self._release_process_job()
         if process is not None:
             process.deleteLater()
         if self.current is not None:
@@ -489,7 +521,25 @@ class JobRunner(QObject):
 
     def _kill_if_running(self) -> None:
         if self.process and self.process.state() != QProcess.NotRunning:
-            self.process.kill()
+            self._terminate_process_tree(self.process)
+
+    def _terminate_process_tree(self, process: QProcess) -> None:
+        job, self._process_job = self._process_job, None
+        if job is not None and job.active:
+            try:
+                job.terminate()
+                return
+            except OSError:
+                pass
+        process.kill()
+
+    def _release_process_job(self) -> None:
+        job, self._process_job = self._process_job, None
+        if job is not None and job.active:
+            try:
+                job.close()
+            except OSError:
+                pass
 
     def _save_emit(self) -> None:
         self._state_timer.stop()

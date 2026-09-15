@@ -60,6 +60,7 @@ from cascade.gui.widgets import (
     cancel_native_pickers,
     choose_native_path,
 )
+from cascade.utils.processes import ChildProcessJob
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -220,6 +221,7 @@ class MainWindow(QMainWindow):
         self.hardware = hardware_info()
         self.runner = JobRunner(self.project_dir, self)
         self._preview_process: QProcess | None = None
+        self._preview_process_job: ChildProcessJob | None = None
         self._preview_seed_signature = ""
         self._preview_seed_response: dict[str, Any] = {}
         self._preview_pending_signature = ""
@@ -876,7 +878,8 @@ class MainWindow(QMainWindow):
         request.write_text(json.dumps(preview_config, indent=2), encoding="utf-8")
         process = QProcess(self)
         process.setProcessChannelMode(QProcess.MergedChannels)
-        process.setWorkingDirectory(str(Path(__file__).resolve().parents[2]))
+        process.setWorkingDirectory(str(preview_dir))
+        process.started.connect(self._attach_preview_process)
         process.readyReadStandardOutput.connect(self._preview_seed_progress)
         process.finished.connect(
             lambda code, status, sig=signature, folder=preview_dir: (
@@ -917,6 +920,16 @@ class MainWindow(QMainWindow):
             ],
         )
 
+    def _attach_preview_process(self) -> None:
+        process = self._preview_process
+        if process is None:
+            return
+        try:
+            self._preview_process_job = ChildProcessJob(int(process.processId()))
+        except OSError as exc:
+            self._preview_process_job = None
+            self._preview_failure_message = f"Preview process isolation failed: {exc}"
+
     def _cancel_preview_seed(self) -> None:
         process = self._preview_process
         self._preview_process = None
@@ -929,8 +942,16 @@ class MainWindow(QMainWindow):
         except (RuntimeError, TypeError):
             pass
         if process.state() != QProcess.NotRunning:
-            process.kill()
+            job, self._preview_process_job = self._preview_process_job, None
+            if job is not None and job.active:
+                try:
+                    job.terminate()
+                except OSError:
+                    process.kill()
+            else:
+                process.kill()
             process.waitForFinished(1500)
+        self._release_preview_process_job()
         process.deleteLater()
 
     def _preview_seed_progress(self) -> None:
@@ -959,6 +980,7 @@ class MainWindow(QMainWindow):
     def _preview_seed_finished(self, exit_code, signature, preview_dir):
         process = self._preview_process
         output = self._preview_output_buffer
+        self._release_preview_process_job()
         if process is not None:
             output += bytes(process.readAllStandardOutput()).decode(
                 "utf-8", errors="replace"
@@ -991,6 +1013,14 @@ class MainWindow(QMainWindow):
             self.preview.status.setText(self._preview_failure_message)
         if self.nav.currentRow() not in {6, 7}:
             self._refresh_preview()
+
+    def _release_preview_process_job(self) -> None:
+        job, self._preview_process_job = self._preview_process_job, None
+        if job is not None and job.active:
+            try:
+                job.close()
+            except OSError:
+                pass
 
     def _prepare_interactive_case(self) -> None:
         """Precompute the latest stable setup while the user is still editing."""

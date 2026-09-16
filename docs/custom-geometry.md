@@ -4,29 +4,20 @@ CASCADE accepts explicit vascular segment networks in CSV or NPZ format through 
 
 ## CSV
 
-Required columns, in centimetres:
+Columns, in centimetres:
 
 ```text
-start_x,start_y,start_z,end_x,end_y,end_z
+start_x,start_y,start_z,end_x,end_y,end_z,radius_cm,prox_id,dist_id
 ```
 
-Optional columns:
-
-```text
-radius_cm,prox_id,dist_id
-```
-
-When `radius_cm` is absent, `network.simple.radius_cm` supplies the radius. When node IDs are absent, coincident endpoints are matched after rounding coordinates to 12 decimal places.
+Make sure the columns have headers. The last 3 are optional. When `radius_cm` is absent, `network.simple.radius_cm` supplies the radius. When node IDs are absent, coincident endpoints are matched after rounding coordinates to 12 decimal places.
 
 ## NPZ
 
-Required arrays:
+Arrays:
 
 - `starts`: shape `(n_segments, 3)`
 - `ends`: shape `(n_segments, 3)`
-
-Optional arrays:
-
 - `radii`: shape `(n_segments,)`
 - `prox_ids`: shape `(n_segments,)`
 - `dist_ids`: shape `(n_segments,)`

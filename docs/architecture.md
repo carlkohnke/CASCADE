@@ -1,26 +1,24 @@
 # CASCADE architecture
 
-CASCADE is organized by scientific responsibility. The command-line interface
-and CASCADE Studio both call the same configuration, workflow, solver, and
-export packages.
+The command-line interface and CASCADE Studio both call the same configuration, workflow, solver, and export packages.
 
 ```text
 JSON / CASCADE Studio
         |
         v
 configuration -> simulation -> domain + vessels
-                              |
-                              v
-                 flow -> vessel concentration
-                              |
-                              v
-                    external field (Cext)
-                              |
-                              v
-             tissue concentration (Green's Function Method)
-                              |
-                              v
-                  exporting -> CSV / VTP / VTU / manifest
+                                      |
+                                      v
+                         flow -> vessel concentration
+                                      |
+                                      v
+                            external field (Cext)
+                                      |
+                                      v
+                     tissue concentration (Green's Function Method)
+                                      |
+                                      v
+                          exporting -> CSV / VTP / VTU / manifest
 ```
 
 ## Source layout

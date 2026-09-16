@@ -25,9 +25,7 @@ it.
 
 Native Windows end users should use the one-click installer described in the
 [Windows guide](windows.md). Windows development and release qualification
-should use isolated native-Windows environments and an installed wheel; do not
-reuse a Linux/WSL virtual environment from PowerShell or point Windows Python
-at the source tree over a WSL UNC path.
+should use isolated native-Windows environments and an installed wheel.
 
 Platform-specific user setup is documented separately for
 [Linux](linux.md), [WSL](wsl.md), and [native Windows](windows.md).

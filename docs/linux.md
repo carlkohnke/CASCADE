@@ -23,7 +23,7 @@ cascade self-test
 cascade-gui
 ```
 
-The setup is source-based and editable, so keep the repository after
+The setup is source-based and editable; keep the repository after
 installation. Activating the environment is optional: you can launch Studio
 directly with `.venv/bin/cascade-gui` or run the CLI as `.venv/bin/cascade`.
 

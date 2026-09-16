@@ -51,7 +51,9 @@ def test_windows_job_terminates_descendant_processes(tmp_path: Path) -> None:
     try:
         assert job.active
         gate.write_bytes(b"")
-        assert _wait_until(child_pid_file.is_file)
+        assert _wait_until(
+            lambda: child_pid_file.is_file() and child_pid_file.stat().st_size > 0
+        )
         child_pid = int(child_pid_file.read_text(encoding="ascii"))
         assert psutil.pid_exists(child_pid)
 

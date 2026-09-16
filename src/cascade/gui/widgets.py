@@ -217,7 +217,7 @@ class NumberInput(QDoubleSpinBox):
         self._significant_digits = max(1, int(significant_digits))
         super().__init__(parent)
         self.setKeyboardTracking(False)
-        self.setAlignment(Qt.AlignRight)
+        self.setAlignment(Qt.AlignLeft)
         self.setProperty("numericField", True)
 
     def setSignificantDigits(self, digits: int) -> None:

@@ -7,13 +7,11 @@ are not part of the supported Windows runtime.
 
 ## Simplest installation from a GitHub download
 
-This is the normal installation path for someone who does not want to use a
-terminal:
+Installation path for someone who doesn't want to use a terminal:
 
 1. Install 64-bit Python 3.12 from
    [python.org](https://www.python.org/downloads/windows/). The standard Python
-   launcher is sufficient; Python does not have to be added to the system
-   `PATH`.
+   launcher is sufficient; Python does not have to be added to the system `PATH`.
 2. Download the CASCADE source ZIP from GitHub and extract it to an ordinary
    local Windows folder, for example `C:\Users\you\Downloads\CASCADE`.
    Do not run the installer from inside the ZIP, a WSL path, or a network/UNC

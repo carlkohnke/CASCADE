@@ -4,12 +4,14 @@ import json
 
 import numpy as np
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLabel
 from PySide6.QtTest import QSignalSpy
 
 from cascade.gui.pages.analysis import AnalysisPage
 from cascade.gui.pages.physics import PhysicsPage
 from cascade.gui.runner import JobRunner
+from cascade.gui.widgets import NumberInput
 from cascade.gui.window import MainWindow
 from cascade.vessels.simple import _load_custom_geometry
 
@@ -17,6 +19,11 @@ from cascade.vessels.simple import _load_custom_geometry
 @pytest.fixture(scope="module")
 def app():
     return QApplication.instance() or QApplication([])
+
+
+def test_number_inputs_are_left_aligned_like_other_fields(app):
+    field = NumberInput()
+    assert field.alignment() & Qt.AlignLeft
 
 
 def test_non_blood_fields_display_na_without_losing_values(app):

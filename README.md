@@ -1,44 +1,12 @@
 # CASCADE
 
-CASCADE is a vascular growth, hemodynamics, and tissue-oxygen simulation toolkit built around the public `svVascularize` (`svv`) package. It provides a reproducible command-line interface, CASCADE Studio desktop GUI, and ParaView-compatible VTK exports.
-
-CASCADE supports:
-
-- Single vascular trees and multi-tree forests.
-- Cube, rectangular-box, sphere, and file-backed mesh domains.
-- Loaded `.tree.npz`, `.forest`, and `.forest.simcache` networks.
-- Simple channels, vascular lattices, and explicit CSV/NPZ segment networks.
-- Blood and water flow and oxygen transport.
-- Tree, network, finite-radius, and Green's function Cext solvers.
-- Random and structured Cartesian tissue sampling.
-- CSV, VTP, and VTU export for analysis in ParaView.
-
-This repository targets the public `svv==0.0.48` API. CASCADE-owned compatibility behavior is documented in [docs/svv-compatibility.md](docs/svv-compatibility.md).
-
-> **Legacy file safety:** `.tree.npz`, `.forest`, and `.forest.simcache` files
-> may contain Python pickle payloads for compatibility with existing `svv`
-> archives. Load these legacy files only when they come from a trusted source.
-> CSV segment networks and CASCADE's non-object NPZ inputs do not require
-> pickle deserialization.
-
-## Status
-
-The current version is `0.1.0rc5`. This is a release candidate: configuration
-and output formats may still change before the first stable release. See
-[known issues](docs/known-issues.md) for current platform and scientific
-limitations.
-
-The implementation is organized by scientific responsibility rather than by
-entry point: domain and vessel architecture, flow, vessel concentration, Cext,
-Green's Function Method tissue oxygen, exporting, simulation, and GUI code each
-have dedicated packages.
+CASCADE is a high-performance framework for vessel-resolved oxygen transport in vascularized tissues, enabling rapid simulation of blood flow, oxygen delivery, and tissue oxygenation from engineered constructs to whole organs.
 
 ## Requirements
 
 - Windows 10/11 or Linux on x86-64.
 - Python 3.12.
-- For GPU execution, an NVIDIA driver compatible with the selected CUDA package.
-- ParaView is optional and is used only to inspect exported VTK files.
+- For GPU-accelerated execution, an NVIDIA driver compatible with the selected CUDA package.
 
 ## Install
 
@@ -390,10 +358,6 @@ python -m ruff check --select E9,F63,F7,F82,F601,F811,E741 src setup_linux.py
 python -m build
 cascade self-test
 ```
-
-## Reproducibility
-
-Keep the settings JSON, domain/network inputs, `manifest.json`, dependency lock, and raw command log together for every production run. Do not modify the installed public `svv` package; CASCADE-specific compatibility code belongs under `src/cascade/` and should be retired when the corresponding behavior is available upstream.
 
 ## License
 

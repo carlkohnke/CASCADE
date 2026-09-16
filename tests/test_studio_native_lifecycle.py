@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-import sys
+import sysconfig
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -401,7 +401,7 @@ def _pe_subsystem(path: Path) -> int:
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows PE launcher subsystems")
 def test_normal_launchers_are_gui_subsystem_and_diagnostics_keep_console() -> None:
-    scripts = Path(sys.executable).resolve().parent
+    scripts = Path(sysconfig.get_path("scripts")).resolve()
     assert _pe_subsystem(scripts / "cascade-gui.exe") == 2
     assert _pe_subsystem(scripts / "cascade-viewer.exe") == 2
     assert _pe_subsystem(scripts / "cascade-gui-console.exe") == 3

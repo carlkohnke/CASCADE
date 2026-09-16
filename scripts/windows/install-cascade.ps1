@@ -151,32 +151,70 @@ function New-CascadeShortcut {
 
     New-Item -ItemType Directory -Path $Directory -Force | Out-Null
     $shortcutPath = Join-Path $Directory "CASCADE Studio.lnk"
-    $shell = New-Object -ComObject WScript.Shell
-    $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = $TargetPath
-    $shortcut.WorkingDirectory = $WorkingDirectory
-    $shortcut.Description = "CASCADE Studio"
-    $shortcut.IconLocation = "$TargetPath,0"
-    $shortcut.Save()
-    return $shortcutPath
-}
+    if (-not ("Cascade.WindowsShortcut" -as [type])) {
+        Add-Type -Language CSharp -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text;
 
-function Get-ShortcutTargetPath {
-    param([Parameter(Mandatory = $true)][string]$TargetPath)
-
-    if ($TargetPath -cmatch "^[\x00-\x7F]+$") {
-        return $TargetPath
+namespace Cascade
+{
+    [ComImport]
+    [Guid("00021401-0000-0000-C000-000000000046")]
+    internal class ShellLink
+    {
     }
-    try {
-        $fileSystem = New-Object -ComObject Scripting.FileSystemObject
-        $shortPath = $fileSystem.GetFile($TargetPath).ShortPath
-        if ($shortPath) {
-            return [string]$shortPath
+
+    [ComImport]
+    [Guid("000214F9-0000-0000-C000-000000000046")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IShellLinkW
+    {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int maximum, IntPtr findData, uint flags);
+        void GetIDList(out IntPtr itemIdList);
+        void SetIDList(IntPtr itemIdList);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder description, int maximum);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string description);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder directory, int maximum);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string directory);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder arguments, int maximum);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string arguments);
+        void GetHotkey(out short hotkey);
+        void SetHotkey(short hotkey);
+        void GetShowCmd(out int showCommand);
+        void SetShowCmd(int showCommand);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder iconPath, int maximum, out int iconIndex);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string iconPath, int iconIndex);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, uint reserved);
+        void Resolve(IntPtr window, uint flags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string path);
+    }
+
+    public static class WindowsShortcut
+    {
+        public static void Create(string shortcutPath, string targetPath, string workingDirectory)
+        {
+            IShellLinkW link = (IShellLinkW)new ShellLink();
+            try
+            {
+                link.SetPath(targetPath);
+                link.SetWorkingDirectory(workingDirectory);
+                link.SetDescription("CASCADE Studio");
+                link.SetIconLocation(targetPath, 0);
+                ((IPersistFile)link).Save(shortcutPath, true);
+            }
+            finally
+            {
+                Marshal.FinalReleaseComObject(link);
+            }
         }
-    } catch {
-        Write-Warning "An ASCII-safe shortcut target was unavailable: $($_.Exception.Message)"
     }
-    return $TargetPath
+}
+"@
+    }
+    [Cascade.WindowsShortcut]::Create($shortcutPath, $TargetPath, $WorkingDirectory)
+    return $shortcutPath
 }
 
 function Show-CompletionMessage {
@@ -369,10 +407,9 @@ Extract it to a normal Windows folder, such as Downloads\CASCADE, and run the in
 
     $shortcuts = @()
     if (-not $NoShortcuts) {
-        $shortcutTarget = Get-ShortcutTargetPath -TargetPath $cascadeGui
-        $shortcuts += New-CascadeShortcut -Directory $DesktopShortcutDirectory -TargetPath $shortcutTarget -WorkingDirectory $env:USERPROFILE
+        $shortcuts += New-CascadeShortcut -Directory $DesktopShortcutDirectory -TargetPath $cascadeGui -WorkingDirectory $env:USERPROFILE
         if (-not $StartMenuShortcutDirectory.Equals($DesktopShortcutDirectory, [System.StringComparison]::OrdinalIgnoreCase)) {
-            $shortcuts += New-CascadeShortcut -Directory $StartMenuShortcutDirectory -TargetPath $shortcutTarget -WorkingDirectory $env:USERPROFILE
+            $shortcuts += New-CascadeShortcut -Directory $StartMenuShortcutDirectory -TargetPath $cascadeGui -WorkingDirectory $env:USERPROFILE
         }
     }
 

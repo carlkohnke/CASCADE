@@ -30,6 +30,8 @@ def test_installer_has_native_isolated_release_guards() -> None:
     assert "gpu-cu13" in text
     assert "--require-gpu" in text
     assert "--no-gpu-probe" in text
+    assert "IShellLinkW" in text
+    assert "UnmanagedType.LPWStr" in text
     assert "cascade studio.lnk" in folded
     assert '"path", "user"' in folded
     assert "print(sys.executable)" not in text

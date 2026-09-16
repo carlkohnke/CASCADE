@@ -14,6 +14,7 @@ pass.
 | Python | CPython 3.12.14, isolated portable runtime |
 | CASCADE baseline | `deea5e525383613e36a8b79d5e9e3d68b83c7658` |
 | CASCADE candidate | `0.1.0rc5`, current corrective artifact from `0d97401c7e2203f32efe5135efb254ec4d84c35b` |
+| One-click installer candidate | `16724454ec7db0a2c2e4f2b85fffb9588ad542ec` |
 | GPU | NVIDIA GeForce RTX 3080 Laptop GPU, 16 GiB |
 | Driver observed | 616.92 |
 | Test isolation | Native NTFS sandbox; no application tests from the WSL checkout |
@@ -34,10 +35,10 @@ feature, WSL, or unrelated Python installation was changed.
 | 4 — native CPU qualification | Pass | Exact installed wheel: fatal/static check passes and 62/62 tests pass; all documented CLI commands and the CPU self-test complete from native NTFS |
 | 5 — filesystem torture | Pass | Exact installed wheel: 66/66 tests pass from an NTFS-only test snapshot; deep space/Unicode paths, stale caches, mmap release, repeat writes, lock contention/recovery, and a read-only installed package pass |
 | 6 — Studio qualification | Pass | Current installed wheel: 81 native CPU tests pass with 3 intentional GPU/offscreen skips; real desktop automation covers native dialogs, normal/diagnostic launchers, title-bar movement, resize, window states, Snap, Explorer/result-viewer launch, second-instance notice, and clean shutdown; 100%/125%/150%/200% scale-factor checks pass |
-| 7 — native CUDA qualification | Pass | Current installed wheel: `doctor --require-gpu`, `self-test --require-gpu`, and 83 tests pass with one offscreen native-window skip; all CUDA kernel families, CPU/GPU comparisons, repeated persistent-worker jobs, cancellation/recovery, and memory stability are covered |
-| 8 — Linux regression | Pass | CPython 3.12 isolated environment: dependency integrity and static checks pass; 70 tests pass with 14 intentional Windows/GPU skips; installed-package CPU self-test passes and scientific outputs match Windows |
+| 7 — native CUDA qualification | Pass | Current installed wheel: `doctor --require-gpu`, `self-test --require-gpu`, and 85 tests pass with 3 intentional environment-specific skips; all CUDA kernel families, CPU/GPU comparisons, repeated persistent-worker jobs, cancellation/recovery, and memory stability are covered |
+| 8 — Linux regression | Pass | CPython 3.12 isolated environment: dependency integrity and static checks pass; 74 tests pass with 15 intentional Windows/GPU skips; installed-package CPU self-test passes and scientific outputs match Windows |
 | 9 — clean install | Pass | Fresh CPU and CUDA environments installed the exact wheel and declared dependencies as binary wheels; version, doctor, self-test, Studio launch/project/run/cancel/recovery, exports, and GPU acceleration pass without source, compiler, WSL, PATH, or DLL workarounds |
-| 10 — user tooling/docs | Pass | Native CPU/CUDA wheel installation, console-free and diagnostic launchers, CLI use, state paths, troubleshooting, uninstall, and support boundaries are documented and validated against the clean-install workflow |
+| 10 — user tooling/docs | Pass | Double-click source installer plus native CPU/CUDA wheel installation, console-free and diagnostic launchers, CLI use, state paths, troubleshooting, uninstall, and support boundaries are documented and validated against native installed-wheel workflows |
 | 11 — CI | Implemented, not hosted | Ubuntu 22.04 and Windows Python 3.12 installed-wheel CPU lanes plus a self-hosted native Windows/NVIDIA release gate are defined and locally validated; no remote is configured, so no GitHub run is claimed |
 
 ## Windows dependency evidence
@@ -126,6 +127,46 @@ is large. Qualification intentionally honors that metadata; it does not use
   internal CPU reference timings, causing diagnostics to report CPU execution
   after a successful GPU run. The GPU timing record is now preserved and the
   regression is covered by the native kernel-family qualification test.
+- CuPy/NVRTC could not find its packaged headers when CASCADE was installed
+  beneath a Unicode Windows path. CASCADE now supplies ASCII-safe NTFS aliases
+  for the affected compiler include options without changing user paths.
+- Windows PowerShell's legacy shortcut automation silently transliterated
+  Unicode target paths. The installer now writes `.lnk` files through the
+  Unicode `IShellLinkW` interface.
+- A same-version wheel rebuilt from a newer commit was treated as already
+  installed by pip. The installer now resolves declared binary dependencies
+  and then force-installs the exact wheel selected for qualification.
+- Reinstall probing printed a Unicode interpreter path through a legacy
+  console encoding and could reject a valid Python 3.12 runtime. The probe now
+  emits an ASCII sentinel and supports repeat installation from Unicode paths.
+
+## One-click installer qualification
+
+Commit `16724454ec7db0a2c2e4f2b85fffb9588ad542ec` was exported with
+`git archive` to a native NTFS source directory containing spaces and `Ω`; the tar
+archive SHA-256 is
+`8c6edcf6b8eb13e415191f6e3b51a1e86127872a1691180ef47957da485797c7`.
+The root `Install CASCADE for Windows.cmd` entry point ran without WSL, reused
+the isolated Python 3.12 runtime, built the wheel, installed the exact artifact,
+and qualified the NVIDIA GeForce RTX 3080 Laptop GPU with CuPy 14.2.0. A full
+GPU `doctor` and installed-package `self-test` passed after the Unicode CUDA
+fix; the final Unicode-shortcut-only revision repeated GPU `doctor`.
+
+The generated **CASCADE Studio** shortcut was invoked directly. It started the
+GUI-subsystem launcher from the Unicode installation path, displayed the
+`CASCADE O2 Simulation Studio` top-level window, and started its persistent
+`pythonw.exe` worker. A normal window-close request ended the application and
+left no Studio or worker process. The stable CLI wrapper worked both by exact
+path and as `cascade` with its install `bin` directory supplied to a clean child
+shell; the installed import resolved from `site-packages`, `pip check` passed,
+and the normal GUI executable's PE subsystem was verified as Windows GUI.
+
+The live qualification deliberately used `-NoPathUpdate`, so it did not mutate
+the tester's real user `PATH`; the installer path-update logic remains covered
+by focused tests and the stable-wrapper child-shell check. Native-app screen
+capture was unavailable in the final shortcut pass, so visual appearance was
+not newly claimed there; the earlier Stage 6 interactive qualification remains
+the visual evidence.
 
 ## Known limitations and unperformed checks
 

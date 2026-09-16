@@ -44,10 +44,14 @@ the package map and compatibility boundaries.
 
 ## Install
 
-For a released wheel on native Windows, follow the
-[native Windows installation guide](docs/windows.md). The supported CPU and
-CUDA 13 installations use an isolated CPython 3.12 environment, install binary
-wheels, and launch Studio without WSL or a console window.
+For the simplest native Windows setup, install 64-bit Python 3.12, extract the
+GitHub source ZIP to a normal local Windows folder, and double-click
+`Install CASCADE for Windows.cmd`. It installs a private CPU or NVIDIA/CUDA
+environment, verifies it, and creates one clearly labeled **CASCADE Studio**
+launcher; no terminal, WSL, compiler, or manual DLL setup is required. The CLI
+is also available as `cascade` in a new PowerShell or Command Prompt window.
+See the [native Windows installation guide](docs/windows.md) for details and
+the advanced released-wheel workflow.
 
 For Linux development from the repository, create a CPU environment with
 Studio from the repository root:

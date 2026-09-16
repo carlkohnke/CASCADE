@@ -5,8 +5,48 @@ CASCADE supports native 64-bit Windows 10 and Windows 11 with 64-bit CPython
 NVIDIA driver interfaces. WSL, Git, a C/C++ compiler, and a system CUDA toolkit
 are not part of the supported Windows runtime.
 
-The commands below use a dedicated virtual environment and do not require a
-global `PATH` change. Replace the example wheel path with the wheel downloaded
+## Simplest installation from a GitHub download
+
+This is the normal installation path for someone who does not want to use a
+terminal:
+
+1. Install 64-bit Python 3.12 from
+   [python.org](https://www.python.org/downloads/windows/). The standard Python
+   launcher is sufficient; Python does not have to be added to the system
+   `PATH`.
+2. Download the CASCADE source ZIP from GitHub and extract it to an ordinary
+   local Windows folder, for example `C:\Users\you\Downloads\CASCADE`.
+   Do not run the installer from inside the ZIP, a WSL path, or a network/UNC
+   path.
+3. Double-click **Install CASCADE for Windows.cmd** in the extracted folder.
+4. Wait for the success message, then open **CASCADE Studio** from the desktop
+   or Start menu.
+
+The installer builds CASCADE's wheel, creates a private environment beneath
+`%LOCALAPPDATA%\Programs\CASCADE`, installs binary dependency wheels, runs
+`doctor` and `self-test`, and creates the clearly labeled Studio shortcut. It
+automatically qualifies NVIDIA/CUDA acceleration when an NVIDIA device is
+present. If GPU qualification fails in automatic mode, it verifies the CPU
+path and reports **CPU fallback** rather than leaving a broken installation.
+
+The same installation also enables the command line. Open a *new* PowerShell
+or Command Prompt window after installation and run, for example:
+
+```powershell
+cascade --version
+cascade doctor
+cascade self-test
+```
+
+Re-running the same installer safely updates the private environment from the
+downloaded source. Installation logs are retained in
+`%LOCALAPPDATA%\cascade\Logs`.
+
+## Advanced wheel installation
+
+The commands below are the explicit alternative for release engineering or
+users who want to choose and manage their own environment. They do not require
+a global `PATH` change. Replace the example wheel path with the wheel downloaded
 from the CASCADE release.
 
 ## CPU installation

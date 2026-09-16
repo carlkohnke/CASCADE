@@ -176,5 +176,3 @@ Native Windows x86-64, CPython 3.12, CPU execution, Studio, and the CUDA 13 GPU
 extra are supported. Windows on ARM, 32-bit Python, Python versions other than
 3.12, AMD/Intel GPU compute, Microsoft Store Python aliases, and execution from
 a WSL or network/UNC package installation are outside the qualified boundary.
-See the [qualification record](windows-qualification.md) for the exact host,
-artifacts, tests, and remaining manual UI checks.

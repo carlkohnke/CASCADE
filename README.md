@@ -31,13 +31,11 @@ limitations.
 The implementation is organized by scientific responsibility rather than by
 entry point: domain and vessel architecture, flow, vessel concentration, Cext,
 Green's Function Method tissue oxygen, exporting, simulation, and GUI code each
-have dedicated packages. See [docs/architecture.md](docs/architecture.md) for
-the package map and compatibility boundaries.
+have dedicated packages.
 
 ## Requirements
 
-- Windows 10/11 or Linux on x86-64. Native Windows qualification status is
-  tracked in [docs/windows-qualification.md](docs/windows-qualification.md).
+- Windows 10/11 or Linux on x86-64.
 - Python 3.12.
 - For GPU execution, an NVIDIA driver compatible with the selected CUDA package.
 - ParaView is optional and is used only to inspect exported VTK files.
@@ -380,7 +378,6 @@ See [docs/gui.md](docs/gui.md).
 - [WSL installation](docs/wsl.md)
 - [Development setup](docs/development.md)
 - [Custom vascular geometry format](docs/custom-geometry.md)
-- [Architecture and package map](docs/architecture.md)
 - [Public svVascularize compatibility](docs/svv-compatibility.md)
 - [Known issues and limitations](docs/known-issues.md)
 - [Dependency and lock files](requirements/README.md)

@@ -19,13 +19,13 @@ jobs:
             os: windows-latest
     env:
       QT_QPA_PLATFORM: offscreen
-      CASCADE_CACHE_DIR: ${{ runner.temp }}/cascade-ci/cache
-      CASCADE_CONFIG_DIR: ${{ runner.temp }}/cascade-ci/config
-      CASCADE_STATE_DIR: ${{ runner.temp }}/cascade-ci/state
-      CASCADE_LOG_DIR: ${{ runner.temp }}/cascade-ci/logs
-      CASCADE_OUTPUT_DIR: ${{ runner.temp }}/cascade-ci/output
-      MPLCONFIGDIR: ${{ runner.temp }}/cascade-ci/matplotlib
-      NUMBA_CACHE_DIR: ${{ runner.temp }}/cascade-ci/numba
+      CASCADE_CACHE_DIR: ${{ github.workspace }}/.ci/cache
+      CASCADE_CONFIG_DIR: ${{ github.workspace }}/.ci/config
+      CASCADE_STATE_DIR: ${{ github.workspace }}/.ci/state
+      CASCADE_LOG_DIR: ${{ github.workspace }}/.ci/logs
+      CASCADE_OUTPUT_DIR: ${{ github.workspace }}/.ci/output
+      MPLCONFIGDIR: ${{ github.workspace }}/.ci/matplotlib
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.ci/numba
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

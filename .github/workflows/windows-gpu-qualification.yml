@@ -14,14 +14,14 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       CASCADE_RUN_GPU_QUALIFICATION: "1"
-      CASCADE_CACHE_DIR: ${{ runner.temp }}/cascade-gpu/cache
-      CASCADE_CONFIG_DIR: ${{ runner.temp }}/cascade-gpu/config
-      CASCADE_STATE_DIR: ${{ runner.temp }}/cascade-gpu/state
-      CASCADE_LOG_DIR: ${{ runner.temp }}/cascade-gpu/logs
-      CASCADE_OUTPUT_DIR: ${{ runner.temp }}/cascade-gpu/output
-      CUPY_CACHE_DIR: ${{ runner.temp }}/cascade-gpu/cupy
-      NUMBA_CACHE_DIR: ${{ runner.temp }}/cascade-gpu/numba
-      MPLCONFIGDIR: ${{ runner.temp }}/cascade-gpu/matplotlib
+      CASCADE_CACHE_DIR: ${{ github.workspace }}/.ci-gpu/cache
+      CASCADE_CONFIG_DIR: ${{ github.workspace }}/.ci-gpu/config
+      CASCADE_STATE_DIR: ${{ github.workspace }}/.ci-gpu/state
+      CASCADE_LOG_DIR: ${{ github.workspace }}/.ci-gpu/logs
+      CASCADE_OUTPUT_DIR: ${{ github.workspace }}/.ci-gpu/output
+      CUPY_CACHE_DIR: ${{ github.workspace }}/.ci-gpu/cupy
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.ci-gpu/numba
+      MPLCONFIGDIR: ${{ github.workspace }}/.ci-gpu/matplotlib
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

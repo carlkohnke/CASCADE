@@ -18,14 +18,6 @@ available.
 | Historical `.dmn` load | Format behavior differs between versions | CASCADE retains local read support; use PyVista-readable meshes for interchange. |
 | Float32 heart/Cext memory path | Growth expects float64 tree arrays | CASCADE keeps float64 at the growth boundary and may use float32 accelerator arrays and caches. |
 
-## Optimizer note
-
-The compatibility bifurcation implementation calls SciPy's L-BFGS-B method
-with bounds. L-BFGS-B does not enforce the general inequality
-`a[0] + a[1] <= 1`, so this path is not mathematically equivalent to a
-constrained SLSQP solve. See [known issues](known-issues.md) before selecting
-this growth mode.
-
 ## Contributor maintenance rule
 
 Compatibility behavior must remain behind `cascade.vessels.generation.svv_adapter` or `cascade.vessels.generation.compatibility`. Application code consumes CASCADE interfaces and must not monkey-patch public `svv` outside that adapter boundary. The adapter currently replaces the public module's in-memory `Tree` factory and two growth callbacks because public `svv` resolves those names as module globals inside its constructors/methods. This affects only the current CASCADE process; it does not modify the installed distribution on disk. The adapter wrappers remain float64 at the true CCO boundary and may convert completed structures to float32 for equal-bifurcation, simulation-cache, and export work.

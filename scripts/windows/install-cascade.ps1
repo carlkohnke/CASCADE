@@ -310,6 +310,13 @@ Extract it to a normal Windows folder, such as Downloads\CASCADE, and run the in
         $cacheArguments + @($wheelRequirement)
     Invoke-Checked -FilePath $runtimePython -ArgumentList $installArguments
 
+    # pip treats a wheel with the same public version as already satisfied, even
+    # when it was rebuilt from a newer release commit. Install dependencies from
+    # the extras above, then make the selected wheel itself authoritative.
+    $exactWheelArguments = @("-m", "pip", "install", "--force-reinstall", "--no-deps") +
+        $cacheArguments + @($wheel.FullName)
+    Invoke-Checked -FilePath $runtimePython -ArgumentList $exactWheelArguments
+
     $runtimeScripts = Join-Path $runtimeDirectory "Scripts"
     $cascadeCli = Join-Path $runtimeScripts "cascade.exe"
     $cascadeGui = Join-Path $runtimeScripts "cascade-gui.exe"

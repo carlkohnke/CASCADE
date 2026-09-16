@@ -1,4 +1,4 @@
-"""Green's-function oxygen kinetics and finite-radius corrections.
+"""Green's-function tissue oxygen model and finite-radius corrections.
 
 Numerical kernels and packaged Bessel lookup data live together here, without
 depending on import order or implicit namespace injection.

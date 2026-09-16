@@ -1,8 +1,14 @@
 # CASCADE
 
-CASCADE is a high-performance framework for vessel-resolved oxygen transport
-in vascularized tissues. It simulates blood flow, oxygen delivery, and tissue
-oxygenation from engineered constructs to whole organs.
+CASCADE is a high-performance framework for simulating vessel-resolved oxygen
+transport in vascularized tissues. In seconds to minutes, this method predicts
+tissue oxygenation across scales, from small tissue voxels to whole organs.
+
+Users provide tissue geometry, vessel networks, flow boundary conditions,
+tissue and perfusate properties, cellular uptake coefficients (Michaelis-Menten).
+CASCADE simulations return the 3D quasisteady oxygen distributions within and
+surrounding vascular networks containing up to hundreds of millions of discrete
+blood vessels.
 
 ## Requirements
 
@@ -10,7 +16,7 @@ oxygenation from engineered constructs to whole organs.
 - Python 3.12.
 - A compatible NVIDIA driver for GPU acceleration.
 
-## Install
+## Installation
 
 Choose the guide for your platform:
 
@@ -18,16 +24,25 @@ Choose the guide for your platform:
 - [Linux](docs/linux.md)
 - [WSL](docs/wsl.md)
 
-Each guide covers CPU and NVIDIA GPU setup, verification, and launching
-CASCADE Studio.
+## Graphical user interface (GUI)
+
+This project has an interactive GUI for running and analyzing simulations,
+though .NPZ files may also be exported for analysis in ParaView or other viewer.
+
+See [GUI](docs/gui.md)
+
 
 ## Quick start
 
-Launch the graphical interface with:
+See the [Studio guide](docs/gui.md) or [CLI guide](docs/cli.md) for the complete
+installation procedure and workflow.
+
+Once installed, launch the graphical interface with:
 
 ```text
 cascade-gui
 ```
+(or use the launcher application if on Windows!)
 
 Or create and run a starter configuration from the command line:
 
@@ -36,8 +51,8 @@ cascade init-settings case.json
 cascade run --settings case.json
 ```
 
-See the [Studio guide](docs/gui.md) or [CLI guide](docs/cli.md) for the complete
-workflow.
+See the [settings reference](docs/settings.md) for every available option and
+the [example simulations](docs/examples.md) for complete configurations.
 
 ## Documentation
 

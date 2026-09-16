@@ -57,12 +57,12 @@ function Test-Python312 {
     )
 
     try {
-        $probe = & $FilePath @PrefixArguments -c "import struct,sys; assert sys.version_info[:2] == (3,12); assert struct.calcsize('P') == 8; print(sys.executable)" 2>$null
+        $probe = & $FilePath @PrefixArguments -c "import struct,sys; assert sys.version_info[:2] == (3,12); assert struct.calcsize('P') == 8; print('CASCADE_PYTHON_OK')" 2>$null
         if ($LASTEXITCODE -eq 0 -and $probe) {
             return [pscustomobject]@{
                 FilePath = $FilePath
                 PrefixArguments = [string[]]$PrefixArguments
-                Executable = [string]($probe | Select-Object -Last 1)
+                Executable = $FilePath
             }
         }
     } catch {

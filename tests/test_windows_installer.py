@@ -30,6 +30,7 @@ def test_installer_has_native_isolated_release_guards() -> None:
     assert "--no-gpu-probe" in text
     assert "cascade studio.lnk" in folded
     assert '"path", "user"' in folded
+    assert "print(sys.executable)" not in text
     assert "wsl.exe" not in folded
     assert "/mnt/" not in folded
 

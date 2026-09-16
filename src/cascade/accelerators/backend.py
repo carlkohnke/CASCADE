@@ -22,9 +22,11 @@ from cascade.accelerators.cuda_runtime import (
 _PROBE_MARKER = "CASCADE_GPU_READY"
 _PROBE_CODE = r"""
 from cascade.accelerators.cuda_runtime import configure_cuda_runtime
+from cascade.accelerators.cuda_runtime import configure_cupy_compiler_paths
 
 configure_cuda_runtime()
 import cupy as cp
+configure_cupy_compiler_paths(cp)
 
 device_count = int(cp.cuda.runtime.getDeviceCount())
 if device_count < 1:

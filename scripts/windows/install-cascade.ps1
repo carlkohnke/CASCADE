@@ -161,6 +161,24 @@ function New-CascadeShortcut {
     return $shortcutPath
 }
 
+function Get-ShortcutTargetPath {
+    param([Parameter(Mandatory = $true)][string]$TargetPath)
+
+    if ($TargetPath -cmatch "^[\x00-\x7F]+$") {
+        return $TargetPath
+    }
+    try {
+        $fileSystem = New-Object -ComObject Scripting.FileSystemObject
+        $shortPath = $fileSystem.GetFile($TargetPath).ShortPath
+        if ($shortPath) {
+            return [string]$shortPath
+        }
+    } catch {
+        Write-Warning "An ASCII-safe shortcut target was unavailable: $($_.Exception.Message)"
+    }
+    return $TargetPath
+}
+
 function Show-CompletionMessage {
     param(
         [Parameter(Mandatory = $true)][string]$Title,
@@ -344,9 +362,10 @@ Extract it to a normal Windows folder, such as Downloads\CASCADE, and run the in
 
     $shortcuts = @()
     if (-not $NoShortcuts) {
-        $shortcuts += New-CascadeShortcut -Directory $DesktopShortcutDirectory -TargetPath $cascadeGui -WorkingDirectory $env:USERPROFILE
+        $shortcutTarget = Get-ShortcutTargetPath -TargetPath $cascadeGui
+        $shortcuts += New-CascadeShortcut -Directory $DesktopShortcutDirectory -TargetPath $shortcutTarget -WorkingDirectory $env:USERPROFILE
         if (-not $StartMenuShortcutDirectory.Equals($DesktopShortcutDirectory, [System.StringComparison]::OrdinalIgnoreCase)) {
-            $shortcuts += New-CascadeShortcut -Directory $StartMenuShortcutDirectory -TargetPath $cascadeGui -WorkingDirectory $env:USERPROFILE
+            $shortcuts += New-CascadeShortcut -Directory $StartMenuShortcutDirectory -TargetPath $shortcutTarget -WorkingDirectory $env:USERPROFILE
         }
     }
 

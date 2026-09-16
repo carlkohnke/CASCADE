@@ -10,6 +10,7 @@ user or system environment.
 from __future__ import annotations
 
 import ctypes
+import functools
 import os
 import re
 import sys
@@ -32,6 +33,44 @@ _COMPONENT_DISTRIBUTIONS = (
 _DLL_DIRECTORY_HANDLES: list[Any] = []
 _DLL_DIRECTORY_PATHS: set[str] = set()
 _PRELOADED_LIBRARIES: list[Any] = []
+
+
+def _windows_short_path(path: str | Path) -> str:
+    """Return an ASCII-safe NTFS path when Windows exposes an 8.3 alias."""
+    value = str(path)
+    if os.name != "nt" or value.isascii():
+        return value
+    try:
+        get_short_path = ctypes.windll.kernel32.GetShortPathNameW
+        buffer = ctypes.create_unicode_buffer(32768)
+        written = int(get_short_path(value, buffer, len(buffer)))
+    except (AttributeError, OSError, ValueError):
+        return value
+    return buffer.value if 0 < written < len(buffer) else value
+
+
+def configure_cupy_compiler_paths(cupy_module: Any) -> bool:
+    """Make CuPy's NVRTC include options safe for Unicode Windows installs."""
+    if os.name != "nt":
+        return False
+    compiler = cupy_module.cuda.compiler
+    current = compiler._compile_module_with_cache
+    if getattr(current, "_cascade_windows_path_wrapper", False):
+        return True
+
+    @functools.wraps(current)
+    def compile_with_windows_paths(source, options=(), **kwargs):
+        safe_options = tuple(
+            "-I" + _windows_short_path(option[2:])
+            if option.startswith("-I") and not option.isascii()
+            else option
+            for option in options
+        )
+        return current(source, safe_options, **kwargs)
+
+    compile_with_windows_paths._cascade_windows_path_wrapper = True
+    compiler._compile_module_with_cache = compile_with_windows_paths
+    return True
 
 
 def _is_component_library(path: Path) -> bool:
@@ -181,7 +220,7 @@ def configure_cuda_runtime() -> tuple[str, ...]:
     if not os.environ.get("CUDA_PATH"):
         cuda_path = discover_cuda_path()
         if cuda_path is not None:
-            os.environ["CUDA_PATH"] = str(cuda_path)
+            os.environ["CUDA_PATH"] = _windows_short_path(cuda_path)
     return preload_cuda_component_libraries()
 
 
@@ -199,6 +238,7 @@ def cuda_subprocess_environment() -> dict[str, str]:
 
 
 __all__ = [
+    "configure_cupy_compiler_paths",
     "configure_cuda_runtime",
     "cuda_component_library_dirs",
     "cuda_path_file",

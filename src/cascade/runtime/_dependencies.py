@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from importlib import import_module
 
-from cascade.accelerators.cuda_runtime import configure_cuda_runtime
+from cascade.accelerators.cuda_runtime import (
+    configure_cuda_runtime,
+    configure_cupy_compiler_paths,
+)
 
 try:
     from vtkmodules.vtkCommonCore import (
@@ -67,6 +70,8 @@ _compute_cext_batch_numba = None
 configure_cuda_runtime()
 try:
     import cupy as _cp
+
+    configure_cupy_compiler_paths(_cp)
 
     _HAVE_CUPY = True
 except Exception:  # pragma: no cover

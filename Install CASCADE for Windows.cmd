@@ -13,5 +13,5 @@ if "%CASCADE_INSTALL_STATUS%"=="0" (
     echo CASCADE installation failed. Review the installer log shown above.
 )
 echo.
-pause
+if /I not "%CASCADE_INSTALLER_NO_PAUSE%"=="1" pause
 exit /b %CASCADE_INSTALL_STATUS%

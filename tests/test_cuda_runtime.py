@@ -116,6 +116,43 @@ def test_isolated_probe_bootstraps_before_importing_cupy() -> None:
     assert backend._PROBE_CODE.index("configure_cuda_runtime()") < (
         backend._PROBE_CODE.index("import cupy")
     )
+    assert backend._PROBE_CODE.index("import cupy") < (
+        backend._PROBE_CODE.index("configure_cupy_compiler_paths(cp)")
+    )
+
+
+def test_windows_cupy_compiler_uses_short_paths_for_unicode_includes(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, tuple[str, ...], dict[str, object]]] = []
+
+    def compile_module(source, options=(), **kwargs):
+        calls.append((source, options, kwargs))
+        return "compiled"
+
+    fake_compiler = SimpleNamespace(_compile_module_with_cache=compile_module)
+    fake_cupy = SimpleNamespace(cuda=SimpleNamespace(compiler=fake_compiler))
+    monkeypatch.setattr(cuda_runtime.os, "name", "nt")
+    monkeypatch.setattr(
+        cuda_runtime,
+        "_windows_short_path",
+        lambda value: str(value).replace("Unicode Ω", "UNICOD~1"),
+    )
+
+    assert cuda_runtime.configure_cupy_compiler_paths(fake_cupy)
+    assert cuda_runtime.configure_cupy_compiler_paths(fake_cupy)
+    result = fake_compiler._compile_module_with_cache(
+        "kernel", (r"-IC:\Unicode Ω\cupy\include", "--std=c++17"), arch="86"
+    )
+
+    assert result == "compiled"
+    assert calls == [
+        (
+            "kernel",
+            (r"-IC:\UNICOD~1\cupy\include", "--std=c++17"),
+            {"arch": "86"},
+        )
+    ]
 
 
 def _run_config(*, cext_mode: str, tissue_mode: str, solver: str = "network_ext"):

@@ -18,6 +18,7 @@ def test_double_click_launcher_uses_repository_relative_installer() -> None:
     assert "%~dp0scripts\\windows\\install-cascade.ps1" in text
     assert "ExecutionPolicy Bypass" in text
     assert "%*" in text
+    assert "CASCADE_INSTALLER_NO_PAUSE" in text
 
 
 def test_installer_has_native_isolated_release_guards() -> None:

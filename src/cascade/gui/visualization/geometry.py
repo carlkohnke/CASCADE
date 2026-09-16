@@ -23,9 +23,9 @@ from cascade.gui.visualization.fields import (
 )
 
 
-# Display-only rotation that brings the packaged bivent3 coordinate frame into
+# Display-only rotation that brings the packaged bivent coordinate frame into
 # CASCADE Studio's ordinary home camera.  It never changes solver coordinates.
-_BIVENT3_DISPLAY_ROTATION = np.asarray(
+_BIVENT_DISPLAY_ROTATION = np.asarray(
     (
         (-0.961013694169, 0.242651846526, -0.132562291004),
         (0.023633505460, 0.549759394977, 0.834988661632),
@@ -41,8 +41,8 @@ def domain_display_rotation(domain: dict[str, Any]) -> np.ndarray:
     """Return the preview-only model rotation for a configured domain."""
     kind = str(domain.get("type", domain.get("kind", ""))).lower()
     path_name = Path(str(domain.get("path", ""))).name.lower()
-    if kind == "bivent3" or (kind == "file" and path_name == "bivent3.stl"):
-        return _BIVENT3_DISPLAY_ROTATION.copy()
+    if kind == "bivent" or (kind == "file" and path_name == "bivent.stl"):
+        return _BIVENT_DISPLAY_ROTATION.copy()
     return np.eye(3, dtype=float)
 
 

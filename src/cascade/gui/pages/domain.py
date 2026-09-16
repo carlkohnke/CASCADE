@@ -41,7 +41,7 @@ class DomainPage(Page):
                 ("Box", "box"),
                 ("Sphere", "sphere"),
                 ("Cylinder / disk", "cylinder"),
-                ("Biventricular heart", "bivent3"),
+                ("Biventricular heart", "bivent"),
                 ("Upload mesh / .dmn", "file"),
             ]
         )
@@ -96,7 +96,7 @@ class DomainPage(Page):
         heart_layout = QVBoxLayout(heart_panel)
         heart_layout.setContentsMargins(0, 0, 0, 0)
         heart_description = QLabel(
-            "Use the packaged bivent3 STL heart surface. CASCADE resolves the "
+            "Use the packaged bivent STL heart surface. CASCADE resolves the "
             "mesh from the installed package, so saved projects remain portable."
         )
         heart_description.setWordWrap(True)
@@ -135,14 +135,14 @@ class DomainPage(Page):
         visible_kind = (
             "box"
             if kind == "cube"
-            else "bivent3"
-            if kind == "file" and path_name == "bivent3.stl"
+            else "bivent"
+            if kind == "file" and path_name == "bivent.stl"
             else kind
         )
         _set_combo(
             self.kind,
             visible_kind
-            if visible_kind in {"box", "sphere", "cylinder", "bivent3"}
+            if visible_kind in {"box", "sphere", "cylinder", "bivent"}
             else "file",
         )
         self.stack.setCurrentIndex(self.kind.currentIndex())
@@ -211,11 +211,11 @@ class DomainPage(Page):
                     "center": [0.0, 0.0, 0.0],
                 }
             )
-        elif kind == "bivent3":
+        elif kind == "bivent":
             domain.update(
                 {
                     "type": "file",
-                    "path": "bivent3.stl",
+                    "path": "bivent.stl",
                 }
             )
         else:

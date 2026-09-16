@@ -1,8 +1,7 @@
 # Domains
 
-CASCADE Studio can create box and sphere domains or use the packaged
-`bivent3.stl` heart surface. The CLI can also load surface and volume meshes
-readable by PyVista.
+CASCADE can create simple domains, use the packaged `bivent.stl` biventricular
+heart surface, or load a surface or volume mesh readable by PyVista.
 
 ## File-backed domain
 

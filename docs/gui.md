@@ -40,7 +40,7 @@ path. See the [Linux](linux.md) and [WSL](wsl.md) installation guides.
 ## Guided workflow
 
 1. **Project** names the study and reports detected CPU, RAM, GPU, and GPU memory.
-2. **Domain** creates a box or sphere, uses the packaged bivent3 heart surface, or references a mesh/legacy `.dmn` file without copying it into the GUI.
+2. **Domain** creates a box or sphere, uses the packaged bivent heart surface, or references a mesh/legacy `.dmn` file without copying it into the GUI.
 3. **Network** grows a tree/forest with public svVascularize, loads a saved svVascularize object, builds a paper lattice, or creates a simple channel.
 4. **Physics** sets unit-aware flow/pressure boundary conditions, diffusivity, Vmax, Km, inlet oxygen, hematocrit, hemoglobin oxygen capacity, and an optional viability threshold.
 5. **Solver** selects the flow/concentration/Cext path, Graetz or well-mixed closure, finite-radius terms, quadrature, iterations, convergence, backend, and expert runtime overrides.

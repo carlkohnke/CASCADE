@@ -9,7 +9,7 @@ cascade run --settings case.json
 The generated-tree example is self-contained. The later sections show settings
 to add to a case or require the referenced input files.
 
-## Generated vascular tree
+## Generate a vascular tree
 
 ```json
 {
@@ -58,8 +58,8 @@ pressures in pascals:
   },
   "settings": {
     "hemodynamics": {
-      "root_pressure": 7080.254371993,
-      "terminal_pressure": 5999.51,
+      "root_pressure": 7080.0,
+      "terminal_pressure": 5999.0,
       "scale_dp_by_volume": false
     },
     "kirchhoff": {"solver": "tree"}
@@ -72,7 +72,7 @@ pressures and flows are written to `segments.csv` and `vessels.vtp` when those
 outputs are enabled. Studio exposes the same mode as **Inlet pressure + outlet
 pressure**.
 
-## Anatomical forest with occlusion
+## Anatomical forest (multiple trees) with occlusion
 
 Generated and loaded anatomical forests use the same simulation engine. This
 example loads a heart surface and forest, enables a shared external field, and

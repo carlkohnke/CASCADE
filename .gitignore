@@ -50,7 +50,7 @@ gfm_run*/
 *.vtu
 *.vtp
 *.stl
-!src/cascade/assets/domains/bivent3.stl
+!src/cascade/assets/domains/bivent.stl
 *.obj
 *.h5
 *.hdf5

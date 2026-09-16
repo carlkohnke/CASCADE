@@ -286,7 +286,8 @@ has SHA-256
 `1542ed556743d0b83bfe71601d5f860ca5e88ae6760b546d94bc6f70597c74f9`.
 It was force-installed into the native CPU environment and imported from that
 environment's `site-packages` in a fresh NTFS test snapshot. After correcting a
-qualification-harness omission of the standalone `setup_env.py` fixture, the
+qualification-harness omission of the then-named standalone `setup_env.py`
+fixture, the
 complete installed-wheel suite passed 76 tests in 110.70 seconds. The initial
 74-pass/2-fail result and successful rerun are both retained in sandbox logs;
 the two failures were missing-fixture errors, not CASCADE runtime failures.
@@ -391,7 +392,8 @@ the ignored `.venv` directory. No system Python packages or user configuration
 were changed.
 
 `pip check` reported no broken requirements, and the fatal/static Ruff
-selection passed across `src`, `setup_env.py`, and `tests`. The full suite
+selection passed across `src`, the setup helper (then `setup_env.py`), and
+`tests`. The full suite
 completed with 65 passes and 13 intentional skips in 56.40 seconds. Skips were
 limited to tests requiring native Windows DLL, PE, Job Object, or QProcess
 semantics and the explicitly opt-in dedicated-CUDA qualification cases.

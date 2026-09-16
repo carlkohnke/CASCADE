@@ -1,10 +1,11 @@
 # Explicit allowlist for the Python source distribution (sdist).
 include README.md LICENSE
-include pyproject.toml setup_env.py
+include pyproject.toml setup_linux.py
 include Install*Windows.cmd
 recursive-include scripts/windows *.ps1
+recursive-include scripts/wsl *.cmd *.sh *.vbs
 recursive-include requirements *.txt *.md *.yml
-include docs/architecture.md docs/custom-geometry.md docs/gui.md docs/known-issues.md docs/svv-compatibility.md docs/windows.md docs/windows-qualification.md
+include docs/architecture.md docs/custom-geometry.md docs/development.md docs/gui.md docs/linux.md docs/known-issues.md docs/svv-compatibility.md docs/windows.md docs/windows-qualification.md docs/wsl.md
 recursive-include src/cascade/gui/assets *.svg
 recursive-include src/cascade/gui/native *.cs
 recursive-include src/cascade/gui/shaders *.frag *.vert

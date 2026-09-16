@@ -53,21 +53,26 @@ is also available as `cascade` in a new PowerShell or Command Prompt window.
 See the [native Windows installation guide](docs/windows.md) for details and
 the advanced released-wheel workflow.
 
-For Linux development from the repository, create a CPU environment with
-Studio from the repository root:
+For Linux or WSL, create a CPU environment with Studio from the repository
+root. This is a source-based installation, so keep the checkout after setup:
 
 ```bash
-python setup_env.py \
+python3.12 setup_linux.py \
   --venv .venv \
   --gui
 source .venv/bin/activate
 cascade doctor --no-gpu-probe
+cascade self-test
+cascade-gui
 ```
+
+See the [Linux installation guide](docs/linux.md) or the
+[WSL installation guide](docs/wsl.md) for platform-specific launch details.
 
 For a CUDA 13 environment:
 
 ```bash
-python setup_env.py \
+python3.12 setup_linux.py \
   --venv .venv \
   --gui \
   --gpu cu13 \
@@ -371,6 +376,9 @@ See [docs/gui.md](docs/gui.md).
 
 - [CASCADE Studio guide](docs/gui.md)
 - [Native Windows installation](docs/windows.md)
+- [Linux installation](docs/linux.md)
+- [WSL installation](docs/wsl.md)
+- [Development setup](docs/development.md)
 - [Custom vascular geometry format](docs/custom-geometry.md)
 - [Architecture and package map](docs/architecture.md)
 - [Public svVascularize compatibility](docs/svv-compatibility.md)
@@ -381,7 +389,7 @@ See [docs/gui.md](docs/gui.md).
 
 ```bash
 python -m pip install '.[dev,gui]'
-python -m ruff check --select E9,F63,F7,F82,F601,F811,E741 src setup_env.py
+python -m ruff check --select E9,F63,F7,F82,F601,F811,E741 src setup_linux.py
 python -m build
 cascade self-test
 ```

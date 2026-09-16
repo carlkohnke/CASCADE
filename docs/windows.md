@@ -104,8 +104,8 @@ Studio also writes unhandled GUI exceptions to
 OpenGL for graphics-driver troubleshooting. Set it to `gpu` to require the
 OpenGL renderer and fail visibly when it is unavailable.
 
-The `GUI Launchers` directory in the source repository contains legacy WSL
-development helpers. They are not used by the native wheel installation.
+The helpers under `scripts/wsl` launch the Linux installation through WSL.
+They are not used by the native Windows installation.
 
 ## Command-line use
 

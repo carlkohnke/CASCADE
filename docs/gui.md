@@ -16,12 +16,12 @@ console. `cascade-gui-console.exe` is the visible diagnostic launcher. Complete
 CPU and CUDA 13 setup commands, log locations, and troubleshooting are in the
 [native Windows installation guide](windows.md).
 
-For Linux development from the repository:
+For Linux or WSL installation from the repository:
 
 From the repository root:
 
 ```bash
-python setup_env.py --gui --gpu cu13
+python3.12 setup_linux.py --gui --gpu cu13
 .venv/bin/python -m cascade.gui
 ```
 
@@ -32,18 +32,16 @@ workbench exists, keeping generated projects and GUI state out of the source
 tree.
 
 Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit
-`--gpu` for CPU-only work). After an editable install, `cascade-gui` is
-equivalent. Linux and WSL source developers can run
-`./GUI\ Launchers/launch_gui_linux.sh` after making it executable. The `.bat`
-and `.vbs` files in that source-only directory are legacy WSL helpers and are
-not the native Windows launch path.
+`--gpu` for CPU-only work). After setup, `cascade-gui` is equivalent. WSL users
+can run `bash scripts/wsl/launch-studio.sh`; the `.cmd` and `.vbs` files in that
+directory are WSL convenience wrappers and are not the native Windows launch
+path. See the [Linux](linux.md) and [WSL](wsl.md) installation guides.
 
-The WSL launchers use Qt through WSLg's XWayland compatibility transport by
-default. This avoids the blank `[WARN:COPY MODE]` window produced by the native
-Wayland path on some Windows/driver combinations. Set `QT_QPA_PLATFORM`
-explicitly before launch to override that choice.
-The launcher also pins the XWayland cursor to a conventional 16-pixel Adwaita
-pointer because WSLg can otherwise scale the inherited desktop cursor twice.
+The WSL launcher prefers WSLg's Wayland transport and the software preview
+backend by default. Set `QT_QPA_PLATFORM` or `CASCADE_RENDER_BACKEND`
+explicitly before launch to override those choices. If XWayland is selected,
+the launcher pins its cursor to a conventional 16-pixel Adwaita pointer because
+WSLg can otherwise scale the inherited desktop cursor twice.
 When available, the main window uses the standard Windows arrow from the host
 installation instead of exposing that XWayland cursor. Advanced users can
 override these choices with `CASCADE_CURSOR_THEME`, `CASCADE_CURSOR_SIZE`,

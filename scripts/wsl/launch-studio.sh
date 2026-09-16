@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Launch CASCADE Studio from a Linux or WSL checkout.
 #
-# Run this file directly after `python setup_env.py --venv .venv --gui`, or let
+# Run this file directly after `python setup_linux.py --venv .venv --gui`, or let
 # one of the Windows wrappers call it under WSL. It resolves the checkout and
 # configured Python automatically, writes GUI logs/state outside the source
 # tree when a sibling CASCADE-workbench exists, and prevents duplicate Studio
 # instances with a per-user lock.
 set -euo pipefail
 LAUNCHER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPOSITORY_DIR="$(cd -- "$LAUNCHER_DIR/.." && pwd)"
+REPOSITORY_DIR="$(cd -- "$LAUNCHER_DIR/../.." && pwd)"
 cd "$REPOSITORY_DIR"
 export PATH="/usr/lib/wsl/lib:/usr/local/bin:/usr/bin:/bin"
 
@@ -62,7 +62,7 @@ fi
 mkdir -p "$STATE_DIR"
 export CASCADE_CONFIG_DIR="$CONFIG_DIR"
 
-# `setup_env.py` records its interpreter and optional CUDA toolkit in the
+# `setup_linux.py` records its interpreter and optional CUDA toolkit in the
 # configuration directory. Explicit environment variables take precedence.
 PYTHON_PATH="${CASCADE_PYTHON:-$REPOSITORY_DIR/.venv/bin/python}"
 if [[ -f "$CONFIG_DIR/.cascade_python" ]]; then
@@ -74,7 +74,7 @@ if [[ -z "${CUDA_PATH:-}" && -f "$CONFIG_DIR/.cascade_cuda_path" ]]; then
     export CUDA_PATH="$(<"$CONFIG_DIR/.cascade_cuda_path")"
 fi
 if [[ ! -x "$PYTHON_PATH" ]]; then
-    echo "CASCADE environment not found. Run: python setup_env.py --venv .venv --gui" >&2
+    echo "CASCADE environment not found. Run: python setup_linux.py --venv .venv --gui" >&2
     exit 1
 fi
 exec flock -n "$STATE_DIR/gui.instance.lock" \

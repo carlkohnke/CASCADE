@@ -2,7 +2,7 @@
 
 Users normally invoke this module with ``cascade-gui`` or
 ``python -m cascade.gui`` after installing the ``gui`` dependency extra. The
-platform launchers under ``GUI Launchers/`` resolve the same entry point.
+WSL helpers under ``scripts/wsl/`` resolve the same entry point.
 """
 
 from __future__ import annotations

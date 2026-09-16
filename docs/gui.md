@@ -48,6 +48,11 @@ path. See the [Linux](linux.md) and [WSL](wsl.md) installation guides.
 7. **Run** saves a frozen settings file for every job and runs jobs sequentially through a memory-bounded local worker, with stage, progress, cancellation, and logs.
 8. **Results** inspects summary data and scalar-colored vessel/tissue output in the shared interactive viewport.
 
+The [settings reference](settings.md) lists every saved setting, identifies the
+object it applies to, and separates study-defining scientific choices from
+advanced numerical and performance tuning. Studio writes those same settings
+to the project JSON and to each frozen run configuration.
+
 The tissue-point selector supports random points, a structured Cartesian grid, or a fixed CSV/NPY/NPZ coordinate file. Fixed files make validation runs evaluate identical coordinates; CSV columns are `x,y,z` in centimetres, while NPZ uses `points` or `sample_points` with shape `(N, 3)`.
 
 Lattice sizing can use either the number of cells along X or a physical X

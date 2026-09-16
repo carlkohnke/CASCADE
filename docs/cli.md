@@ -28,6 +28,9 @@ Settings files use six main sections:
 Unknown top-level and core-section keys are rejected so spelling mistakes do
 not silently alter a simulation.
 
+See the [settings reference](settings.md) for every accepted setting, grouped
+by the object it controls and ranked by scientific or operational importance.
+
 ## Commands
 
 | Command | Purpose |

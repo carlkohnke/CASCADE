@@ -5,7 +5,8 @@ include Install*Windows.cmd
 recursive-include scripts/windows *.ps1
 recursive-include scripts/wsl *.cmd *.sh *.vbs
 recursive-include requirements *.txt *.md *.yml
-include docs/cli.md docs/custom-geometry.md docs/development.md docs/domains.md docs/examples.md docs/gui.md docs/linux.md docs/known-issues.md docs/outputs.md docs/svv-compatibility.md docs/windows.md docs/wsl.md
+include docs/cli.md docs/custom-geometry.md docs/development.md docs/domains.md docs/examples.md docs/gui.md docs/linux.md docs/known-issues.md docs/outputs.md docs/settings.md docs/svv-compatibility.md docs/windows.md docs/wsl.md
+include scripts/generate_settings_reference.py
 recursive-include src/cascade/gui/assets *.svg
 recursive-include src/cascade/gui/native *.cs
 recursive-include src/cascade/gui/shaders *.frag *.vert

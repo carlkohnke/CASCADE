@@ -29,6 +29,17 @@ def build_domain(config: RunConfig, ts=None):
         )
     kind = str(domain_cfg.kind).strip().lower()
     if kind == "cube":
+        if domain_cfg.center is not None:
+            center = tuple(float(v) for v in domain_cfg.center)
+            mesh = pv.Cube(
+                center=center,
+                x_length=float(domain_cfg.side_length),
+                y_length=float(domain_cfg.side_length),
+                z_length=float(domain_cfg.side_length),
+            )
+            return ts.build_domain(
+                mesh=mesh, random_seed=int(domain_cfg.random_seed)
+            )
         return ts.build_domain(
             float(domain_cfg.side_length), random_seed=int(domain_cfg.random_seed)
         )
@@ -65,7 +76,7 @@ def build_domain(config: RunConfig, ts=None):
             direction=(0.0, 0.0, 1.0),
             radius=radius,
             height=height,
-            resolution=64,
+            resolution=int(domain_cfg.theta_resolution),
             capping=True,
         ).triangulate().clean()
         return ts.build_domain(mesh=mesh, random_seed=int(domain_cfg.random_seed))
@@ -85,13 +96,14 @@ def build_domain(config: RunConfig, ts=None):
             if domain_cfg.z_length is not None
             else domain_cfg.side_length
         )
-        domain = Domain(pv.Cube(x_length=x_len, y_length=y_len, z_length=z_len))
-        domain.random_seed = int(domain_cfg.random_seed)
-        domain.create()
-        domain.solve()
-        domain.build()
-        domain.set_random_generator()
-        return domain
+        center = tuple(float(v) for v in (domain_cfg.center or [0.0, 0.0, 0.0]))
+        mesh = pv.Cube(
+            center=center,
+            x_length=x_len,
+            y_length=y_len,
+            z_length=z_len,
+        )
+        return ts.build_domain(mesh=mesh, random_seed=int(domain_cfg.random_seed))
 
     domain_path = resolve_domain_path(
         domain_cfg.path,

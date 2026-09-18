@@ -42,7 +42,9 @@ def add_vessel(tree, **kwargs):
     exterior_range = kwargs.get('exterior_range', [0.0, 1.0])
     flow_ratio = kwargs.get('flow_ratio', 20)
     max_depth = kwargs.get('max_depth', 20)
-    callback = kwargs.get('callback', True)
+    record_history = bool(kwargs.get('callback', True))
+    history = []
+    lines = []
     x0 = kwargs.get('x0', numpy.array([0.5, 0.5]))
     threshold_exponent = kwargs.pop('threshold_exponent', 1.5)
     threshold_adjuster = kwargs.pop('threshold_adjuster', 0.9)
@@ -118,7 +120,7 @@ def add_vessel(tree, **kwargs):
                             continue
                         cost, triad, vol = construct_optimizer(tree, terminal_points[i, :], closest_vessels[j, i])
                         bifurcation_cell = mesh_cells[i]
-                        if callback:
+                        if record_history:
                             history = []
                             lines = numpy.zeros((6, 3), dtype=numpy.float64)
                             lines[0, :] = data[closest_vessels[j, i], 0:3]
@@ -128,14 +130,13 @@ def add_vessel(tree, **kwargs):
                             lines[4, :] = data[closest_vessels[j, i], 3:6]
                             lines[5, :] = terminal_points[i, :]
 
-                            def callback(xk, history=history):
+                            def optimizer_callback(xk, history=history, triad=triad):
                                 history.append(triad(xk))
 
                         else:
                             lines = []
 
-                            def callback(xk):
-                                pass
+                            optimizer_callback = None
                         end_1 = perf_counter()
                         tree.times['chunk_1'][-1] += end_1 - start_1
                         start = perf_counter()
@@ -146,8 +147,8 @@ def add_vessel(tree, **kwargs):
                         else:
                             if True:
                                 cons = [{"type": "ineq", "fun": lambda a: 1 - a[0] - a[1]}]
-                                result = minimize(cost, x0, bounds=[(0.05, 0.95), (0.05, 0.95)], callback=callback,
-                                                  options={'maxiter':max_iter},constraints=cons, method="L-BFGS-B")
+                                result = minimize(cost, x0, bounds=[(0.05, 0.95), (0.05, 0.95)], callback=optimizer_callback,
+                                                  options={'maxiter':max_iter},constraints=cons, method="SLSQP")
                                 bifurcation_point = triad(result.x)
                                 tree.new_tree_scale = vol(result.x)
                                 if not result.success:
@@ -547,7 +548,7 @@ def add_vessel(tree, **kwargs):
                                 continue
                         cost, triad, vol = construct_optimizer(tree, terminal_points[i, :], closest_vessels[j, i])
                         bifurcation_cell = mesh_cells[i]
-                        if callback:
+                        if record_history:
                             history = []
                             lines = numpy.zeros((6, 3), dtype=numpy.float64)
                             lines[0, :] = data[closest_vessels[j, i], 0:3]
@@ -556,12 +557,12 @@ def add_vessel(tree, **kwargs):
                             lines[3, :] = terminal_points[i, :]
                             lines[4, :] = data[closest_vessels[j, i], 3:6]
                             lines[5, :] = terminal_points[i, :]
-                            def callback(xk, history=history):
+                            def optimizer_callback(xk, history=history, triad=triad):
                                 history.append(triad(xk))
                         else:
+                            history = []
                             lines = []
-                            def callback(xk):
-                                pass
+                            optimizer_callback = None
                         end_1 = perf_counter()
                         tree.times['chunk_1'][-1] += end_1 - start_1
                         start = perf_counter()
@@ -572,7 +573,8 @@ def add_vessel(tree, **kwargs):
                         else:
                             cons = [{"type": "ineq", "fun": lambda a: 1 - a[0] - a[1]}]
                             result = minimize(cost, x0, bounds=[(0.0, 1.0), (0, 1.0)],
-                                              options={'maxiter': max_iter}, constraints=cons, method="L-BFGS-B")
+                                              callback=optimizer_callback,
+                                              options={'maxiter': max_iter}, constraints=cons, method="SLSQP")
                             if not result.success:
                                 continue
                             bifurcation_point = triad(result.x)

@@ -140,7 +140,9 @@ def main(argv=None) -> int:
     root_radii = []
     totals = [int(getattr(tree, "segment_count", 0) or 0) for tree in build.trees]
     allocations = _fair_allocations(totals, preview_vessel_limit)
-    for tree_id, (tree, take) in enumerate(zip(build.trees, allocations)):
+    for tree_id, (tree, take) in enumerate(
+        zip(build.trees, allocations, strict=True)
+    ):
         total = int(getattr(tree, "segment_count", 0) or 0)
         n = min(total, int(take))
         data = np.asarray(tree.data[:n], dtype=float)
@@ -190,6 +192,20 @@ def main(argv=None) -> int:
             if source == "svv_generated"
             else totals
         ),
+        "requested_growth_count": final_target
+        if source == "svv_generated"
+        else None,
+        "preview_growth_count": preview_target
+        if source == "svv_generated"
+        else None,
+        "requested_terminal_leaves": final_target + 1
+        if source == "svv_generated"
+        else None,
+        "preview_terminal_leaves": preview_target + 1
+        if source == "svv_generated"
+        else None,
+        # Retain the original response keys for older Studio consumers. Their
+        # values are growth counts, as the explicit keys above now make clear.
         "requested_terminal_target": final_target
         if source == "svv_generated"
         else None,

@@ -648,7 +648,7 @@ def expand_sweeps(config: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     # combination for one geometry contiguous before the next domain/network
     # geometry is constructed.
     dimensions = sorted(
-        zip(paths, values),
+        zip(paths, values, strict=True),
         key=lambda item: 0 if _sweep_affects_geometry(item[0]) else 1,
     )
     paths = [path for path, _values in dimensions]
@@ -661,7 +661,7 @@ def expand_sweeps(config: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     for index, combination in enumerate(itertools.product(*values), start=1):
         run = deepcopy(config)
         labels = []
-        for path, value in zip(paths, combination):
+        for path, value in zip(paths, combination, strict=True):
             set_path(run, path, value)
             if path == "settings.oxygen.conc_max_for_normalization":
                 oxygen = run.setdefault("settings", {}).setdefault("oxygen", {})
@@ -736,7 +736,7 @@ def create_jobs(config: dict[str, Any], project_dir: str | Path) -> list[JobReco
     if not combined_filename.lower().endswith(".csv"):
         combined_filename += ".csv"
 
-    for (label, run), geometry_key in zip(expanded, geometry_keys):
+    for (label, run), geometry_key in zip(expanded, geometry_keys, strict=True):
         job_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:8]
         display_name = run_name if label == "base" else f"{run_name} - {label}"
         slug = re.sub(r"[^A-Za-z0-9._-]+", "-", display_name).strip("-._")
@@ -796,7 +796,7 @@ def create_jobs(config: dict[str, Any], project_dir: str | Path) -> list[JobReco
 
 _SWEEP_CSV_INFO = {
     "simulation.qin_target_ul_min": ("Inlet flow", "sweep_inlet_flow_uL_per_min"),
-    "network.target_terminal_count": ("Terminal count", "sweep_target_terminals"),
+    "network.target_terminal_count": ("Growth count N", "sweep_target_terminals"),
     "settings.oxygen.solute_diffusivity": (
         "Diffusivity",
         "sweep_diffusivity_cm2_per_s",

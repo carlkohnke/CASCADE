@@ -14,7 +14,7 @@ from cascade.diagnostics.runtime import _require_tree_class
 
 def grow_tree(
     domain: _state.Domain,
-    vessels_to_add: int,
+    target_growth_count: int,
     *,
     dlp_enable: bool,
     min_theta: float,
@@ -28,8 +28,15 @@ def grow_tree(
     allow_inside_vessels: bool = False,
 ) -> _state.Tree:
     _require_tree_class()
+    growth_additions = int(target_growth_count)
+    if growth_additions < 1:
+        raise ValueError("Generated trees require at least one growth addition.")
+    final_terminals = growth_additions + 1
+    initial_capacity = max(min(2 * growth_additions + 1, 4096), 16)
     tree = _state.Tree(
-        data_dtype=_state.TREE_DATA_DTYPE, index_dtype=_state.TREE_INDEX_DTYPE
+        data_dtype=_state.TREE_DATA_DTYPE,
+        index_dtype=_state.TREE_INDEX_DTYPE,
+        preallocation_step=initial_capacity,
     )
     tree.set_domain(domain)
     tree.parameters.root_pressure = _state.ROOT_PRESSURE
@@ -63,13 +70,12 @@ def grow_tree(
         tree.parameters.kinematic_viscosity = (
             float(_state.CUSTOM_FLUID_DYNAMIC_VISCOSITY_CP) / 100.0 / density
         )
-    n_vessels = max(int(vessels_to_add), 1)
-    total_terminals = max(n_vessels + 1, 1)
+    vessels_to_add = growth_additions
     if terminal_flow_override is not None:
         tree.parameters.terminal_flow = terminal_flow_override
     else:
         tree.parameters.terminal_flow = (
-            _state.QIN_TARGET * 0.00001666666666 / total_terminals
+            _state.QIN_TARGET * 0.00001666666666 / final_terminals
         )
     scale = (
         float(side_length)
@@ -83,7 +89,7 @@ def grow_tree(
         tree.set_root(root_loc)
     _apply_equal_bifurcation(tree)
     tree.n_add(
-        n_vessels,
+        vessels_to_add,
         n_closest_vessels=n_closest_vessels,
         n_points=n_points,
         use_random_int=not weighted_sampling,

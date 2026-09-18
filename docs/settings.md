@@ -118,9 +118,9 @@ for `dimensions`, `box_x_cm`/`box_y_cm`/`box_z_cm` for the three lengths,
 
 | `network.mode` | Essential scientific | `"tree"` | `tree`, `forest`, or `simple`. |
 | `network.input_path` | Essential scientific | `null` | Saved tree/forest NPZ path. Omit to generate a network. |
-| `network.target_terminal_count` | Essential scientific | `100` | Final terminal count for one generated tree. |
-| `network.target_total_terminal_count` | Essential scientific | `null` | Total terminal count distributed over a generated forest. |
-| `network.target_terminal_counts` | Essential scientific | `[]` | Per-tree terminal counts for a generated forest. |
+| `network.target_terminal_count` | Essential scientific | `100` | Growth count `N` for one generated tree. SVV starts with one root segment and performs `N` bifurcation additions, yielding `N + 1` terminal leaves and `2N + 1` total segments. |
+| `network.target_total_terminal_count` | Essential scientific | `null` | Total growth count distributed over a generated forest; each tree contributes its initial root segment in addition to its assigned count. |
+| `network.target_terminal_counts` | Essential scientific | `[]` | Per-tree growth counts for a generated forest, using the same `2N + 1` segment convention. |
 | `network.roots[].start` | Essential scientific | generated default | Root start `[x, y, z]` in cm. |
 | `network.roots[].direction` | Essential scientific | `null` | Initial direction vector or endpoint, as expected by the growth engine. |
 | `network.physical_clearance` | Essential scientific | `0.0` | Required physical clearance between trees/vessels in cm. |
@@ -206,7 +206,7 @@ keys above.
 | `growth.checkpoint_path` | Common workflow | `null` | Growth checkpoint file. |
 | `growth.checkpoint_every_adds` | Common workflow | `0` | Save a checkpoint after this many additions; zero disables. |
 | `growth.resume_from_checkpoint` | Common workflow | `false` | Resume from `checkpoint_path`. |
-| `growth.save_target_counts` | Common workflow | `[]` | Save intermediate networks at these terminal counts. |
+| `growth.save_target_counts` | Common workflow | `[]` | Save intermediate networks at these growth counts. |
 | `growth.growth_report_every` | Performance/runtime | `0` | Console progress interval; zero disables periodic reports. |
 | `growth.nearest_tree_batch_points` | Performance/runtime | `256` | Batch size for nearest-tree assignment. |
 
@@ -327,7 +327,7 @@ single-item list is meaningful.
 
 | Setting | Importance | Default | Meaning |
 
-| `sweep.target_terminal_counts` | Essential scientific | network target | Terminal counts to run. |
+| `sweep.target_terminal_counts` | Essential scientific | network target | Growth counts to run, using the `2N + 1` segment convention. |
 | `sweep.fluids` | Essential scientific | simulation fluid | Fluids to run; `both` expands to water and blood. |
 | `sweep.side_lengths` | Essential scientific | domain side length | Cube side lengths in cm. |
 | `sweep.qin_target_ul_min_values` | Essential scientific | simulation flow | Flow targets in µL/min. |

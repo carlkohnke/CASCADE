@@ -76,3 +76,6 @@ cascade = [
     "accelerators/cuda/*.cu",
     "accelerators/cuda/*.cuh",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

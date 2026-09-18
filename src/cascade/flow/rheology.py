@@ -363,7 +363,7 @@ def apply_fahraeus_lindqvist_resistance(
                     flows[left] = flows[right] = f_i * 0.5
                 stack.append(left)
                 stack.append(right)
-    n_terms = max(int(getattr(tree, "n_terminals", 0)) - 1, 1)
+    n_terms = max(int(getattr(tree, "n_terminals", 0)), 1)
     desired_root_flow = original_root_flow
     if not np.isfinite(desired_root_flow) or desired_root_flow == 0.0:
         desired_root_flow = float(tree.parameters.terminal_flow) * float(n_terms)

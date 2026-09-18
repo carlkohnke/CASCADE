@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,6 +42,52 @@ def test_cuda_toolkit_versions_are_sorted_numerically() -> None:
         Path("v12.8"),
         Path("v9.2"),
     ]
+
+
+def test_recreate_refuses_repository_and_non_venv_directories(tmp_path: Path) -> None:
+    setup_linux = _load_setup_linux()
+
+    with pytest.raises(ValueError, match="protected path"):
+        setup_linux._validate_recreate_target(ROOT)
+
+    ordinary = tmp_path / "ordinary"
+    ordinary.mkdir()
+    with pytest.raises(ValueError, match="missing pyvenv.cfg"):
+        setup_linux._validate_recreate_target(ordinary)
+
+
+def test_recreate_accepts_only_marked_virtual_environment(tmp_path: Path) -> None:
+    setup_linux = _load_setup_linux()
+    environment = tmp_path / "safe-venv"
+    environment.mkdir()
+    (environment / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+
+    assert setup_linux._validate_recreate_target(environment) == environment.resolve()
+
+
+def test_recreate_refuses_symlinked_environment(tmp_path: Path) -> None:
+    setup_linux = _load_setup_linux()
+    environment = tmp_path / "real-venv"
+    environment.mkdir()
+    (environment / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    link = tmp_path / "linked-venv"
+    link.symlink_to(environment, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlinked"):
+        setup_linux._validate_recreate_target(link)
+
+
+def test_launcher_path_is_published_after_verification_dry_run(
+    tmp_path: Path, capsys
+) -> None:
+    setup_linux = _load_setup_linux()
+
+    assert setup_linux.main(["--venv", str(tmp_path / "new-venv"), "--dry-run"]) == 0
+
+    output = capsys.readouterr().out
+    assert output.index("cascade.commands.main --help") < output.index(
+        ".cascade_python"
+    )
 
 
 def test_platform_setup_entrypoints_have_unambiguous_locations() -> None:

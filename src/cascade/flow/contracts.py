@@ -15,6 +15,35 @@ def _vector(value: Any, name: str, *, dtype: Any) -> np.ndarray:
     return array
 
 
+def _integer_vector(value: Any, name: str) -> np.ndarray:
+    raw = np.asarray(value).reshape(-1)
+    if raw.dtype.kind == "b":
+        raise ValueError(f"{name} must contain integers, not booleans.")
+    try:
+        numeric = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must contain only integers.") from exc
+    if not np.all(np.isfinite(numeric)) or not np.all(numeric == np.floor(numeric)):
+        raise ValueError(f"{name} must contain only finite integers.")
+    # Float conversion rounds int64.max up to 2**63, so use the half-open
+    # representable interval explicitly rather than comparing with iinfo.max.
+    if np.any(numeric < -(2**63)) or np.any(numeric >= 2**63):
+        raise ValueError(f"{name} values must fit in a signed 64-bit integer.")
+    return numeric.astype(np.int64)
+
+
+def _integer_value(value: Any, name: str) -> int:
+    parsed = _integer_vector([value], name)
+    return int(parsed[0])
+
+
+def _boundary_nodes(value: Sequence[int], name: str) -> tuple[int, ...]:
+    nodes = tuple(int(item) for item in _integer_vector(value, name))
+    if len(nodes) != len(set(nodes)):
+        raise ValueError(f"{name} must not contain duplicate nodes.")
+    return nodes
+
+
 @dataclass(frozen=True)
 class FlowProblem:
     """Network resistance problem with prescribed total inlet flow."""
@@ -30,8 +59,8 @@ class FlowProblem:
     boundary_condition: str = "legacy_equal_terminal_flow"
 
     def __post_init__(self) -> None:
-        proximal = _vector(self.proximal_nodes, "proximal_nodes", dtype=np.int64)
-        distal = _vector(self.distal_nodes, "distal_nodes", dtype=np.int64)
+        proximal = _integer_vector(self.proximal_nodes, "proximal_nodes")
+        distal = _integer_vector(self.distal_nodes, "distal_nodes")
         resistance = _vector(self.resistances, "resistances", dtype=float)
         if not (proximal.size == distal.size == resistance.size):
             raise ValueError(
@@ -46,15 +75,19 @@ class FlowProblem:
         inlet_flow = float(self.inlet_flow_cm3_s)
         if not np.isfinite(inlet_flow) or inlet_flow <= 0.0:
             raise ValueError("inlet_flow_cm3_s must be finite and strictly positive.")
-        inlet_nodes = tuple(int(value) for value in self.inlet_nodes)
-        outlet_nodes = tuple(int(value) for value in self.outlet_nodes)
+        inlet_nodes = _boundary_nodes(self.inlet_nodes, "inlet_nodes")
+        outlet_nodes = _boundary_nodes(self.outlet_nodes, "outlet_nodes")
         if not inlet_nodes:
             raise ValueError("A flow problem requires at least one inlet node.")
         if not outlet_nodes:
             raise ValueError("A flow problem requires at least one outlet node.")
+        if set(inlet_nodes).intersection(outlet_nodes):
+            raise ValueError("Inlet and outlet node sets must not overlap.")
         inferred_node_count = int(max(int(proximal.max()), int(distal.max())) + 1)
         node_count = (
-            inferred_node_count if self.node_count is None else int(self.node_count)
+            inferred_node_count
+            if self.node_count is None
+            else _integer_value(self.node_count, "node_count")
         )
         if node_count < inferred_node_count:
             raise ValueError(
@@ -122,8 +155,8 @@ class PressureDropProblem:
     solver: str = "tree"
 
     def __post_init__(self) -> None:
-        proximal = _vector(self.proximal_nodes, "proximal_nodes", dtype=np.int64)
-        distal = _vector(self.distal_nodes, "distal_nodes", dtype=np.int64)
+        proximal = _integer_vector(self.proximal_nodes, "proximal_nodes")
+        distal = _integer_vector(self.distal_nodes, "distal_nodes")
         resistance = _vector(self.resistances, "resistances", dtype=float)
         if not (proximal.size == distal.size == resistance.size):
             raise ValueError(
@@ -158,8 +191,8 @@ class PressureDropProblem:
         if pressure_drop <= 0.0:
             raise ValueError("pressure_drop must be strictly positive.")
 
-        inlet_nodes = tuple(dict.fromkeys(int(value) for value in self.inlet_nodes))
-        outlet_nodes = tuple(dict.fromkeys(int(value) for value in self.outlet_nodes))
+        inlet_nodes = _boundary_nodes(self.inlet_nodes, "inlet_nodes")
+        outlet_nodes = _boundary_nodes(self.outlet_nodes, "outlet_nodes")
         if not inlet_nodes:
             raise ValueError("A pressure-drop problem requires at least one inlet node.")
         if not outlet_nodes:
@@ -169,7 +202,9 @@ class PressureDropProblem:
 
         inferred_node_count = int(max(int(proximal.max()), int(distal.max())) + 1)
         node_count = (
-            inferred_node_count if self.node_count is None else int(self.node_count)
+            inferred_node_count
+            if self.node_count is None
+            else _integer_value(self.node_count, "node_count")
         )
         if node_count < inferred_node_count:
             raise ValueError(

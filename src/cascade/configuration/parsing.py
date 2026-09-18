@@ -7,6 +7,7 @@ and performs cross-section checks before any domain or solver work begins.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -41,14 +42,35 @@ def _as_bool(value: Any, default: bool = False) -> bool:
         return bool(default)
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
-        return bool(value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if value in (0, 1) and math.isfinite(float(value)):
+            return bool(value)
+        raise ValueError(f"Boolean values must be true/false or 1/0, got {value!r}.")
     text = str(value).strip().lower()
     if text in {"1", "true", "yes", "on"}:
         return True
     if text in {"0", "false", "no", "off"}:
         return False
-    return bool(default)
+    raise ValueError(f"Unrecognized boolean value: {value!r}.")
+
+
+def _as_float(value: Any, *, name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a finite number, not a boolean.")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a finite number.") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{name} must be finite.")
+    return result
+
+
+def _as_int(value: Any, *, name: str) -> int:
+    result = _as_float(value, name=name)
+    if not result.is_integer():
+        raise ValueError(f"{name} must be an integer, got {value!r}.")
+    return int(result)
 
 
 def _as_float_list(value: Any, *, name: str, length: int | None = None) -> list[float]:
@@ -56,7 +78,7 @@ def _as_float_list(value: Any, *, name: str, length: int | None = None) -> list[
         raise ValueError(f"{name} is required.")
     if not isinstance(value, (list, tuple)):
         raise ValueError(f"{name} must be a list of numbers.")
-    out = [float(v) for v in value]
+    out = [_as_float(v, name=f"{name}[{index}]") for index, v in enumerate(value)]
     if length is not None and len(out) != length:
         raise ValueError(f"{name} must contain {length} values.")
     return out
@@ -66,10 +88,10 @@ def _as_int_list(value: Any, *, name: str) -> list[int]:
     if value is None:
         return []
     if isinstance(value, (int, float)):
-        return [int(value)]
+        return [_as_int(value, name=name)]
     if not isinstance(value, (list, tuple)):
         raise ValueError(f"{name} must be an integer or list of integers.")
-    return [int(v) for v in value]
+    return [_as_int(v, name=f"{name}[{index}]") for index, v in enumerate(value)]
 
 
 def load_config(path: str | Path) -> RunConfig:
@@ -116,7 +138,7 @@ def parse_config(raw: dict[str, Any]) -> RunConfig:
     runtime_settings = _parse_runtime_settings(
         raw.get("settings", raw.get("runtime_settings", {}))
     )
-    _validate(network, growth, simulation, outputs)
+    _validate(domain, network, growth, simulation, outputs)
     return RunConfig(
         domain=domain,
         network=network,
@@ -163,18 +185,21 @@ def _parse_domain(raw: Any) -> DomainConfig:
         "domain",
     )
     kind = str(data.get("type", data.get("kind", "cube"))).strip().lower()
-    side_length = float(data.get("side_length", data.get("side_len", 1.0)))
+    side_length = _as_float(
+        data.get("side_length", data.get("side_len", 1.0)),
+        name="domain.side_length",
+    )
     dimensions = data.get("dimensions", data.get("lengths"))
     x_len = y_len = z_len = None
     if dimensions is not None:
         dims = _as_float_list(dimensions, name="domain.dimensions", length=3)
         x_len, y_len, z_len = dims
     radius_raw = data.get("radius", data.get("sphere_radius"))
-    radius = None if radius_raw is None else float(radius_raw)
+    radius = None if radius_raw is None else _as_float(radius_raw, name="domain.radius")
     if radius is not None and radius <= 0.0:
         raise ValueError("domain.radius must be positive.")
     height_raw = data.get("height", data.get("cylinder_height"))
-    height = None if height_raw is None else float(height_raw)
+    height = None if height_raw is None else _as_float(height_raw, name="domain.height")
     if height is not None and height <= 0.0:
         raise ValueError("domain.height must be positive.")
     center_raw = data.get("center")
@@ -183,11 +208,13 @@ def _parse_domain(raw: Any) -> DomainConfig:
         if center_raw is None
         else _as_float_list(center_raw, name="domain.center", length=3)
     )
-    theta_resolution = int(
-        data.get("theta_resolution", data.get("sphere_theta_resolution", 12))
+    theta_resolution = _as_int(
+        data.get("theta_resolution", data.get("sphere_theta_resolution", 12)),
+        name="domain.theta_resolution",
     )
-    phi_resolution = int(
-        data.get("phi_resolution", data.get("sphere_phi_resolution", 8))
+    phi_resolution = _as_int(
+        data.get("phi_resolution", data.get("sphere_phi_resolution", 8)),
+        name="domain.phi_resolution",
     )
     if theta_resolution < 8:
         raise ValueError("domain.theta_resolution must be at least 8.")
@@ -198,13 +225,22 @@ def _parse_domain(raw: Any) -> DomainConfig:
         side_length=side_length,
         x_length=None
         if data.get("x_length", data.get("box_x_cm", x_len)) is None
-        else float(data.get("x_length", data.get("box_x_cm", x_len))),
+        else _as_float(
+            data.get("x_length", data.get("box_x_cm", x_len)),
+            name="domain.x_length",
+        ),
         y_length=None
         if data.get("y_length", data.get("box_y_cm", y_len)) is None
-        else float(data.get("y_length", data.get("box_y_cm", y_len))),
+        else _as_float(
+            data.get("y_length", data.get("box_y_cm", y_len)),
+            name="domain.y_length",
+        ),
         z_length=None
         if data.get("z_length", data.get("box_z_cm", z_len)) is None
-        else float(data.get("z_length", data.get("box_z_cm", z_len))),
+        else _as_float(
+            data.get("z_length", data.get("box_z_cm", z_len)),
+            name="domain.z_length",
+        ),
         radius=radius,
         height=height,
         center=center,
@@ -212,7 +248,7 @@ def _parse_domain(raw: Any) -> DomainConfig:
         phi_resolution=phi_resolution,
         path=data.get("path"),
         mesh=data.get("mesh"),
-        random_seed=int(data.get("random_seed", 42)),
+        random_seed=_as_int(data.get("random_seed", 42), name="domain.random_seed"),
         use_cache=_as_bool(data.get("use_cache"), True),
         cache_dir=data.get("cache_dir"),
     )
@@ -293,19 +329,26 @@ def _parse_network(raw: Any) -> NetworkConfig:
     return NetworkConfig(
         mode=str(data.get("mode", "tree")).strip().lower(),
         input_path=data.get("input_path", data.get("path")),
-        target_terminal_count=None if target_single is None else int(target_single),
-        target_total_terminal_count=None if target_total is None else int(target_total),
+        target_terminal_count=None
+        if target_single is None
+        else _as_int(target_single, name="network.target_terminal_count"),
+        target_total_terminal_count=None
+        if target_total is None
+        else _as_int(target_total, name="network.target_total_terminal_count"),
         target_terminal_counts=target_counts,
         roots=_parse_roots(data),
-        physical_clearance=float(data.get("physical_clearance", 0.0)),
+        physical_clearance=_as_float(
+            data.get("physical_clearance", 0.0), name="network.physical_clearance"
+        ),
         save_path=data.get("save_path"),
         repair_connectivity=_as_bool(data.get("repair_connectivity"), True),
         validate_connectivity=_as_bool(data.get("validate_connectivity"), False),
         fail_connectivity=_as_bool(
             data.get("fail_connectivity", data.get("fail_on_connectivity_error")), True
         ),
-        connectivity_geometry_atol=float(
-            data.get("connectivity_geometry_atol", 1.0e-6)
+        connectivity_geometry_atol=_as_float(
+            data.get("connectivity_geometry_atol", 1.0e-6),
+            name="network.connectivity_geometry_atol",
         ),
         simple=dict(data.get("simple", data.get("simple_geometry", {})) or {}),
     )
@@ -365,45 +408,67 @@ def _parse_growth(raw: Any) -> GrowthConfig:
         .strip()
         .lower()
         .replace("_", "-"),
-        n_closest_vessels=int(data.get("n_closest_vessels", 2)),
-        n_points=int(data.get("n_points", 50)),
+        n_closest_vessels=_as_int(
+            data.get("n_closest_vessels", 2), name="growth.n_closest_vessels"
+        ),
+        n_points=_as_int(data.get("n_points", 50), name="growth.n_points"),
         weighted_sampling=_as_bool(data.get("weighted_sampling"), False),
         ignore_collisions=_as_bool(data.get("ignore_collisions"), True),
         allow_inside_vessels=_as_bool(data.get("allow_inside_vessels"), True),
         n_ignore_collisions=(
             None
             if data.get("n_ignore_collisions") is None
-            else int(data.get("n_ignore_collisions"))
+            else _as_int(
+                data.get("n_ignore_collisions"), name="growth.n_ignore_collisions"
+            )
         ),
-        collision_retry_limit=int(data.get("collision_retry_limit", 100)),
+        collision_retry_limit=_as_int(
+            data.get("collision_retry_limit", 100),
+            name="growth.collision_retry_limit",
+        ),
         collision_failure_mode=str(data.get("collision_failure_mode", "error"))
         .strip()
         .lower(),
-        nearest_tree_batch_points=int(
-            data.get("nearest_tree_batch_points", data.get("nearest_batch_points", 256))
+        nearest_tree_batch_points=_as_int(
+            data.get("nearest_tree_batch_points", data.get("nearest_batch_points", 256)),
+            name="growth.nearest_tree_batch_points",
         ),
         strict_domain_segments=_as_bool(data.get("strict_domain_segments"), False),
-        strict_domain_max_terminals=int(data.get("strict_domain_max_terminals", 10000)),
-        domain_line_samples=int(data.get("domain_line_samples", 4)),
-        domain_line_tolerance=float(data.get("domain_line_tolerance", 0.0)),
-        growth_report_every=int(data.get("growth_report_every", 0)),
-        add_per_tree=_as_int_list(data.get("add_per_tree"), name="growth.add_per_tree"),
-        add_total=(
-            None if data.get("add_total") is None else int(data.get("add_total"))
+        strict_domain_max_terminals=_as_int(
+            data.get("strict_domain_max_terminals", 10000),
+            name="growth.strict_domain_max_terminals",
         ),
+        domain_line_samples=_as_int(
+            data.get("domain_line_samples", 4), name="growth.domain_line_samples"
+        ),
+        domain_line_tolerance=_as_float(
+            data.get("domain_line_tolerance", 0.0),
+            name="growth.domain_line_tolerance",
+        ),
+        growth_report_every=_as_int(
+            data.get("growth_report_every", 0), name="growth.growth_report_every"
+        ),
+        add_per_tree=_as_int_list(data.get("add_per_tree"), name="growth.add_per_tree"),
+        add_total=None
+        if data.get("add_total") is None
+        else _as_int(data.get("add_total"), name="growth.add_total"),
         add_split_mode=str(data.get("add_split_mode", "equal"))
         .strip()
         .lower()
         .replace("_", "-"),
         checkpoint_path=data.get("checkpoint_path", data.get("checkpoint_forest")),
-        checkpoint_every_adds=int(data.get("checkpoint_every_adds", 0)),
+        checkpoint_every_adds=_as_int(
+            data.get("checkpoint_every_adds", 0),
+            name="growth.checkpoint_every_adds",
+        ),
         resume_from_checkpoint=_as_bool(data.get("resume_from_checkpoint"), False),
         save_target_counts=_as_int_list(
             data.get("save_target_counts"), name="growth.save_target_counts"
         ),
         n_equal_bifurcations=None
-        if n_equal is None or int(n_equal) < 0
-        else int(n_equal),
+        if n_equal is None
+        or _as_int(n_equal, name="growth.n_equal_bifurcations") < 0
+        else _as_int(n_equal, name="growth.n_equal_bifurcations"),
         equal_terminal=equal,
     )
 
@@ -481,18 +546,24 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
     return SimulationConfig(
         fluid=fluid,
         build_fluid=build_fluid,
-        qin_target_ul_min=float(
-            data.get("qin_target_ul_min", data.get("qin_target", 100.0))
+        qin_target_ul_min=_as_float(
+            data.get("qin_target_ul_min", data.get("qin_target", 100.0)),
+            name="simulation.qin_target_ul_min",
         ),
         total_qin_ul_min=(
             None
             if data.get("total_qin_ul_min") is None
-            else float(data.get("total_qin_ul_min"))
+            else _as_float(
+                data.get("total_qin_ul_min"), name="simulation.total_qin_ul_min"
+            )
         ),
         concentration_solver=str(data.get("concentration_solver", "network_ext"))
         .strip()
         .lower(),
-        distance_sample_count=int(data.get("distance_sample_count", 10000)),
+        distance_sample_count=_as_int(
+            data.get("distance_sample_count", 10000),
+            name="simulation.distance_sample_count",
+        ),
         flow_source=str(data.get("flow_source", "per_tree")).strip().lower(),
         inlet_conditions=_parse_inlet_conditions(data.get("inlet_conditions", [])),
         sample_mode=str(
@@ -511,12 +582,18 @@ def _parse_simulation(raw: Any) -> SimulationConfig:
         tissue_gpu_validate_points=(
             None
             if data.get("tissue_gpu_validate_points") is None
-            else int(data.get("tissue_gpu_validate_points"))
+            else _as_int(
+                data.get("tissue_gpu_validate_points"),
+                name="simulation.tissue_gpu_validate_points",
+            )
         ),
         viability_threshold=(
             None
             if data.get("viability_threshold") is None
-            else float(data.get("viability_threshold"))
+            else _as_float(
+                data.get("viability_threshold"),
+                name="simulation.viability_threshold",
+            )
         ),
         occlusion=_parse_occlusion(data.get("occlusion", data.get("infarction"))),
         external_field=_parse_external_field(data.get("external_field")),
@@ -542,9 +619,10 @@ def _parse_occlusion(raw: Any) -> OcclusionConfig | None:
         },
         "simulation.occlusion",
     )
-    fraction = float(
+    fraction = _as_float(
         data.get("fraction_blocked", data.get("fraction_blocked_infarction", 0.0))
-        or 0.0
+        or 0.0,
+        name="simulation.occlusion.fraction_blocked",
     )
     if fraction < 0.0:
         raise ValueError("simulation.occlusion.fraction_blocked must be in [0, 1].")
@@ -559,7 +637,9 @@ def _parse_occlusion(raw: Any) -> OcclusionConfig | None:
             "fraction_blocked > 0."
         )
     return OcclusionConfig(
-        global_segment_id=int(target),
+        global_segment_id=_as_int(
+            target, name="simulation.occlusion.global_segment_id"
+        ),
         fraction_blocked=fraction,
         include_downstream_when_complete=_as_bool(
             data.get("include_downstream_when_complete"), True
@@ -616,11 +696,21 @@ def _parse_inlet_conditions(raw: Any) -> list[dict[str, float]]:
         try:
             parsed.append(
                 {
-                    "flow_ul_min": float(item["flow_ul_min"]),
-                    "inlet_pressure_pa": float(item["inlet_pressure_pa"]),
-                    "outlet_pressure_pa": float(item["outlet_pressure_pa"]),
-                    "inlet_concentration_mmol_l": float(
-                        item["inlet_concentration_mmol_l"]
+                    "flow_ul_min": _as_float(
+                        item["flow_ul_min"],
+                        name=f"simulation.inlet_conditions[{index}].flow_ul_min",
+                    ),
+                    "inlet_pressure_pa": _as_float(
+                        item["inlet_pressure_pa"],
+                        name=f"simulation.inlet_conditions[{index}].inlet_pressure_pa",
+                    ),
+                    "outlet_pressure_pa": _as_float(
+                        item["outlet_pressure_pa"],
+                        name=f"simulation.inlet_conditions[{index}].outlet_pressure_pa",
+                    ),
+                    "inlet_concentration_mmol_l": _as_float(
+                        item["inlet_concentration_mmol_l"],
+                        name=f"simulation.inlet_conditions[{index}].inlet_concentration_mmol_l",
                     ),
                 }
             )
@@ -676,7 +766,9 @@ def _parse_outputs(raw: Any) -> OutputsConfig:
         .strip()
         .lower(),
         export_index_dtype=str(data.get("export_index_dtype", "int64")).strip().lower(),
-        vessel_resolution=int(data.get("vessel_resolution", 2)),
+        vessel_resolution=_as_int(
+            data.get("vessel_resolution", 2), name="outputs.vessel_resolution"
+        ),
         write_combined_sweep_csv=_as_bool(data.get("write_combined_sweep_csv"), True),
         combined_sweep_filename=str(
             data.get("combined_sweep_filename", "sweep_summary.csv")
@@ -726,31 +818,42 @@ def _parse_fluid(value: Any, name: str, *, allow_both: bool) -> str:
 
 
 def _validate(
+    domain: DomainConfig,
     network: NetworkConfig,
     growth: GrowthConfig,
     simulation: SimulationConfig,
     outputs: OutputsConfig,
 ) -> None:
+    if domain.side_length <= 0.0:
+        raise ValueError("domain.side_length must be positive.")
+    for name in ("x_length", "y_length", "z_length"):
+        value = getattr(domain, name)
+        if value is not None and value <= 0.0:
+            raise ValueError(f"domain.{name} must be positive.")
+    if network.physical_clearance < 0.0:
+        raise ValueError("network.physical_clearance must be non-negative.")
+    if network.connectivity_geometry_atol < 0.0:
+        raise ValueError("network.connectivity_geometry_atol must be non-negative.")
     if network.mode not in {"tree", "forest", "simple"}:
         raise ValueError("network.mode must be 'tree', 'forest', or 'simple'.")
     if network.mode in {"tree", "forest"} and network.input_path is None:
         if (
             network.target_terminal_count is not None
-            and network.target_terminal_count < 2
+            and network.target_terminal_count < 1
         ):
             raise ValueError(
-                "Generated SVV trees require at least 2 final terminal vessels."
+                "Generated SVV trees require a target growth count of at least 1."
             )
-        if any(value < 2 for value in network.target_terminal_counts):
+        if any(value < 1 for value in network.target_terminal_counts):
             raise ValueError(
-                "Every generated SVV tree requires at least 2 final terminal vessels."
+                "Every generated SVV tree requires a target growth count of at least 1."
             )
         if (
             network.target_total_terminal_count is not None
-            and network.target_total_terminal_count < 2 * len(network.roots)
+            and network.target_total_terminal_count < len(network.roots)
         ):
             raise ValueError(
-                "A generated SVV forest requires at least 2 final terminal vessels "
+                "A generated SVV forest requires a target growth count of at least 1 "
                 "per tree."
             )
     if network.mode == "simple":
@@ -794,6 +897,19 @@ def _validate(
         )
     if simulation.flow_source == "per_inlet" and not simulation.inlet_conditions:
         raise ValueError("per-inlet flow requires simulation.inlet_conditions.")
+    if simulation.qin_target_ul_min <= 0.0:
+        raise ValueError("simulation.qin_target_ul_min must be positive.")
+    if simulation.total_qin_ul_min is not None and simulation.total_qin_ul_min <= 0.0:
+        raise ValueError("simulation.total_qin_ul_min must be positive.")
+    if simulation.distance_sample_count < 0:
+        raise ValueError("simulation.distance_sample_count must be non-negative.")
+    if (
+        simulation.tissue_gpu_validate_points is not None
+        and simulation.tissue_gpu_validate_points < 0
+    ):
+        raise ValueError("simulation.tissue_gpu_validate_points must be non-negative.")
+    if simulation.viability_threshold is not None and simulation.viability_threshold < 0:
+        raise ValueError("simulation.viability_threshold must be non-negative.")
     if (
         simulation.external_field.enabled
         and simulation.external_field.scope == "shared"
@@ -852,7 +968,9 @@ def _validate(
     ):
         if name in grid:
             try:
-                value = int(grid[name])
+                value = _as_int(
+                    grid[name], name=f"simulation.tissue_grid.{name}"
+                )
             except (TypeError, ValueError) as exc:
                 raise ValueError(
                     f"simulation.tissue_grid.{name} must be a positive integer."
@@ -869,7 +987,10 @@ def _validate(
         )
     if "enclosed_tolerance" in grid:
         try:
-            tolerance = float(grid["enclosed_tolerance"])
+            tolerance = _as_float(
+                grid["enclosed_tolerance"],
+                name="simulation.tissue_grid.enclosed_tolerance",
+            )
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 "simulation.tissue_grid.enclosed_tolerance must be finite and non-negative."
@@ -907,6 +1028,20 @@ def _validate(
         raise ValueError("growth.nearest_tree_batch_points must be positive.")
     if growth.domain_line_samples < 2:
         raise ValueError("growth.domain_line_samples must be at least 2.")
+    if growth.domain_line_tolerance < 0.0:
+        raise ValueError("growth.domain_line_tolerance must be non-negative.")
+    if growth.strict_domain_max_terminals <= 0:
+        raise ValueError("growth.strict_domain_max_terminals must be positive.")
+    if growth.n_ignore_collisions is not None and growth.n_ignore_collisions < 0:
+        raise ValueError("growth.n_ignore_collisions must be non-negative.")
+    if growth.growth_report_every < 0 or growth.checkpoint_every_adds < 0:
+        raise ValueError("Growth reporting and checkpoint intervals must be non-negative.")
+    if any(value < 0 for value in growth.add_per_tree):
+        raise ValueError("growth.add_per_tree values must be non-negative.")
+    if growth.add_total is not None and growth.add_total < 0:
+        raise ValueError("growth.add_total must be non-negative.")
+    if outputs.vessel_resolution <= 0:
+        raise ValueError("outputs.vessel_resolution must be positive.")
     if outputs.export_float_dtype not in {"float32", "float64"}:
         raise ValueError("outputs.export_float_dtype must be 'float32' or 'float64'.")
     if outputs.export_index_dtype not in {"int32", "int64"}:

@@ -168,8 +168,8 @@ def automatic_growth_limit_reason(config) -> str | None:
         and max(requested) > maximum_terminals
     ):
         return (
-            "growth target exceeds automatic limit "
-            f"({maximum_terminals:,} terminals)"
+            "growth count exceeds automatic limit "
+            f"({maximum_terminals:,} additions)"
         )
     return None
 

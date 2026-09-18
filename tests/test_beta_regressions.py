@@ -8,8 +8,10 @@ from cascade.configuration.schema import example_config, load_config, parse_conf
 from cascade.gui.model import JobRecord, QueueStore, _absolutize_input_paths
 from cascade.runtime.planning import estimate_run_resources
 from cascade.vessels.conditions import terminal_flow_for_target
-from cascade.vessels.conditions import _tree_terminal_segments
+from cascade.vessels.conditions import _target_counts_for_config, _tree_terminal_segments
 from cascade.vessels.metadata import inspect_network
+from cascade.vessels.generation import tree_ops
+from cascade.vessels.generation.svv_adapter import Tree
 
 
 def test_cli_example_matches_studio_defaults():
@@ -71,7 +73,7 @@ def test_custom_csv_metadata_reports_segments(tmp_path):
 
 def test_terminal_target_uses_svv_growth_count():
     config = parse_config(example_config())
-    assert terminal_flow_for_target(config, 1.0, 4) == pytest.approx(0.25)
+    assert terminal_flow_for_target(config, 1.0, 4) == pytest.approx(0.2)
     estimate = estimate_run_resources(config)
     assert estimate.segments == 201
 
@@ -92,11 +94,115 @@ def test_forest_resource_estimates_use_two_n_plus_one_per_tree():
     config = parse_config(raw)
     assert estimate_run_resources(config).segments == 62
 
+    raw["network"]["target_total_terminal_count"] = 2
+    config = parse_config(raw)
+    assert estimate_run_resources(config).segments == 6
 
-def test_generated_svv_tree_rejects_impossible_one_terminal_target():
+
+def test_tree_growth_uses_two_n_plus_one_segment_convention(monkeypatch):
+    class Parameters:
+        root_pressure = 0.0
+        terminal_pressure = 0.0
+        terminal_flow = 0.0
+        fluid = ""
+        kinematic_viscosity = 0.0
+        fluid_density = 0.0
+
+    class FakeTree:
+        def __init__(self, **kwargs):
+            self.parameters = Parameters()
+            self.preallocation_step = kwargs["preallocation_step"]
+            self.n_terminals = 0
+            self.added = None
+
+        def set_domain(self, domain):
+            self.domain = domain
+
+        def set_root(self, *_args):
+            self.n_terminals = 1
+
+        def n_add(self, count, **_kwargs):
+            self.added = int(count)
+            self.n_terminals += int(count)
+
+    domain = type("Domain", (), {"characteristic_length": 1.0})()
+    monkeypatch.setattr(tree_ops._state, "Tree", FakeTree)
+    monkeypatch.setattr(tree_ops._state, "SCALE_dP_BY_VOLUME", False)
+    monkeypatch.setattr(tree_ops._state, "N_EQUAL_BIFURCATIONS", None)
+
+    tree = tree_ops.grow_tree(
+        domain,
+        4,
+        dlp_enable=False,
+        min_theta=0.0,
+        terminal_flow_override=None,
+    )
+
+    assert tree.added == 4
+    assert tree.n_terminals == 5
+    assert tree.preallocation_step == 16
+    assert tree.parameters.terminal_flow == pytest.approx(
+        tree_ops._state.QIN_TARGET * 0.00001666666666 / 5
+    )
+
+
+def test_incidental_tree_construction_has_bounded_preallocation():
+    tree = Tree()
+
+    assert tree.preallocate.shape == (256, 31)
+    assert tree.preallocate_midpoints.shape == (256, 3)
+
+
+def test_large_growth_target_uses_expandable_bounded_initial_capacity(monkeypatch):
+    captured = {}
+
+    class Parameters:
+        root_pressure = 0.0
+        terminal_pressure = 0.0
+        terminal_flow = 0.0
+        fluid = ""
+        kinematic_viscosity = 0.0
+        fluid_density = 0.0
+
+    class FakeTree:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.parameters = Parameters()
+
+        def set_domain(self, domain):
+            self.domain = domain
+
+        def set_root(self, *_args):
+            return None
+
+        def n_add(self, count, **_kwargs):
+            captured["additions"] = count
+
+    monkeypatch.setattr(tree_ops._state, "Tree", FakeTree)
+    monkeypatch.setattr(tree_ops._state, "SCALE_dP_BY_VOLUME", False)
+    monkeypatch.setattr(tree_ops._state, "N_EQUAL_BIFURCATIONS", None)
+    domain = type("Domain", (), {"characteristic_length": 1.0})()
+
+    tree_ops.grow_tree(
+        domain,
+        1_000_000,
+        dlp_enable=False,
+        min_theta=0.0,
+        terminal_flow_override=1.0,
+    )
+
+    assert captured["preallocation_step"] == 4096
+    assert captured["additions"] == 1_000_000
+
+
+def test_generated_svv_tree_accepts_one_growth_addition_and_rejects_zero():
     raw = example_config()
     raw["network"]["target_terminal_count"] = 1
-    with pytest.raises(ValueError, match="at least 2 final terminal"):
+    config = parse_config(raw)
+    assert estimate_run_resources(config).segments == 3
+
+    raw["network"]["target_terminal_count"] = 0
+    with pytest.raises(ValueError, match="target growth count of at least 1"):
         parse_config(raw)
 
 
@@ -114,6 +220,18 @@ def test_terminal_metric_counts_topological_leaves():
         },
     )()
     assert _tree_terminal_segments(tree) == 2
+
+
+def test_loaded_tree_growth_targets_use_n_terminals_minus_root():
+    raw = example_config()
+    raw["network"]["target_terminal_count"] = None
+    config = parse_config(raw)
+    tree = type("Tree", (), {"n_terminals": 3, "vessel_map": {}})()
+
+    assert _target_counts_for_config(config, 1, trees=[tree]) == [2]
+
+    config.growth.add_per_tree = [1]
+    assert _target_counts_for_config(config, 1, trees=[tree]) == [3]
 
 
 def test_removed_queue_result_remains_in_catalog(tmp_path):

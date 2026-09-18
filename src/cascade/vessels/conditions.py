@@ -57,14 +57,14 @@ def _target_counts_for_config(
             raise ValueError(
                 f"Expected {n_trees} growth.add_per_tree values, got {len(adds)}."
             )
-        current = [_tree_terminal_segments(tree) for tree in trees]
-        counts = [max(cur + add, 1) for cur, add in zip(current, adds)]
+        current = [_tree_growth_count(tree) for tree in trees]
+        counts = [max(cur + add, 1) for cur, add in zip(current, adds, strict=True)]
     elif trees and config.growth.add_total is not None:
-        current = [_tree_terminal_segments(tree) for tree in trees]
+        current = [_tree_growth_count(tree) for tree in trees]
         adds = _split_total_adds(
             int(config.growth.add_total), trees, mode=config.growth.add_split_mode
         )
-        counts = [max(cur + add, 1) for cur, add in zip(current, adds)]
+        counts = [max(cur + add, 1) for cur, add in zip(current, adds, strict=True)]
     elif config.network.target_terminal_counts:
         counts = [max(int(v), 1) for v in config.network.target_terminal_counts]
     elif config.network.target_total_terminal_count is not None:
@@ -74,9 +74,7 @@ def _target_counts_for_config(
     elif config.network.target_terminal_count is not None:
         counts = [max(int(config.network.target_terminal_count), 1)]
     elif trees:
-        counts = [
-            max(int(getattr(tree, "n_terminals", 1) or 1) - 1, 1) for tree in trees
-        ]
+        counts = [max(_tree_growth_count(tree), 1) for tree in trees]
     else:
         counts = [1]
 
@@ -101,7 +99,12 @@ def _tree_terminal_segments(tree: Any) -> int:
         )
         if leaves:
             return leaves
-    return max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 1)
+    return max(int(getattr(tree, "n_terminals", 0) or 0), 1)
+
+
+def _tree_growth_count(tree: Any) -> int:
+    """Return the configured growth-count convention for an existing SVV tree."""
+    return max(_tree_terminal_segments(tree) - 1, 0)
 
 
 def _tree_root_flow_for_weight(tree: Any) -> float:
@@ -211,10 +214,10 @@ def _flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
 def _terminal_flow_for_target(
     config: RunConfig, qin_cm3_s: float, target_count: int
 ) -> float | None:
-    # Public target_count is the final number of terminal vessel segments.
+    # An SVV growth target N creates N bifurcations and N + 1 terminal leaves.
     if not getattr(load_runtime_module(), "SCALE_Q_BY_VOLUME", True):
         return None
-    return float(qin_cm3_s) / float(max(int(target_count), 1))
+    return float(qin_cm3_s) / float(max(int(target_count) + 1, 1))
 
 
 def flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:

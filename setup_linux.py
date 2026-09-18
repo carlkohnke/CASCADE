@@ -109,17 +109,18 @@ def main(argv: list[str] | None = None) -> int:
     venv_dir = Path(args.venv).expanduser()
     if not venv_dir.is_absolute():
         venv_dir = ROOT / venv_dir
+    venv_dir = venv_dir.absolute()
     venv_python = _venv_python(venv_dir)
 
     if args.recreate and venv_dir.exists():
+        venv_dir = _validate_recreate_target(venv_dir)
+        venv_python = _venv_python(venv_dir)
         print(f"+ remove {venv_dir}")
         if not args.dry_run:
             shutil.rmtree(venv_dir)
 
     if not venv_python.exists():
         _run([args.python, "-m", "venv", str(venv_dir)], args.dry_run)
-
-    _write_python_path(venv_python, args.dry_run)
 
     _run(
         [
@@ -143,9 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         _run(command, args.dry_run)
 
     cuda_path = _resolve_cuda_path(args.cuda_path) if args.gpu != "none" else None
-    if cuda_path is not None:
-        _write_cuda_path(cuda_path, args.dry_run)
-    elif args.gpu != "none":
+    if cuda_path is None and args.gpu != "none":
         print(
             "No system CUDA toolkit root was detected; setup will verify the "
             "package-provided CUDA headers with a compiled CuPy kernel."
@@ -197,6 +196,13 @@ def main(argv: list[str] | None = None) -> int:
                 env=verify_env,
             )
 
+    # Publish launcher configuration only after every requested installation and
+    # verification step has succeeded. A failed setup therefore leaves the
+    # previously working interpreter/toolkit selection intact.
+    _write_python_path(venv_python, args.dry_run)
+    if cuda_path is not None:
+        _write_cuda_path(cuda_path, args.dry_run)
+
     print()
     print(
         "Dry run complete; environment was not modified."
@@ -243,6 +249,25 @@ def _venv_python(venv_dir: Path) -> Path:
     if sys.platform == "win32":
         return venv_dir / "Scripts" / "python.exe"
     return venv_dir / "bin" / "python"
+
+
+def _validate_recreate_target(venv_dir: Path) -> Path:
+    """Return a resolved venv path only when recursive removal is demonstrably safe."""
+    if venv_dir.is_symlink():
+        raise ValueError(
+            f"Refusing to recreate symlinked virtual environment: {venv_dir}"
+        )
+    resolved = venv_dir.resolve(strict=True)
+    repository = ROOT.resolve()
+    protected = {repository, Path.home().resolve(), Path(resolved.anchor).resolve()}
+    if resolved in protected or resolved in repository.parents:
+        raise ValueError(f"Refusing to remove protected path: {resolved}")
+    if not resolved.is_dir() or not (resolved / "pyvenv.cfg").is_file():
+        raise ValueError(
+            "Refusing to recursively remove a directory that is not a virtual "
+            f"environment (missing pyvenv.cfg): {resolved}"
+        )
+    return resolved
 
 
 def _resolve_cuda_path(value: str | None) -> Path | None:

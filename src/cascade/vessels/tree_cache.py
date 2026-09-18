@@ -15,6 +15,7 @@ from numbers import Number
 from pathlib import Path
 
 import numpy as np
+from svv.tree.data.data import TreeParameters
 
 from cascade.configuration import solver_state as _state
 from cascade.diagnostics.runtime import _require_tree_class
@@ -43,9 +44,7 @@ def _as_float_list(values: Sequence[Number] | np.ndarray | None) -> list[float] 
 def _default_tree_params() -> dict:
     # Mutable runtime state is centralized in configuration.solver_state.
     if _state._DEFAULT_TREE_PARAMS is None:
-        _require_tree_class()
-        tree = _state.Tree()
-        parms = tree.parameters
+        parms = TreeParameters()
         _state._DEFAULT_TREE_PARAMS = {
             "murray_exponent": float(parms.murray_exponent),
             "radius_exponent": float(parms.radius_exponent),
@@ -423,8 +422,7 @@ def _sync_loaded_tree_params(
     except Exception:
         params = None
     if params is None:
-        _require_tree_class()
-        params = _state.Tree().parameters
+        params = TreeParameters()
         try:
             tree.parameters = params
         except Exception:

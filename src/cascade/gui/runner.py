@@ -176,7 +176,7 @@ class JobRunner(QObject):
         self._cancelled = True
         self.current.stage = "Cancelling"
         self.job_updated.emit(self.current.id)
-        if os.name == "nt" and self._process_job is not None:
+        if self._process_job is not None and self._process_job.active:
             self._terminate_process_tree(self.process)
         else:
             self.process.terminate()
@@ -204,7 +204,7 @@ class JobRunner(QObject):
             process.write((json.dumps(request) + "\n").encode("utf-8"))
             process.waitForFinished(1500)
         if process.state() != QProcess.NotRunning:
-            if os.name == "nt" and self._process_job is not None:
+            if self._process_job is not None and self._process_job.active:
                 self._terminate_process_tree(process)
                 process.waitForFinished(1500)
             else:
@@ -259,6 +259,10 @@ class JobRunner(QObject):
         if self.process is not None and self.process.state() != QProcess.NotRunning:
             return
         process = QProcess(self)
+        if os.name != "nt" and hasattr(process, "setUnixProcessParameters"):
+            unix_parameters = QProcess.UnixProcessParameters()
+            unix_parameters.flags = QProcess.UnixProcessFlag.CreateNewSession
+            process.setUnixProcessParameters(unix_parameters)
         process.setProcessChannelMode(QProcess.MergedChannels)
         working_directory = self.store.root.parent
         working_directory.mkdir(parents=True, exist_ok=True)

@@ -25,7 +25,10 @@ from .compatibility.tree import (
 )
 
 
-DEFAULT_TREE_PREALLOCATION_STEP = int(4e6)
+# A small default protects incidental Tree construction from reserving gigabytes.
+# Growth entry points pass an exact target-derived capacity and the compatibility
+# mixin expands geometrically when a loaded tree needs more room.
+DEFAULT_TREE_PREALLOCATION_STEP = 256
 
 _tree_module.set_root = _cascade_set_root
 _tree_module.add_vessel = _cascade_add_vessel

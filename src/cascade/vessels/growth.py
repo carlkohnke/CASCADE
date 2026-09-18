@@ -28,6 +28,8 @@ from cascade.vessels.conditions import (
     _set_runtime_tree_conditions,
     _target_counts_for_config,
     _terminal_flow_for_target,
+    _tree_growth_count,
+    _tree_terminal_segments,
     sync_tree_parameters_for_run,
 )
 
@@ -39,7 +41,9 @@ from cascade.vessels.cache import (
 def _build_configured_trees(ts, domain, config: RunConfig) -> list[Any]:
     targets = _target_counts_for_config(config, len(config.network.roots))
     trees = []
-    for idx, (root, target) in enumerate(zip(config.network.roots, targets)):
+    for idx, (root, target) in enumerate(
+        zip(config.network.roots, targets, strict=True)
+    ):
         start = np.asarray(root.start, dtype=float).reshape(1, 3)
         try:
             inside = bool(np.asarray(domain.within(start, layer=1e-5)).reshape(-1)[0])
@@ -57,7 +61,7 @@ def _build_configured_trees(ts, domain, config: RunConfig) -> list[Any]:
         terminal_flow = _terminal_flow_for_target(config, qin_cm3_s, int(target))
         tree = ts.grow_tree(
             domain,
-            max(int(target), 0),
+            int(target),
             dlp_enable=False,
             min_theta=0.0,
             side_length=float(config.domain.side_length),
@@ -85,7 +89,7 @@ def _extend_trees_to_targets(
     ):
         _extend_trees_scheduled(ts, trees, domain, config, targets, forest=forest)
         return
-    for idx, (tree, target_value) in enumerate(zip(trees, targets)):
+    for idx, (tree, target_value) in enumerate(zip(trees, targets, strict=True)):
         _attach_tree_domain(tree, domain)
         current = max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0)
         target = max(int(target_value), 1)
@@ -110,7 +114,7 @@ def _extend_trees_scheduled(
 ) -> None:
     remaining = [
         max(0, int(target) - max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0))
-        for tree, target in zip(trees, targets)
+        for tree, target in zip(trees, targets, strict=True)
     ]
     total_add = int(sum(remaining))
     if total_add <= 0:
@@ -173,7 +177,7 @@ def _extend_trees_nearest(
 
     remaining = [
         max(0, int(target) - max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0))
-        for tree, target in zip(trees, targets)
+        for tree, target in zip(trees, targets, strict=True)
     ]
     total_add = int(sum(remaining))
     if total_add <= 0:
@@ -237,7 +241,7 @@ def _extend_trees_nearest(
                     0,
                     int(target) - max(int(getattr(tree, "n_terminals", 0) or 0) - 1, 0),
                 )
-                for tree, target in zip(trees, targets)
+                for tree, target in zip(trees, targets, strict=True)
             ]
             added = _grow_remaining_bulk_no_collision(
                 ts, trees, domain, config, targets, live_remaining
@@ -288,7 +292,7 @@ def _grow_remaining_bulk_no_collision(
     remaining: list[int],
 ) -> int:
     completed = 0
-    for idx, (tree, add_value) in enumerate(zip(trees, remaining)):
+    for idx, (tree, add_value) in enumerate(zip(trees, remaining, strict=True)):
         add_n = int(add_value)
         if add_n <= 0:
             continue
@@ -541,7 +545,7 @@ def _nearest_bulk_growth_allowed(
         return True
     all_equal = all(
         int(rem) <= 0 or _tree_in_equal_bifurcation_mode(config, tree)
-        for rem, tree in zip(remaining, trees)
+        for rem, tree in zip(remaining, trees, strict=True)
     )
     if mode == "equal-bifurcation":
         return all_equal
@@ -810,9 +814,8 @@ def _save_growth_checkpoint(
         "completed_adds": int(completed),
         "total_adds": int(total_add),
         "targets": [int(v) for v in targets],
-        "terminal_segments": [
-            max(int(getattr(t, "n_terminals", 0) or 0) - 1, 0) for t in trees
-        ],
+        "growth_counts": [_tree_growth_count(tree) for tree in trees],
+        "terminal_segments": [_tree_terminal_segments(tree) for tree in trees],
     }
     checkpoint.with_name(checkpoint.name + ".json").write_text(
         json.dumps(meta, indent=2), encoding="utf-8"
@@ -828,9 +831,8 @@ def _save_reached_targets(
 ) -> set[int]:
     if not config.growth.save_target_counts:
         return saved
-    current_total = sum(
-        max(int(getattr(t, "n_terminals", 0) or 0) - 1, 0) for t in trees
-    )
+    current_total = sum(_tree_growth_count(tree) for tree in trees)
+    current_terminal_total = sum(_tree_terminal_segments(tree) for tree in trees)
     out_dir = resolve_path(
         config.outputs.out_dir,
         base_dir=config.settings_path.parent if config.settings_path else None,
@@ -850,7 +852,8 @@ def _save_reached_targets(
             trees[0].save(str(path), include_domain=False)
         meta = {
             "reason": "target_save",
-            "total_terminal_segments": int(current_total),
+            "total_growth_count": int(current_total),
+            "total_terminal_segments": int(current_terminal_total),
             "target_total": int(target),
             "final_targets": [int(v) for v in final_targets],
         }

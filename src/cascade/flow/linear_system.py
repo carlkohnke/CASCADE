@@ -8,6 +8,7 @@ or direct sparse solver dispatch. Tree topology orchestration remains in
 from __future__ import annotations
 
 import math
+import warnings
 from time import perf_counter
 from typing import Sequence, Tuple
 
@@ -376,28 +377,45 @@ def _solve_kirchhoff_sparse(
                     f"using sparse LU (spsolve). n={A.shape[0]}"
                 )
             try:
-                x = _splinalg.spsolve(A, b)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error", _splinalg.MatrixRankWarning)
+                    x = _splinalg.spsolve(A, b)
                 solver_used = "spsolve"
             except Exception as exc:  # pragma: no cover
                 raise RuntimeError(
                     "Failed to solve sparse Kirchhoff system. Check BCs and connectivity."
                 ) from exc
 
-        if _state.KIRCHHOFF_DIAGNOSTICS and x is not None:
-            x_arr = np.asarray(x, dtype=float).reshape(-1)
-            r = b - A.dot(x_arr)
-            bnorm = float(np.linalg.norm(b))
-            if bnorm > 0.0:
-                rel_true_resid = float(np.linalg.norm(r) / bnorm)
-            else:
-                rel_true_resid = float(np.linalg.norm(r))
+        x_arr = np.asarray(x, dtype=float).reshape(-1)
+        if not np.all(np.isfinite(x_arr)):
+            raise RuntimeError(
+                "Sparse Kirchhoff solver produced non-finite pressures; "
+                "check boundary conditions and graph connectivity."
+            )
+        r = b - A.dot(x_arr)
+        bnorm = float(np.linalg.norm(b))
+        if bnorm > 0.0:
+            rel_true_resid = float(np.linalg.norm(r) / bnorm)
+        else:
+            rel_true_resid = float(np.linalg.norm(r))
+        residual_limit = (
+            max(1.0e-8, 10.0 * float(_state.KIRCHHOFF_GMRES_RTOL))
+            if solver_used == "gmres_ilu"
+            else 1.0e-8
+        )
+        if not np.isfinite(rel_true_resid) or rel_true_resid > residual_limit:
+            raise RuntimeError(
+                "Sparse Kirchhoff solver failed its residual check: "
+                f"relative residual={rel_true_resid:.3e}, limit={residual_limit:.3e}."
+            )
+        if _state.KIRCHHOFF_DIAGNOSTICS:
             print(
                 f"Kirchhoff diagnostics: solver_used={solver_used} "
                 f"bc={bc_mode} true_rel_resid={rel_true_resid:.3e}"
             )
 
         pressures = np.zeros(num_nodes, dtype=float)
-        pressures[mask] = np.asarray(x, dtype=float).reshape(-1)
+        pressures[mask] = x_arr
     else:
         # Dense fallback (only feasible for small problems).
         laplacian = np.zeros((num_nodes, num_nodes), dtype=float)
@@ -420,10 +438,32 @@ def _solve_kirchhoff_sparse(
             raise RuntimeError(
                 "Failed to solve Kirchhoff system. Check BCs and connectivity."
             ) from exc
+        x_arr = np.asarray(x, dtype=float).reshape(-1)
+        residual = b - A.dot(x_arr)
+        bnorm = float(np.linalg.norm(b))
+        rel_true_resid = (
+            float(np.linalg.norm(residual) / bnorm)
+            if bnorm > 0.0
+            else float(np.linalg.norm(residual))
+        )
+        if not np.all(np.isfinite(x_arr)) or not np.isfinite(rel_true_resid):
+            raise RuntimeError(
+                "Dense Kirchhoff solver produced a non-finite solution."
+            )
+        if rel_true_resid > 1.0e-8:
+            raise RuntimeError(
+                "Dense Kirchhoff solver failed its residual check: "
+                f"relative residual={rel_true_resid:.3e}."
+            )
         pressures = np.zeros(num_nodes, dtype=float)
-        pressures[mask] = x
+        pressures[mask] = x_arr
 
     flows = edge_conductance * (pressures[prox_ids] - pressures[dist_ids])
+    if not np.all(np.isfinite(pressures)) or not np.all(np.isfinite(flows)):
+        raise RuntimeError(
+            "Kirchhoff solver produced non-finite pressures or flows; "
+            "check boundary conditions and graph connectivity."
+        )
     return pressures, flows, prox_ids, dist_ids, np.empty((0, 3), dtype=float)
 
 

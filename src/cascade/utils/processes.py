@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import signal
 from typing import Any
+
+import psutil
 
 if os.name == "nt":
     import ctypes
@@ -68,42 +71,135 @@ if os.name == "nt":
 
 
 class ChildProcessJob:
-    """Own a Windows process tree and terminate descendants as one unit.
+    """Own a child process tree and terminate descendants as one unit.
 
-    On non-Windows platforms this is a no-op token; existing POSIX process
-    handling remains authoritative there. On Windows, every descendant of the
-    attached process joins a Job Object configured with
-    ``JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE``.
+    Windows uses a Job Object with kill-on-close semantics. POSIX platforms
+    snapshot descendants before signaling the root so grandchildren cannot be
+    orphaned when Studio cancels a worker.
     """
 
     def __init__(self, process_id: int) -> None:
         self.process_id = int(process_id)
         self._handle: Any | None = None
+        self._closed = False
+        self._create_time: float | None = None
+        self._process_group: int | None = None
         if os.name == "nt":
             self._handle = self._attach_windows_job(self.process_id)
+        else:
+            try:
+                process = psutil.Process(self.process_id)
+                self._create_time = float(process.create_time())
+            except psutil.Error as exc:
+                raise OSError(
+                    f"Could not attach to child process {self.process_id}."
+                ) from exc
+            process_group = os.getpgid(self.process_id)
+            if process_group == self.process_id:
+                self._process_group = process_group
 
     @property
     def active(self) -> bool:
-        return self._handle is not None
+        if self._closed:
+            return False
+        if os.name == "nt":
+            return self._handle is not None
+        # A session leader may exit before one of its grandchildren.  Keep the
+        # ownership token active until close() has had a chance to reap the
+        # whole process group.
+        return self._process_group is not None or self._root_process() is not None
 
     def terminate(self, exit_code: int = 1) -> None:
-        """Terminate the attached Windows process tree and release its job."""
-        if os.name != "nt" or self._handle is None:
+        """Terminate the attached process tree and release its ownership token."""
+        if self._closed:
             return
-        handle, self._handle = self._handle, None
-        try:
-            if not _KERNEL32.TerminateJobObject(handle, int(exit_code)):
-                raise ctypes.WinError(ctypes.get_last_error())
-        finally:
-            _KERNEL32.CloseHandle(handle)
+        if os.name == "nt":
+            if self._handle is None:
+                self._closed = True
+                return
+            handle, self._handle = self._handle, None
+            try:
+                if not _KERNEL32.TerminateJobObject(handle, int(exit_code)):
+                    raise ctypes.WinError(ctypes.get_last_error())
+            finally:
+                _KERNEL32.CloseHandle(handle)
+                self._closed = True
+            return
+        self._terminate_posix_tree(force=False)
+        self._closed = True
+
+    def kill(self, exit_code: int = 1) -> None:
+        """Immediately kill the attached process tree."""
+        if self._closed:
+            return
+        if os.name == "nt":
+            self.terminate(exit_code)
+            return
+        self._terminate_posix_tree(force=True)
+        self._closed = True
 
     def close(self) -> None:
-        """Release the job, killing any descendants left after the root exits."""
-        if os.name != "nt" or self._handle is None:
+        """Release ownership, killing descendants left after the root exits."""
+        if self._closed:
             return
-        handle, self._handle = self._handle, None
-        if not _KERNEL32.CloseHandle(handle):
-            raise ctypes.WinError(ctypes.get_last_error())
+        if os.name == "nt":
+            if self._handle is not None:
+                handle, self._handle = self._handle, None
+                if not _KERNEL32.CloseHandle(handle):
+                    raise ctypes.WinError(ctypes.get_last_error())
+        else:
+            self._terminate_posix_tree(force=True)
+        self._closed = True
+
+    def _root_process(self) -> psutil.Process | None:
+        try:
+            process = psutil.Process(self.process_id)
+            if self._create_time is not None and not abs(
+                float(process.create_time()) - self._create_time
+            ) < 1.0e-6:
+                return None
+            return process
+        except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
+            return None
+
+    def _terminate_posix_tree(self, *, force: bool) -> None:
+        root = self._root_process()
+        if root is None and self._process_group is None:
+            return
+        descendants: list[psutil.Process] = []
+        if root is not None:
+            try:
+                descendants = root.children(recursive=True)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                descendants = []
+        processes = [*reversed(descendants), *([root] if root is not None else [])]
+        if self._process_group is not None:
+            try:
+                os.killpg(
+                    self._process_group,
+                    signal.SIGKILL if force else signal.SIGTERM,
+                )
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                pass
+        for process in processes:
+            try:
+                process.kill() if force else process.terminate()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        if not force:
+            _gone, alive = psutil.wait_procs(processes, timeout=0.5)
+            for process in alive:
+                try:
+                    process.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            if self._process_group is not None:
+                try:
+                    os.killpg(self._process_group, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
 
     @staticmethod
     def _attach_windows_job(process_id: int):

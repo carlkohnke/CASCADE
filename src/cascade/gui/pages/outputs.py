@@ -47,7 +47,7 @@ class OutputsPage(Page):
 
     SWEEP_PATHS = [
         ("Inlet flow", "simulation.qin_target_ul_min"),
-        ("Terminal count", "network.target_terminal_count"),
+        ("Growth count N", "network.target_terminal_count"),
         ("Diffusivity", "settings.oxygen.solute_diffusivity"),
         ("Vmax", "settings.oxygen.vmax_mm"),
         ("Km", "settings.oxygen.k_m_mm"),

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
+
+import cascade
 
 from cascade.configuration import solver_state
 from cascade.domain.cache import default_domain_cache_dir
@@ -16,6 +20,26 @@ from cascade.runtime.paths import (
 from cascade.utils.execution import simulation_lock_path
 from cascade.vessels.prepared import default_prepared_cache_root
 from cascade.vessels.tree_cache import _tree_cache_dir
+
+
+def test_pytest_imports_checkout_source_tree() -> None:
+    repository = Path(__file__).resolve().parents[1]
+
+    assert Path(cascade.__file__).resolve().is_relative_to(repository / "src")
+
+
+def test_test_subprocesses_import_checkout_source_tree(tmp_path: Path) -> None:
+    completed = subprocess.run(
+        [sys.executable, "-c", "import cascade; print(cascade.__file__)"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert Path(completed.stdout.strip()).resolve().is_relative_to(
+        Path(__file__).resolve().parents[1] / "src"
+    )
 
 
 def test_runtime_location_overrides_are_shared(monkeypatch, tmp_path: Path) -> None:

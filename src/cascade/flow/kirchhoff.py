@@ -101,6 +101,11 @@ def solve_kirchhoff_tree(
         raise ValueError("No nodes provided for Kirchhoff solve.")
 
     inlet_arr = np.asarray(list(inlet_nodes), dtype=np.int64).reshape(-1)
+    if inlet_arr.size != 1:
+        raise ValueError(
+            "The tree Kirchhoff solver requires exactly one inlet node; "
+            "use solver='auto' or a sparse solver for multi-inlet networks."
+        )
     root_node = int(inlet_arr[0]) if inlet_arr.size else 0
     outlet_arr = np.asarray(list(outlet_nodes), dtype=np.int64).reshape(-1)
     outlet_arr = outlet_arr[(outlet_arr >= 0) & (outlet_arr < int(num_nodes))]
@@ -157,25 +162,28 @@ def solve_kirchhoff_tree(
             "Tree Kirchhoff solver produced non-finite pressures or flows."
         )
 
+    balance = np.bincount(prox_ids, weights=flows, minlength=int(num_nodes)).astype(
+        float, copy=False
+    )
+    balance -= np.bincount(
+        dist_ids, weights=flows, minlength=int(num_nodes)
+    ).astype(float, copy=False)
+    check_mask = np.ones(int(num_nodes), dtype=bool)
+    if bc_mode != "legacy_equal_terminal_flow":
+        check_mask[outlet_arr] = False
+    resid = balance[check_mask] - rhs_diag[check_mask]
+    rhs_norm = float(np.linalg.norm(rhs_diag[check_mask]))
+    rel_resid = (
+        float(np.linalg.norm(resid) / rhs_norm)
+        if rhs_norm > 0.0
+        else float(np.linalg.norm(resid))
+    )
+    if not np.isfinite(rel_resid) or rel_resid > 1.0e-8:
+        raise RuntimeError(
+            "Tree Kirchhoff solver failed its flow-balance check: "
+            f"relative residual={rel_resid:.3e}."
+        )
     if _state.KIRCHHOFF_DIAGNOSTICS:
-        balance = np.bincount(prox_ids, weights=flows, minlength=int(num_nodes)).astype(
-            float, copy=False
-        )
-        balance -= np.bincount(
-            dist_ids, weights=flows, minlength=int(num_nodes)
-        ).astype(float, copy=False)
-        if bc_mode == "legacy_equal_terminal_flow":
-            check_mask = np.ones(int(num_nodes), dtype=bool)
-        else:
-            check_mask = np.ones(int(num_nodes), dtype=bool)
-            check_mask[outlet_arr] = False
-        resid = balance[check_mask] - rhs_diag[check_mask]
-        rhs_norm = float(np.linalg.norm(rhs_diag[check_mask]))
-        rel_resid = (
-            float(np.linalg.norm(resid) / rhs_norm)
-            if rhs_norm > 0.0
-            else float(np.linalg.norm(resid))
-        )
         print(
             f"Kirchhoff diagnostics: solver_used={solver_used} "
             f"bc={bc_mode} solve_time={solve_s:.3f}s true_rel_resid={rel_resid:.3e}"

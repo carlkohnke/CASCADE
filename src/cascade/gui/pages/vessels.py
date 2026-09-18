@@ -118,7 +118,7 @@ class VesselsPage(Page):
         )
         self.inlet_count = _spin(1, 1, 64)
         self.inlet_count.setEnabled(False)
-        self.terminals = _spin(100, 2, 10_000_000)
+        self.terminals = _spin(100, 1, 10_000_000)
         self.root_rows = []
         self.root_rows_panel = QWidget()
         self.root_rows_layout = QVBoxLayout(self.root_rows_panel)
@@ -135,7 +135,7 @@ class VesselsPage(Page):
             row_of(
                 labeled("Topology", self.topology),
                 labeled("Number of trees / inlets", self.inlet_count),
-                labeled("Final terminal vessels per tree", self.terminals, important=True),
+                labeled("Growth count N per tree (2N+1 segments)", self.terminals, important=True),
             )
         )
         layout.addWidget(self.auto_roots)
@@ -198,7 +198,7 @@ class VesselsPage(Page):
                 {"widget": row, "proximal": proximal, "distal": distal}
             )
         if self.auto_roots.isChecked():
-            for record, root in zip(self.root_rows, defaults):
+            for record, root in zip(self.root_rows, defaults, strict=True):
                 start = root["start"]
                 direction = root["direction"]
                 distal = [start[axis] + direction[axis] for axis in range(3)]
@@ -235,7 +235,7 @@ class VesselsPage(Page):
     def _set_root_values(self, roots):
         roots = list(roots or [])
         self._sync_root_rows(max(1, len(roots)))
-        for record, root in zip(self.root_rows, roots):
+        for record, root in zip(self.root_rows, roots, strict=False):
             start = [float(value) for value in root.get("start", [0.0, 0.0, 0.0])]
             direction = [float(value) for value in root.get("direction", [1.0, 0.0, 0.0])]
             distal = [start[axis] + direction[axis] for axis in range(3)]
@@ -312,7 +312,7 @@ class VesselsPage(Page):
         layout.addWidget(labeled("Saved object type", self.upload_kind))
         layout.addWidget(labeled("Network file", self.network_path, important=True))
         layout.addWidget(self.extend_uploaded)
-        layout.addWidget(labeled("Target terminals after growth", self.upload_target))
+        layout.addWidget(labeled("Target growth count N", self.upload_target))
         self.extend_uploaded.toggled.connect(self.upload_target.setEnabled)
         return panel
 

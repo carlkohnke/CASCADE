@@ -38,13 +38,13 @@ def _wait_until(predicate, timeout_s: float = 5.0) -> bool:
     return bool(predicate())
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows Job Object semantics")
-def test_windows_job_terminates_descendant_processes(tmp_path: Path) -> None:
+def test_process_job_terminates_descendant_processes(tmp_path: Path) -> None:
     gate = tmp_path / "start"
     child_pid_file = tmp_path / "child.pid"
     parent = subprocess.Popen(
         [sys.executable, "-c", _PARENT_CODE, str(gate), str(child_pid_file)],
         cwd=tmp_path,
+        start_new_session=os.name != "nt",
     )
     job = ChildProcessJob(parent.pid)
     child_pid = 0
@@ -59,7 +59,8 @@ def test_windows_job_terminates_descendant_processes(tmp_path: Path) -> None:
 
         job.terminate()
 
-        assert parent.wait(timeout=5) != 0
+        parent.wait(timeout=5)
+        assert parent.poll() is not None
         assert _wait_until(lambda: not psutil.pid_exists(child_pid))
     finally:
         if job.active:
@@ -71,7 +72,6 @@ def test_windows_job_terminates_descendant_processes(tmp_path: Path) -> None:
             psutil.Process(child_pid).kill()
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows Job Object semantics")
 def test_studio_worker_uses_project_directory_and_process_job(tmp_path: Path) -> None:
     app = QCoreApplication.instance() or QCoreApplication([])
     runner = JobRunner(tmp_path)

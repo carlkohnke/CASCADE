@@ -20,7 +20,7 @@ blood vessels.
 
 Choose the guide for your platform:
 
-- [Native Windows](docs/windows.md)
+- [Windows](docs/windows.md)
 - [Linux](docs/linux.md)
 - [WSL](docs/wsl.md)
 

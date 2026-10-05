@@ -59,7 +59,7 @@ the [example simulations](docs/examples.md) for complete configurations.
 - [CASCADE Studio](docs/gui.md)
 - [Command-line interface](docs/cli.md)
 - [Example simulations](docs/examples.md)
-- [Domains](docs/domains.md)
+- [Tissue domains](docs/domains.md)
 - [Custom vascular geometry](docs/custom-geometry.md)
 - [Outputs and visualization](docs/outputs.md)
 - [Known issues and limitations](docs/known-issues.md)

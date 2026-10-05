@@ -1,4 +1,4 @@
-# Domains
+# Tissue domains
 
 CASCADE can create simple domains, use the packaged `bivent.stl` biventricular
 heart surface, or load a surface or volume mesh readable by PyVista.

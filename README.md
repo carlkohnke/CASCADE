@@ -56,7 +56,7 @@ the [example simulations](docs/examples.md) for complete configurations.
 
 ## Documentation
 
-- [CASCADE Studio](docs/gui.md)
+- [CASCADE Studio GUI](docs/gui.md)
 - [Command-line interface](docs/cli.md)
 - [Example simulations](docs/examples.md)
 - [Tissue domains](docs/domains.md)

@@ -56,6 +56,7 @@ gfm_run*/
 *.hdf5
 *.npy
 *.npz
+!examples/publication/demo.tree.npz
 !src/cascade/assets/numerics/bessel_k_v1.npz
 !src/cascade/assets/numerics/graetz_basis_6x3_validation_v1.npz
 !src/cascade/assets/numerics/graetz_basis_8x4_v1.npz

@@ -21,6 +21,14 @@ python -m pip install -r requirements/dev.txt
 
 ## Reproducible locks
 
+`locks/py312-linux-x86_64-publication-cpu.txt` records the complete dependency
+resolution from the fresh Linux/WSL Python 3.12 publication-demo installation
+on 5 October 2026, including the GUI extra. Apply it with
+`python -m pip install -c requirements/locks/py312-linux-x86_64-publication-cpu.txt ".[gui]"`.
+See [tested environments](../docs/tested-environments.md) for the tested machine
+and the [publication demo guide](../docs/publication-demo.md) for timings, inputs,
+and expected output. It is not a native-Windows or CUDA constraint file.
+
 `locks/` contains fully pinned platform-specific environments used for
 reproducible CPU and CUDA installations. Pass these files with pip's `-c`
 option; they are constraints, not standalone installation lists. The

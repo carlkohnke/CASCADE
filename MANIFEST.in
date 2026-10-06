@@ -1,5 +1,8 @@
 # Explicit allowlist for the Python source distribution (sdist).
 include README.md LICENSE
+include docs/tested-environments.md
+include docs/publication-demo.md
+recursive-include examples/publication *.json *.npz
 include pyproject.toml setup_linux.py
 include Install*Windows.cmd
 recursive-include scripts/windows *.ps1

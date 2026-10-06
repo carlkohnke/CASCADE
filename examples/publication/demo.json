@@ -1,0 +1,74 @@
+{
+  "domain": {
+    "type": "cube",
+    "side_length": 1.0,
+    "random_seed": 42
+  },
+  "network": {
+    "mode": "tree",
+    "target_terminal_count": 100,
+    "root": {
+      "start": [
+        0.49,
+        -0.49,
+        -0.49
+      ],
+      "direction": [
+        -0.49,
+        0.49,
+        0.49
+      ]
+    },
+    "input_path": "demo.tree.npz"
+  },
+  "growth": {
+    "n_closest_vessels": 2,
+    "n_points": 50,
+    "ignore_collisions": true,
+    "allow_inside_vessels": true,
+    "n_equal_bifurcations": null,
+    "enabled": false
+  },
+  "simulation": {
+    "fluid": "blood",
+    "build_fluid": "blood",
+    "qin_target_ul_min": 100.0,
+    "concentration_solver": "topdown",
+    "distance_sample_count": 10000,
+    "sample_mode": "random",
+    "tissue_accel": "cpu",
+    "geometry_only": false
+  },
+  "settings": {
+    "kirchhoff": {
+      "solver": "tree",
+      "bc_mode": "legacy_equal_terminal_flow"
+    },
+    "hematocrit": {
+      "model": "pries_secomb",
+      "flow_iterations": 2
+    },
+    "oxygen": {
+      "vmax_mm": 0.001,
+      "k_m_mm": 0.005,
+      "solute_diffusivity": 2.41e-5,
+      "finite_radius_o2_terms": "both",
+      "lumen_wall_closure": "graetz"
+    },
+    "cext": {
+      "accel_mode": "cpu",
+      "vess_coupling_accel": "anderson"
+    },
+    "tissue": {
+      "accel_mode": "cpu",
+      "nearest_vessels": 250
+    }
+  },
+  "outputs": {
+    "overwrite": true,
+    "out_dir": "../../runs/publication-demo",
+    "prefix": "publication_demo",
+    "write_paraview": true,
+    "save_network": true
+  }
+}

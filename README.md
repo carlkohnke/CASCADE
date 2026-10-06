@@ -85,6 +85,7 @@ an alternate Fourier-space (FFT) implementation.
 - [CASCADE Studio GUI](docs/gui.md)
 - [Command-line interface](docs/cli.md)
 - [Example simulations](docs/examples.md)
+- [Main-text simulations](docs/publication-reproduction.md)
 - [Tissue domains](docs/domains.md) -> importing your own tissues
 - [Custom vascular geometry](docs/custom-geometry.md) -> importing your own vascular data
 - [Outputs and visualization](docs/outputs.md)

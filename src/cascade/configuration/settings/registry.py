@@ -125,15 +125,23 @@ def default_settings() -> dict[str, dict[str, Any]]:
 
 
 def collect_config_settings(config: Any) -> dict[str, dict[str, Any]]:
-    # Resolve blood-transport defaults per run, including configurations that
-    # omit these options, rather than inheriting a previous run's legacy mode.
+    # Resolve physics and acceleration defaults per run so a reused Studio
+    # worker does not inherit an earlier project's overrides for these options.
     merged: dict[str, dict[str, Any]] = {
         "oxygen": {
             "junction_oxygen_balance": oxygen.DEFAULTS["JUNCTION_OXYGEN_BALANCE"],
             "blood_convective_hematocrit": oxygen.DEFAULTS[
                 "BLOOD_CONVECTIVE_HEMATOCRIT"
             ],
-        }
+        },
+        "cext": {
+            name: cext.DEFAULTS[cext.ALIASES[name]]
+            for name in (
+                "hybrid_gpu_iteration_cache",
+                "hybrid_gpu_runtime_stencil",
+                "hybrid_gpu_runtime_moments",
+            )
+        },
     }
 
     sim = config.simulation

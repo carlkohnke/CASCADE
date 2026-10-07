@@ -63,3 +63,36 @@ def test_cylinder_uses_configured_angular_resolution():
     high_mesh = build_domain(high, ts=runtime)
 
     assert high_mesh.n_points > low_mesh.n_points
+
+
+@pytest.mark.parametrize("frontend", ["cli", "gui"])
+def test_acceleration_overrides_do_not_leak_between_serial_runs(frontend):
+    from types import SimpleNamespace
+
+    from cascade.configuration.bridge import apply_runtime_settings
+    from cascade.configuration.schema import example_config
+    from cascade.configuration.settings import default_settings
+    from cascade.configuration.settings import cext
+    from cascade.gui.model import default_project
+
+    make_config = example_config if frontend == "cli" else default_project
+    names = (
+        "hybrid_gpu_iteration_cache",
+        "hybrid_gpu_runtime_stencil",
+        "hybrid_gpu_runtime_moments",
+    )
+    runtime = SimpleNamespace(
+        **{
+            key: value
+            for section in default_settings().values()
+            for key, value in section.items()
+        }
+    )
+    overrides = make_config()
+    overrides["settings"]["cext"].update({name: False for name in names})
+    apply_runtime_settings(runtime, parse_config(overrides))
+    assert all(getattr(runtime, cext.ALIASES[name]) is False for name in names)
+    apply_runtime_settings(runtime, parse_config(make_config()))
+    for name in names:
+        constant = cext.ALIASES[name]
+        assert getattr(runtime, constant) == cext.DEFAULTS[constant]

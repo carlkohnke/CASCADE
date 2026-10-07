@@ -8,7 +8,8 @@ visualization results. The network contains 201 segments in a cube of side
 length 1 cm. It was generated with CASCADE and public
 `svv`; no patient data or external dataset download is needed. The saved network
 avoids repeating stochastic vascular growth. Tissue sampling uses seed 42.
-This small CPU example uses the `topdown` vessel solver; it does not exercise
+The demo automatically uses a compatible CUDA runtime when available and falls
+back to CPU otherwise. It uses the `topdown` vessel solver; it does not exercise
 every optional solver or the large-network CUDA paths.
 
 See [tested versions and hardware](tested-environments.md) for the separate
@@ -34,6 +35,10 @@ cascade self-test
 
 Native Windows users should follow the [Windows installation guide](windows.md), then run the
 same demo command below in the extracted repository root.
+
+For GPU acceleration, install the appropriate CUDA extra using the
+[Linux](linux.md#nvidia-gpu-installation) or [Windows](windows.md) installation
+guide. The demo settings automatically select the available backend.
 
 The installation process should take a few minutes.
 
@@ -64,8 +69,9 @@ CSV files can be opened in a spreadsheet or Python. VTP/VTU files can be opened
 in ParaView or PyVista; ParaView is not required to run the demo. In
 `summary.csv`, expect exactly 201 total segments and
 inlet flow of approximately 100 microlitres/minute. Truncated numeric reference values for
-the tested environment are listed below, rechecked on 7 October 2026 after the
+the CPU backend are listed below, rechecked on 7 October 2026 after the
 blood oxygen-transport corrections.
+GPU results may differ slightly due to floating-point precision.
 
 | Summary column | Reference value |
 | --- | --- |

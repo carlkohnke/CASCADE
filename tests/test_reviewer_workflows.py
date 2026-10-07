@@ -180,6 +180,15 @@ def test_cached_gui_build_applies_current_settings_and_manifest(tmp_path, monkey
     assert config.runtime_setting_overrides["oxygen"]["VMAX_MM"] == 0.003
 
 
+def test_publication_demo_allows_gpu_with_cpu_fallback():
+    from cascade.accelerators.backend import gpu_requested, _gpu_required
+
+    source = Path(__file__).resolve().parents[1] / "examples" / "publication"
+    config = load_config(source / "demo.json")
+    assert gpu_requested(config)
+    assert not _gpu_required(config)
+
+
 def test_publication_demo_runs_from_an_unrelated_directory(tmp_path):
     import pyvista as pv
 
@@ -206,11 +215,15 @@ def test_publication_demo_runs_from_an_unrelated_directory(tmp_path):
         timeout=180,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "GPU auto-detection" not in completed.stdout
-    assert "GPU preflight" not in completed.stdout
+    assert (
+        "GPU preflight passed" in completed.stdout
+        or "using CPU-compatible solver paths" in completed.stdout
+    )
     outputs = case / "results"
     with (outputs / "summary.csv").open(newline="") as handle:
         summary = next(csv.DictReader(handle))
+    expected_backend = "gpu" if "GPU preflight passed" in completed.stdout else "cpu"
+    assert summary["t_tissue_backend"].startswith(expected_backend)
     assert float(summary["total_segments"]) == 201
     assert float(summary["terminal_segments"]) == 101
     assert float(summary["inlet_flow_ul_per_min"]) == pytest.approx(100)

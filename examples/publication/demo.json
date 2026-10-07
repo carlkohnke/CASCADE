@@ -36,7 +36,7 @@
     "concentration_solver": "topdown",
     "distance_sample_count": 10000,
     "sample_mode": "random",
-    "tissue_accel": "cpu",
+    "tissue_accel": "auto",
     "geometry_only": false
   },
   "settings": {
@@ -49,7 +49,7 @@
       "flow_iterations": 2
     },
     "oxygen": {
-      "network_transport_accel": "cpu",
+      "network_transport_accel": "auto",
       "junction_oxygen_balance": "total_content",
       "blood_convective_hematocrit": "discharge",
       "vmax_mm": 0.001,
@@ -59,12 +59,12 @@
       "lumen_wall_closure": "graetz"
     },
     "cext": {
-      "accel_mode": "cpu",
-      "frozen_accel_mode": "cpu",
+      "accel_mode": "auto",
+      "frozen_accel_mode": "auto",
       "vess_coupling_accel": "anderson"
     },
     "tissue": {
-      "accel_mode": "cpu",
+      "accel_mode": "auto",
       "nearest_vessels": 250
     }
   },

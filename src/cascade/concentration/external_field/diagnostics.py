@@ -249,6 +249,21 @@ def _clip_cext_omega(value: float, *, fallback: float | None = None) -> float:
     return float(np.clip(candidate, omega_min, omega_max))
 
 
+def _cext_absolute_residual_norm(values: np.ndarray) -> float:
+    """Norm for coupling convergence and acceptance; never ignore nonfinite values."""
+    arr = np.asarray(values, dtype=float)
+    if not arr.size:
+        return 0.0
+    if not np.all(np.isfinite(arr)):
+        return float("inf")
+    mode = str(_state.CEXT_VESS_COUPLING_NORM).lower()
+    if mode == "rms":
+        return float(np.sqrt(np.mean(arr * arr)))
+    if mode == "max":
+        return float(np.max(np.abs(arr)))
+    raise ValueError("CEXT_VESS_COUPLING_NORM must be 'max' or 'rms'")
+
+
 def _cext_residual_metrics(
     current: np.ndarray,
     mapped: np.ndarray,
@@ -256,18 +271,10 @@ def _cext_residual_metrics(
     residual = np.asarray(mapped, dtype=np.float32) - np.asarray(
         current, dtype=np.float32
     )
-    abs_inf = (
-        float(np.nanmax(np.abs(np.asarray(residual, dtype=float))))
-        if residual.size
-        else 0.0
-    )
-    scale = (
-        float(np.nanmax(np.abs(np.asarray(mapped, dtype=float))))
-        if mapped.size
-        else float(_state.VESS_CONC_FLOOR)
-    )
+    abs_inf = _cext_absolute_residual_norm(residual)
+    scale = _cext_absolute_residual_norm(mapped)
     scale = max(scale, float(_state.VESS_CONC_FLOOR))
-    rel_inf = abs_inf / scale if scale > 0.0 else 0.0
+    rel_inf = abs_inf / scale if np.isfinite(scale) and scale > 0.0 else float("inf")
     return np.asarray(residual, dtype=np.float32), abs_inf, float(rel_inf)
 
 

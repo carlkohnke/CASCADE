@@ -114,6 +114,9 @@ extern "C" __global__ void frozen_topdown_graetz_kernel(
     const int* seg_ids,
     int n_level,
     const int* parents,
+#ifdef CASCADE_NETWORK
+    const float* node_conc,
+#endif
     const float* flows_si,
     const float* radii_si,
     const float* lengths_si,
@@ -162,7 +165,11 @@ extern "C" __global__ void frozen_topdown_graetz_kernel(
     int seg_idx = seg_ids[idx];
     int parent = parents[seg_idx];
     float cin_local = inlet_concentration;
+#ifdef CASCADE_NETWORK
+    cin_local = node_conc[parent];
+#else
     if (parent >= 0) cin_local = cout_seg[parent];
+#endif
     if (cin_local < vess_floor) cin_local = vess_floor;
     cin_seg[seg_idx] = cin_local;
 

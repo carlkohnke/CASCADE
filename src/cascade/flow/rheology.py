@@ -187,6 +187,11 @@ def segment_viscosity_from_radius_hd(
         hd_arr = np.full_like(d_um, float(hd_arr), dtype=float)
     elif hd_arr.shape[0] != d_um.shape[0]:
         hd_arr = np.full_like(d_um, float(_state.HD_DISCHARGE), dtype=float)
+    from cascade.concentration.vessel.network_gpu import resolve_network_accel
+    if np.asarray(radii_cm).size >= 1024 and resolve_network_accel() == 'gpu':
+        from .hematocrit_gpu import segment_viscosity_gpu
+        return segment_viscosity_gpu(radii_cm,hd_arr,mu_base,
+                                     pries=_use_pries_secomb_blood_rheology())
     if _use_pries_secomb_blood_rheology():
         if _state._HAVE_NUMBA:
             return _pries_secomb_viscor_cgs_numba(

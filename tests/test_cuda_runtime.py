@@ -29,7 +29,9 @@ def _fake_component_distribution(tmp_path: Path) -> tuple[_FakeDistribution, Pat
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"")
-    return _FakeDistribution(tmp_path, [library_relative, header_relative]), library_relative
+    return _FakeDistribution(
+        tmp_path, [library_relative, header_relative]
+    ), library_relative
 
 
 def test_component_wheel_nested_library_directory_is_discovered(
@@ -186,6 +188,8 @@ def test_auto_acceleration_falls_back_to_cpu_when_gpu_probe_fails(
     assert config.runtime_settings["cext"]["accel_mode"] == "cpu"
     assert config.runtime_settings["tissue"]["accel_mode"] == "cpu"
     assert config.simulation.tissue_accel == "cpu"
+    assert config.runtime_settings["oxygen"]["network_transport_accel"] == "cpu"
+    assert config.runtime_settings["hemodynamics"]["kirchhoff_solver"] == "spsolve"
     assert "using CPU-compatible solver paths" in capsys.readouterr().out
 
 
@@ -215,5 +219,26 @@ def test_gpu_only_solver_still_fails_when_auto_probe_fails(monkeypatch) -> None:
         lambda: backend.GpuProbeResult(False, "GPU unavailable", "No CuPy"),
     )
 
+    with pytest.raises(RuntimeError, match="GPU preflight failed"):
+        backend.require_gpu_runtime(config)
+
+
+@pytest.mark.parametrize("stage", ["flow", "transport"])
+def test_explicit_graph_gpu_stage_requires_preflight(monkeypatch, stage):
+    config = _run_config(cext_mode="cpu", tissue_mode="cpu", solver="network")
+    config.simulation.skip_tissue_oxygen = True
+    config.runtime_settings["hemodynamics"] = {"kirchhoff_solver": "spsolve"}
+    config.runtime_settings["oxygen"] = {"network_transport_accel": "cpu"}
+    if stage == "flow":
+        config.runtime_settings["hemodynamics"]["kirchhoff_solver"] = "gpu_amg"
+    else:
+        config.runtime_settings["oxygen"]["network_transport_accel"] = "gpu"
+    monkeypatch.setattr(backend, "_GPU_PROBE_SUCCESS", None)
+    monkeypatch.setattr(
+        backend,
+        "probe_gpu_runtime",
+        lambda: backend.GpuProbeResult(False, "Unavailable", "No CUDA"),
+    )
+    assert backend.gpu_requested(config)
     with pytest.raises(RuntimeError, match="GPU preflight failed"):
         backend.require_gpu_runtime(config)

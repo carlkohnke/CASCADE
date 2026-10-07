@@ -446,7 +446,7 @@ Pressure/flow linear-solver choices and convergence controls.
 | `ilu_fill_factor` `KIRCHHOFF_ILU_FILL_FACTOR` | Advanced scientific/numerical | `300` | Maximum fill allowed in incomplete-LU preconditioning; larger values can be more robust but use more memory. |
 | `ilu_permc_specs` `KIRCHHOFF_ILU_PERMC_SPECS` | Advanced scientific/numerical | `["COLAMD","MMD_AT_PLUS_A","NATURAL"]` | Column-ordering methods tried when building the incomplete-LU preconditioner. |
 | `ilu_shift_rels` `KIRCHHOFF_ILU_SHIFT_RELS` | Advanced scientific/numerical | `[0.0,1e-14,1e-12]` | Small diagonal shifts tried if incomplete-LU factorization is unstable. |
-| `solver` `KIRCHHOFF_SOLVER` | Advanced scientific/numerical | `"spsolve"` | Kirchhoff flow solver family. "tree" uses the fast tree-specialized solver when possible. |
+| `solver` `KIRCHHOFF_SOLVER` | Advanced scientific/numerical | `"auto"` | Kirchhoff flow solver family. "tree" uses the fast tree-specialized solver when possible. |
 | `sparse_solver` `KIRCHHOFF_SPARSE_SOLVER` | Advanced scientific/numerical | `"spsolve"` | Sparse Kirchhoff solver used when not using the tree-specialized solver. |
 | `validate_sparse_solver` `KIRCHHOFF_VALIDATE_SPARSE_SOLVER` | Advanced scientific/numerical | `"spsolve"` | Sparse solver used as the reference when validating the tree-specialized solver. |
 | `validate_tree` `KIRCHHOFF_VALIDATE_TREE` | Advanced scientific/numerical | `false` | If true, compare the tree-specialized solver against a sparse solver for debugging. |
@@ -488,7 +488,7 @@ Red-cell partitioning, viscosity, and Pries-Secomb parameters.
 
 </details>
 
-<details><summary><code>settings.oxygen</code> — 31 options</summary>
+<details><summary><code>settings.oxygen</code> — 34 options</summary>
 
 Oxygen transport, consumption, lumen exchange, and quadrature.
 
@@ -508,16 +508,19 @@ Oxygen transport, consumption, lumen exchange, and quadrature.
 | `conc_max` `CONC_MAX_FOR_NORMALIZATION` | Common workflow | `0.14` | Reference concentration used to normalize output metrics such as C_tiss_over_Cmax. |
 | `concentration_solver` | Common workflow | `"network_ext"` | Default intravascular concentration solver used when a run does not specify one. |
 | `axial_blood_steps` | Advanced scientific/numerical | `5` | Axial discretization steps used by older blood concentration approximations. |
+| `blood_convective_hematocrit` | Advanced scientific/numerical | `"discharge"` | Discharge hematocrit is appropriate for convective oxygen flux. |
 | `diffusivity_blood_cm2_s` `LUMEN_DIFFUSIVITY_BLOOD_CM2_S` | Advanced scientific/numerical | `2.41e-05` | Oxygen diffusivity inside blood-filled lumens, in cm^2/s. |
 | `diffusivity_water_cm2_s` `LUMEN_DIFFUSIVITY_WATER_CM2_S` | Advanced scientific/numerical | `3.2e-05` | Oxygen diffusivity inside water/media-filled lumens, in cm^2/s. |
 | `fp_tol` `GRAETZ_FP_TOL` | Advanced scientific/numerical | `1e-05` | Convergence tolerance for Graetz fixed-point iterations. |
 | `gl_order` | Advanced scientific/numerical | `5` | Number of Gauss-Legendre quadrature points per vessel segment for tissue Greens integrals. |
 | `gl_order_cext` | Advanced scientific/numerical | `1` | Number of Gauss-Legendre quadrature points per segment for explicit Cext coupling. |
+| `junction_oxygen_balance` | Advanced scientific/numerical | `"total_content"` | Conserve total oxygen flux, including hemoglobin-bound oxygen. |
 | `max_bi` `GRAETZ_MAX_BI` | Advanced scientific/numerical | `1000000.0` | Graetz max bi. |
 | `max_fp_iters` `GRAETZ_MAX_FP_ITERS` | Advanced scientific/numerical | `4` | Maximum fixed-point iterations for solving Graetz wall/lumen coupling per segment. |
 | `min_bi` `GRAETZ_MIN_BI` | Advanced scientific/numerical | `1e-08` | Graetz min bi. |
 | `n_modes` `GRAETZ_N_MODES` | Advanced scientific/numerical | `4` | Fixed retained modes in the validated, precomputed Graetz basis. |
 | `n_radial` `GRAETZ_N_RADIAL` | Advanced scientific/numerical | `8` | Fixed radial nodes in the validated, precomputed Graetz basis. |
+| `network_transport_accel` | Advanced scientific/numerical | `"auto"` | Network transport accel. |
 | `omega` | Advanced scientific/numerical | `0.7` | Relaxation factor for iterative network concentration solves. |
 | `porosity` | Advanced scientific/numerical | `0.9` | Tissue porosity used by legacy transport calculations. |
 | `velocity_profile` `GRAETZ_VELOCITY_PROFILE` | Advanced scientific/numerical | `"poiseuille"` | Velocity profile assumed inside the vessel lumen for Graetz calculations. |
@@ -575,7 +578,7 @@ Tissue sampling, neighborhood accuracy, and tissue execution.
 
 </details>
 
-<details><summary><code>settings.cext</code> — 95 options</summary>
+<details><summary><code>settings.cext</code> — 96 options</summary>
 
 Extravascular concentration coupling and its acceleration algorithms.
 
@@ -583,7 +586,7 @@ Extravascular concentration coupling and its acceleration algorithms.
 | --- | --- | --- | --- |
 | `accel_mode` `CEXT_ACCEL_MODE` | Common workflow | `"auto"` | Device used for the main explicit extravascular concentration solve: "gpu", "cpu", or "auto". |
 | `vess_coupling_max_iter` `CEXT_VESS_COUPLING_MAX_ITER` | Common workflow | `1` | Maximum outer iterations coupling intravascular oxygen to extravascular concentration. |
-| `vess_coupling_tol` `CEXT_VESS_COUPLING_TOL` | Common workflow | `0.001` | Absolute convergence tolerance for the maximum Cext update between outer iterations. |
+| `vess_coupling_tol` `CEXT_VESS_COUPLING_TOL` | Common workflow | `0.0001` | Absolute convergence tolerance in mol/m^3 for the selected residual norm. |
 | `active_set_abs_tol` `CEXT_ACTIVE_SET_ABS_TOL` | Advanced scientific/numerical | `0.00025` | Absolute change threshold used to decide that a source vessel is stable. |
 | `active_set_enable` `CEXT_ACTIVE_SET_ENABLE` | Advanced scientific/numerical | `true` | If true, freeze source vessels whose Cext contribution has converged enough. |
 | `active_set_min_active_count` `CEXT_ACTIVE_SET_MIN_ACTIVE_COUNT` | Advanced scientific/numerical | `1024` | Minimum number of still-active source vessels required before freezing is allowed. |
@@ -652,6 +655,7 @@ Extravascular concentration coupling and its acceleration algorithms.
 | `vess_coupling_anderson_start` `CEXT_VESS_COUPLING_ANDERSON_START` | Advanced scientific/numerical | `2` | First outer iteration where Anderson acceleration is allowed to start. |
 | `vess_coupling_best_revert_factor` `CEXT_VESS_COUPLING_BEST_REVERT_FACTOR` | Advanced scientific/numerical | `1.02` | Residual increase over the best residual that can trigger reverting toward the best state. |
 | `vess_coupling_best_stall_iters` `CEXT_VESS_COUPLING_BEST_STALL_ITERS` | Advanced scientific/numerical | `20` | Iterations allowed without improving the best residual before best-state recovery logic can act. |
+| `vess_coupling_norm` `CEXT_VESS_COUPLING_NORM` | Advanced scientific/numerical | `"rms"` | Norm of the unrelaxed coupling equation residual, also used for step acceptance. |
 | `vess_coupling_omega` `CEXT_VESS_COUPLING_OMEGA` | Advanced scientific/numerical | `1.0` | Base relaxation factor for vessel-Cext coupling updates before acceleration modifies it. |
 | `vess_coupling_omega_max` `CEXT_VESS_COUPLING_OMEGA_MAX` | Advanced scientific/numerical | `1.4` | Upper bound on relaxation after acceleration; prevents overly aggressive updates. |
 | `vess_coupling_omega_min` `CEXT_VESS_COUPLING_OMEGA_MIN` | Advanced scientific/numerical | `0.025` | Lower bound on relaxation after acceleration; prevents updates from becoming too tiny. |
@@ -667,7 +671,7 @@ Extravascular concentration coupling and its acceleration algorithms.
 | `hybrid_fft_bin_epoch_cache` `CEXT_HYBRID_FFT_BIN_EPOCH_CACHE` | Performance/runtime | `true` | If true, cache FFT bin data across coupling iterations when bin definitions do not change. |
 | `hybrid_fft_o2_moment_batch` `CEXT_HYBRID_FFT_O2_MOMENT_BATCH` | Performance/runtime | `1` | Batch size for FFT oxygen moment calculations; larger batches can improve throughput but use more memory. |
 | `hybrid_fft_response_batched` `CEXT_HYBRID_FFT_RESPONSE_BATCHED` | Performance/runtime | `false` | If true, batch FFT response calculations to reduce Python overhead at the cost of more temporary memory. |
-| `hybrid_gpu_iteration_cache` `CEXT_HYBRID_GPU_ITERATION_CACHE` | Performance/runtime | `false` | If true, cache GPU hybrid-background data between coupling iterations. |
+| `hybrid_gpu_iteration_cache` `CEXT_HYBRID_GPU_ITERATION_CACHE` | Performance/runtime | `true` | Build hybrid FFT source weights on GPU, refreshing the current field and final tissue source handoff. |
 | `hybrid_gpu_runtime_moments` `CEXT_HYBRID_GPU_RUNTIME_MOMENTS` | Performance/runtime | `false` | If true, compute FFT O2 moment weights inside runtime-stencil kernels instead of caching moment arrays. |
 | `hybrid_gpu_runtime_stencil` `CEXT_HYBRID_GPU_RUNTIME_STENCIL` | Performance/runtime | `false` | If true, compute grid assignment stencils inside CUDA kernels instead of storing large stencil arrays. |
 | `hybrid_gpu_runtime_weights` `CEXT_HYBRID_GPU_RUNTIME_WEIGHTS` | Performance/runtime | `true` | If true, update hybrid GPU work weights from measured runtime instead of static estimates. |

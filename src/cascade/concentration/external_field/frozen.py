@@ -11,8 +11,7 @@ from time import perf_counter
 
 import numpy as np
 
-from cascade.configuration import solver_state as _state
-from cascade.configuration.solver_state import _lumen_diffusivity_cm2_s_for_fluid
+from cascade.accelerators.cuda import load_cuda_source
 from cascade.concentration.vessel.graetz import _graetz_get_basis_table
 from cascade.concentration.vessel.greens import (
     _interfacial_transfer_coeff_scalar_numba,
@@ -22,7 +21,9 @@ from cascade.concentration.vessel.greens import (
     _severinghaus_dSdP_scalar,
     severinghaus_dSdP,
 )
-from cascade.accelerators.cuda import load_cuda_source
+from cascade.concentration.vessel.oxygen_transport import concentration_from_content
+from cascade.configuration import solver_state as _state
+from cascade.configuration.solver_state import _lumen_diffusivity_cm2_s_for_fluid
 
 from .direct import _ensure_cext_gpu_static
 
@@ -421,6 +422,8 @@ if _state._HAVE_NUMBA:
         chb_max: np.ndarray,
         is_blood: int,
         omega: float,
+        conserve_total: int = 0,
+        node_capacity: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
         """Solve general-network fixed-field transport in compiled CPU code."""
         nseg = int(q.shape[0])
@@ -470,7 +473,19 @@ if _state._HAVE_NUMBA:
                     for position in range(row_start, row_stop):
                         edge_idx = int(incoming_edges[position])
                         numerator += float(q[edge_idx]) * float(cout[edge_idx])
+                        if conserve_total != 0:
+                            p = float(cout[edge_idx]) / _state.ALPHA_MMHG
+                            num = p * p * p + 150.0 * p
+                            numerator += (
+                                float(q[edge_idx]) * float(chb_max[edge_idx])
+                                * num / (num + 23400.0)
+                            )
                     updated[node] = numerator / denominator
+                    if conserve_total != 0:
+                        updated[node] = concentration_from_content(
+                            updated[node], node_capacity[node], _state.ALPHA_MMHG,
+                            node_conc[node],
+                        )
             delta = 0.0
             for node in range(nnode):
                 difference = abs(float(updated[node]) - float(node_conc[node]))

@@ -199,7 +199,8 @@ CEXT_LAMBDA_SOURCE = (
 )
 CEXT_WINDOW_FACTOR = WINDOW_FACTOR
 CEXT_VESS_COUPLING_MAX_ITER = 1
-CEXT_VESS_COUPLING_TOL = 1.0e-3
+CEXT_VESS_COUPLING_NORM = "rms"
+CEXT_VESS_COUPLING_TOL = 1.0e-4
 CEXT_VESS_COUPLING_OMEGA = 1.0
 CEXT_VESS_COUPLING_REL_TOL = 0.0
 CEXT_VESS_COUPLING_ACCEL = "anderson"  # "none", "aitken", or "anderson".
@@ -466,7 +467,7 @@ PRIES_SECOMB_MCV_CORR = (92.0 / PRIES_SECOMB_MCV_FL) ** (1.0 / 3.0)
 
 # Sparse Kirchhoff solver selection.
 # Options: "auto" | "cg" | "spsolve" | "gmres_ilu".
-KIRCHHOFF_SOLVER = "spsolve"  # "tree" or one of the sparse solver options below.
+KIRCHHOFF_SOLVER = "auto"  # GPU general graph when available; explicit CPU/tree modes remain available.
 KIRCHHOFF_BC_MODE = (
     "legacy_equal_terminal_flow"  # "terminal_pressure" or "legacy_equal_terminal_flow".
 )
@@ -514,6 +515,9 @@ HD_DISCHARGE = 0.42
 # Hemoglobin-bound O2 capacity in mol / m^3 blood per unit tube hematocrit.
 # Therefore Chb_max = HT * O2_CAP_PER_HCT is already in mol / m^3.
 O2_CAP_PER_HCT = 20.3
+JUNCTION_OXYGEN_BALANCE = "total_content"
+NETWORK_TRANSPORT_ACCEL = "auto"
+BLOOD_CONVECTIVE_HEMATOCRIT = "discharge"
 ALPHA_MMHG = 1.408e-3
 P50_MMHG = 26.5
 N_HILL = 2.7

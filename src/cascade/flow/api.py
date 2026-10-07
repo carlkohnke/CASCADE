@@ -58,7 +58,9 @@ def solve_pressure_drop(problem: PressureDropProblem) -> PressureDropResult:
             boundary_condition="pressure_pressure",
         )
         reference_outlet = float(
-            np.mean(reference_pressures[np.asarray(problem.outlet_nodes, dtype=np.int64)])
+            np.mean(
+                reference_pressures[np.asarray(problem.outlet_nodes, dtype=np.int64)]
+            )
         )
         reference_drop = (
             float(reference_pressures[problem.inlet_nodes[0]]) - reference_outlet
@@ -73,7 +75,15 @@ def solve_pressure_drop(problem: PressureDropProblem) -> PressureDropResult:
         )
         flows = scale * reference_flows
     else:
-        pressures, flows = _solve_pressure_dirichlet(
+        implementation = _solve_pressure_dirichlet
+        if problem.solver in {"gpu", "gpu_amg", "auto"}:
+            from cascade.concentration.vessel.network_gpu import resolve_network_accel
+
+            if problem.solver != "auto" or resolve_network_accel() == "gpu":
+                from .gpu import solve_pressure_dirichlet_gpu
+
+                implementation = solve_pressure_dirichlet_gpu
+        pressures, flows = implementation(
             problem.proximal_nodes,
             problem.distal_nodes,
             problem.resistances,
@@ -99,6 +109,7 @@ def solve_pressure_drop(problem: PressureDropProblem) -> PressureDropResult:
         -np.sum(node_net_outflow[np.asarray(problem.outlet_nodes, dtype=np.int64)])
     )
     from cascade.configuration import solver_state as _state
+
     if _state.KIRCHHOFF_DIAGNOSTICS:
         implementation = (
             "tree_unit_flow_scaling" if use_tree_scaling else "reduced_dirichlet"

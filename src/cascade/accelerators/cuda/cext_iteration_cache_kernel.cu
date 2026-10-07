@@ -44,7 +44,10 @@ extern "C" __global__ void cext_iteration_cache_kernel(
     float* mono2_weight_gl,
     float* dipole2_weight_gl,
     float* lambda_iv_gl,
-    float* seg_cap_gl
+    float* seg_cap_gl,
+    float* lambda_if_gl,
+    float* k_if_gl,
+    float* q_line_gl
 ) {
     int flat = blockDim.x * blockIdx.x + threadIdx.x;
     int total = nseg * gl_order;
@@ -87,6 +90,9 @@ extern "C" __global__ void cext_iteration_cache_kernel(
     float a2 = radius * radius;
 
     q_weighted_gl[flat] = q_weight;
+    lambda_if_gl[flat] = lambda_if;
+    k_if_gl[flat] = k_if;
+    q_line_gl[flat] = q_line;
     lambda_iv_gl[flat] = lambda_iv;
     mono2_weight_gl[flat] = include_mono2 != 0 ? 0.25f * a2 * q_weight : 0.0f;
     dipole2_weight_gl[flat] = include_dipole2 != 0 ? a2 * 3.14159265358979323846f * diffusivity_si * c_wall * ds : 0.0f;

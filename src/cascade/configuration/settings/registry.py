@@ -125,7 +125,16 @@ def default_settings() -> dict[str, dict[str, Any]]:
 
 
 def collect_config_settings(config: Any) -> dict[str, dict[str, Any]]:
-    merged: dict[str, dict[str, Any]] = {}
+    # Resolve blood-transport defaults per run, including configurations that
+    # omit these options, rather than inheriting a previous run's legacy mode.
+    merged: dict[str, dict[str, Any]] = {
+        "oxygen": {
+            "junction_oxygen_balance": oxygen.DEFAULTS["JUNCTION_OXYGEN_BALANCE"],
+            "blood_convective_hematocrit": oxygen.DEFAULTS[
+                "BLOOD_CONVECTIVE_HEMATOCRIT"
+            ],
+        }
+    }
 
     sim = config.simulation
     growth_cfg = config.growth
@@ -255,6 +264,17 @@ def _resolve_in_section(section: SettingSection, key: str, key_lower: str) -> st
 
 
 def _coerce_value(name: str, value: Any, default: Any) -> Any:
+    choices = {
+        "NETWORK_TRANSPORT_ACCEL": {"auto", "cpu", "gpu"},
+        "JUNCTION_OXYGEN_BALANCE": {"dissolved", "total_content"},
+        "BLOOD_CONVECTIVE_HEMATOCRIT": {"tube", "discharge"},
+        "CEXT_VESS_COUPLING_NORM": {"max", "rms"},
+    }
+    if name in choices:
+        value = str(value).strip().lower()
+        if value not in choices[name]:
+            raise ValueError(f"{name} must be one of {sorted(choices[name])}")
+        return value
     if name == "N_EQUAL_BIFURCATIONS":
         if value is None:
             return None

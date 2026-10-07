@@ -70,12 +70,14 @@ def _configured_gpu_modes(config: Any) -> tuple[str, str, str]:
     cext = settings.get("cext", {})
     tissue = settings.get("tissue", {})
     simulation_cext = simulation.cext or {}
-    cext_mode = str(
-        cext.get("accel_mode", simulation_cext.get("accel_mode", "auto"))
-    ).strip().lower()
-    tissue_mode = str(
-        tissue.get("accel_mode", simulation.tissue_accel or "auto")
-    ).strip().lower()
+    cext_mode = (
+        str(cext.get("accel_mode", simulation_cext.get("accel_mode", "auto")))
+        .strip()
+        .lower()
+    )
+    tissue_mode = (
+        str(tissue.get("accel_mode", simulation.tissue_accel or "auto")).strip().lower()
+    )
     return solver, cext_mode, tissue_mode
 
 
@@ -87,12 +89,17 @@ def gpu_requested(config: Any) -> bool:
 
     solver, cext_mode, tissue_mode = _configured_gpu_modes(config)
 
+    flow_mode, transport_mode = _configured_graph_modes(config)
+    if flow_mode in {"gpu", "gpu_amg", "auto"} or transport_mode in {"gpu", "auto"}:
+        return True
+
     if solver in {
         "network_ext",
         "topdown_ext",
         "topdown_ext_hybrid_bg",
         "topdown_ext_treecode",
         "network_ext_hybrid_bg",
+        "network_ext_treecode",
     } and cext_mode in {"gpu", "auto"}:
         return True
     return not bool(simulation.skip_tissue_oxygen) and tissue_mode in {"gpu", "auto"}
@@ -107,14 +114,21 @@ def _gpu_required(config: Any) -> bool:
     solver, cext_mode, tissue_mode = _configured_gpu_modes(config)
 
     # The general-network hybrid FFT formulation has no CPU implementation.
-    if solver == "network_ext_hybrid_bg":
+    flow_mode, transport_mode = _configured_graph_modes(config)
+    if flow_mode in {"gpu", "gpu_amg"} or transport_mode == "gpu":
         return True
-    if solver in {
-        "network_ext",
-        "topdown_ext",
-        "topdown_ext_hybrid_bg",
-        "topdown_ext_treecode",
-    } and cext_mode == "gpu":
+    if solver in {"network_ext_hybrid_bg", "network_ext_treecode"}:
+        return True
+    if (
+        solver
+        in {
+            "network_ext",
+            "topdown_ext",
+            "topdown_ext_hybrid_bg",
+            "topdown_ext_treecode",
+        }
+        and cext_mode == "gpu"
+    ):
         return True
     return not bool(simulation.skip_tissue_oxygen) and tissue_mode == "gpu"
 
@@ -124,6 +138,14 @@ def _select_cpu_for_auto_modes(config: Any) -> None:
     simulation = config.simulation
     settings = config.runtime_settings
     solver, cext_mode, tissue_mode = _configured_gpu_modes(config)
+
+    flow_mode, transport_mode = _configured_graph_modes(config)
+    if flow_mode == "auto":
+        settings.setdefault("hemodynamics", {})["kirchhoff_solver"] = "spsolve"
+        if "kirchhoff" in settings:
+            settings["kirchhoff"]["solver"] = "spsolve"
+    if transport_mode == "auto":
+        settings.setdefault("oxygen", {})["network_transport_accel"] = "cpu"
 
     if cext_mode == "auto" and solver in {
         "network_ext",
@@ -140,6 +162,24 @@ def _select_cpu_for_auto_modes(config: Any) -> None:
     if tissue_mode == "auto":
         simulation.tissue_accel = "cpu"
         settings.setdefault("tissue", {})["accel_mode"] = "cpu"
+
+
+def _configured_graph_modes(config: Any) -> tuple[str, str]:
+    settings = config.runtime_settings
+    flow = settings.get("hemodynamics", {})
+    kirchhoff = settings.get("kirchhoff", {})
+    oxygen = settings.get("oxygen", {})
+    flow_mode = kirchhoff.get(
+        "solver",
+        kirchhoff.get(
+            "KIRCHHOFF_SOLVER",
+            flow.get("kirchhoff_solver", flow.get("KIRCHHOFF_SOLVER", "auto")),
+        ),
+    )
+    transport_mode = oxygen.get(
+        "network_transport_accel", oxygen.get("NETWORK_TRANSPORT_ACCEL", "auto")
+    )
+    return str(flow_mode).strip().lower(), str(transport_mode).strip().lower()
 
 
 def probe_gpu_runtime(*, timeout_s: float = 30.0) -> GpuProbeResult:

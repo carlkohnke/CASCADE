@@ -9,7 +9,9 @@ from __future__ import annotations
 import numpy as np
 
 from cascade.configuration import solver_state as _state
+
 from .diagnostics import (
+    _cext_absolute_residual_norm,
     _cext_adaptive_aitken_omega,
     _cext_apply_trust_region,
     _cext_project_candidate,
@@ -199,6 +201,10 @@ def _cext_apply_component_acceleration(
     }
     metrics = {
         "max_delta_last": float(max_delta_last),
+        "peak_delta_last": float(np.max(np.abs(residual_flat)))
+        if residual_flat.size
+        else 0.0,
+        "residual_norm": str(_state.CEXT_VESS_COUPLING_NORM),
         "rel_residual_last": float(rel_residual_last),
         "omega_last": float(omega_last),
         "accel_step_last": accel_step_last,
@@ -260,11 +266,7 @@ def _cext_anderson_candidate(
         coeff32 = np.float32(coeff)
         candidate += coeff32 * np.asarray(g_arr, dtype=np.float32)
         predicted += coeff32 * np.asarray(r_arr, dtype=np.float32)
-    predicted_abs = (
-        float(np.nanmax(np.abs(np.asarray(predicted, dtype=float))))
-        if predicted.size
-        else 0.0
-    )
+    predicted_abs = _cext_absolute_residual_norm(predicted)
     coeff_l1 = float(np.sum(np.abs(alpha)))
     return candidate, predicted_abs, int(p), coeff_l1
 

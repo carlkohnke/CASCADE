@@ -10,14 +10,21 @@ from time import perf_counter
 
 import numpy as np
 
-from cascade.configuration import solver_state as _state
-from cascade.configuration.solver_state import _lumen_diffusivity_cm2_s_for_fluid
 from cascade.concentration.vessel.graetz import _graetz_get_basis_table
 from cascade.concentration.vessel.greens import (
     _interfacial_transfer_coefficient,
     _lambda_if_from_civ,
     severinghaus_dSdP,
 )
+from cascade.concentration.vessel.oxygen_transport import (
+    concentration_from_content,
+    junction_flux_residual,
+    nodal_capacity,
+    oxygen_content,
+    total_content_enabled,
+)
+from cascade.configuration import solver_state as _state
+from cascade.configuration.solver_state import _lumen_diffusivity_cm2_s_for_fluid
 
 from .diagnostics import _validate_cext_gpu_batch
 from .direct import (
@@ -82,6 +89,8 @@ def _run_network_ext_frozen_step(
     diffusivity_si = float(context["diffusivity_si"])
     chb = np.asarray(chb_max, dtype=float)
     valid = q > 1e-30
+    conserve_total = total_content_enabled(fluid_mode)
+    node_capacity = nodal_capacity(up, down, q, chb, nnode)
 
     graetz_basis = None
     lumen_diffusivity_si = 0.0
@@ -92,19 +101,17 @@ def _run_network_ext_frozen_step(
             str(_state.GRAETZ_VELOCITY_PROFILE),
         )
         lumen_diffusivity_si = (
-            float(_lumen_diffusivity_cm2_s_for_fluid(fluid_mode))
-            * _state.CM2_TO_M2
+            float(_lumen_diffusivity_cm2_s_for_fluid(fluid_mode)) * _state.CM2_TO_M2
         )
 
     if closure_mode == "wellmixed" and _state._HAVE_NUMBA and _state.CONC_USE_NUMBA:
         topology_cache = context.get("network_frozen_topology_cache")
-        if topology_cache is None:
+        if topology_cache is None or not all(np.array_equal(topology_cache[key], value) for key, value in
+            (("up_host", up), ("down_host", down), ("valid_host", valid), ("inlets_host", np.asarray(sorted(inlet_nodes))))):
             valid_edges = np.flatnonzero(valid).astype(np.int64, copy=False)
             if valid_edges.size:
                 edge_order = np.argsort(down[valid_edges], kind="stable")
-                incoming_edges = np.asarray(
-                    valid_edges[edge_order], dtype=np.int64
-                )
+                incoming_edges = np.asarray(valid_edges[edge_order], dtype=np.int64)
                 incoming_counts = np.bincount(
                     down[valid_edges], minlength=nnode
                 ).astype(np.int64, copy=False)
@@ -128,8 +135,14 @@ def _run_network_ext_frozen_step(
                 "sum_out": sum_out,
                 "sum_in": sum_in,
                 "inlet_mask": inlet_mask,
+                "up_host": up.copy(), "down_host": down.copy(), "valid_host": valid.copy(),
+                "inlets_host": np.asarray(sorted(inlet_nodes)), "q_host": q.copy(),
             }
             context["network_frozen_topology_cache"] = topology_cache
+        elif not np.array_equal(topology_cache["q_host"], q):
+            topology_cache["sum_out"] = np.bincount(up, weights=q, minlength=nnode)
+            topology_cache["sum_in"] = np.bincount(down, weights=q, minlength=nnode)
+            topology_cache["q_host"] = q.copy()
         cached_cin = np.asarray(ext_state.get("cin_seg", ()), dtype=np.float64)
         cin, cout, civ, iterations = _solve_network_ext_frozen_numba(
             np.asarray(up, dtype=np.int64),
@@ -151,6 +164,8 @@ def _run_network_ext_frozen_step(
             np.asarray(chb, dtype=np.float64),
             1 if fluid_mode == "blood" else 0,
             float(_state.OMEGA),
+            1 if conserve_total else 0,
+            np.asarray(node_capacity, dtype=np.float64),
         )
         elapsed = perf_counter() - t_total
         _state._LAST_CEXT_FROZEN_STEP_TIMINGS = {
@@ -166,6 +181,9 @@ def _run_network_ext_frozen_step(
         ext_state["c_iv_gl"] = civ
         ext_state["c_bulk_gl"] = civ
         ext_state["c_wall_gl"] = civ
+        ext_state["junction_total_oxygen_rel_resid"] = junction_flux_residual(
+            up, down, q, cin, cout, chb, nnode, boundary_nodes=inlet_nodes
+        )
         return cin, cout, civ, "cpu-network-numba", 0.0
 
     incoming: list[list[int]] = [[] for _ in range(nnode)]
@@ -197,9 +215,7 @@ def _run_network_ext_frozen_step(
         accepted = profile.copy()
         accepted_bulk = float(bulk_in)
         accepted_wall = wall_guess
-        lambda_guess = float(
-            _lambda_if_from_civ(wall_guess, diffusivity_si, vmax, km)
-        )
+        lambda_guess = float(_lambda_if_from_civ(wall_guess, diffusivity_si, vmax, km))
         buffer = 1.0
         if fluid_mode == "blood":
             buffer += (
@@ -210,8 +226,10 @@ def _run_network_ext_frozen_step(
         velocity = q[edge_idx] / max(
             np.pi * radii_si[edge_idx] * radii_si[edge_idx], 1e-30
         )
-        xi = lumen_diffusivity_si * step / max(
-            buffer * radii_si[edge_idx] ** 2 * velocity, 1e-30
+        xi = (
+            lumen_diffusivity_si
+            * step
+            / max(buffer * radii_si[edge_idx] ** 2 * velocity, 1e-30)
         )
         for _ in range(max(int(_state.GRAETZ_MAX_FP_ITERS), 1)):
             k_if = float(
@@ -367,6 +385,20 @@ def _run_network_ext_frozen_step(
                     sum(q[edge] * float(cout[edge]) for edge in incoming[node])
                     / denominator
                 )
+                if conserve_total:
+                    content = (
+                        sum(
+                            q[edge] * float(oxygen_content(cout[edge], chb[edge]))
+                            for edge in incoming[node]
+                        )
+                        / denominator
+                    )
+                    updated[node] = concentration_from_content(
+                        content,
+                        node_capacity[node],
+                        float(_state.ALPHA_MMHG),
+                        updated[node],
+                    )
         delta = float(np.max(np.abs(updated - node_conc))) if nnode else 0.0
         node_conc += float(_state.OMEGA) * (updated - node_conc)
         for inlet in inlet_nodes:
@@ -390,6 +422,9 @@ def _run_network_ext_frozen_step(
     ext_state["c_iv_gl"] = civ
     ext_state["c_bulk_gl"] = civ
     ext_state["c_wall_gl"] = cwall
+    ext_state["junction_total_oxygen_rel_resid"] = junction_flux_residual(
+        up, down, q, cin, cout, chb, nnode, boundary_nodes=inlet_nodes
+    )
     return cin, cout, civ, "cpu-network", 0.0
 
 
@@ -405,6 +440,13 @@ def _run_topdown_ext_frozen_step(
     frozen_backend: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, str, float]:
     if context.get("network_topology") is not None:
+        if str(frozen_backend).lower().startswith("gpu"):
+            from cascade.concentration.vessel.network_gpu import solve_network_ext_gpu
+
+            return solve_network_ext_gpu(
+                context, ext_state, inlet_concentration=inlet_concentration,
+                vmax=vmax, km=km, chb_max=chb_max, fluid_mode=fluid_mode,
+            )
         return _run_network_ext_frozen_step(
             context,
             ext_state,
@@ -704,7 +746,7 @@ def _compute_cext_image_step(
 
 
 __all__ = [
+    "_compute_cext_image_step",
     "_run_network_ext_frozen_step",
     "_run_topdown_ext_frozen_step",
-    "_compute_cext_image_step",
 ]

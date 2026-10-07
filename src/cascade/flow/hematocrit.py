@@ -324,6 +324,26 @@ def compute_tree_hematocrit(
     radii = np.asarray(context["radii"], dtype=float)
     mode = _normalize_hematocrit_model(model)
 
+    from cascade.concentration.vessel.network_gpu import resolve_network_accel
+
+    if resolve_network_accel() == "gpu":
+        from .hematocrit_gpu import compute_network_hematocrit_gpu
+
+        # Exact connectivity avoids rounded coordinates and works with relabeled
+        # tree rows. The public graph API handles actual converging networks.
+        parents = np.asarray(context["parents"], dtype=np.int64)
+        up = np.where(parents >= 0, parents + 1, 0)
+        down = np.arange(nseg, dtype=np.int64) + 1
+        return compute_network_hematocrit_gpu(
+            up,
+            down,
+            np.ones(nseg) if flows is None else flows,
+            radii,
+            hd_root=hd_root,
+            model=mode if flows is not None else "uniform_tube",
+            context=context,
+        )
+
     hd = float(hd_root)
     if mode == "pries_secomb" and flows is not None and _state._HAVE_NUMBA:
         if order is None:

@@ -20,7 +20,7 @@ DEFAULTS = {
     # If true, scale the pressure drop by side_length^3 before solving vessel flows.
     "SCALE_dP_BY_VOLUME": True,
     # Kirchhoff flow solver family. "tree" uses the fast tree-specialized solver when possible.
-    "KIRCHHOFF_SOLVER": "spsolve",
+    "KIRCHHOFF_SOLVER": "auto",
     # Boundary condition mode for flow. The legacy mode enforces equal terminal flow then reconstructs pressure.
     "KIRCHHOFF_BC_MODE": "legacy_equal_terminal_flow",
     # If true, compare the tree-specialized solver against a sparse solver for debugging.

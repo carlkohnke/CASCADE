@@ -20,8 +20,10 @@ DEFAULTS = {
     "CEXT_WINDOW_FACTOR": 6,
     # Maximum outer iterations coupling intravascular oxygen to extravascular concentration.
     "CEXT_VESS_COUPLING_MAX_ITER": 1,
-    # Absolute convergence tolerance for the maximum Cext update between outer iterations.
-    "CEXT_VESS_COUPLING_TOL": 1.0e-3,
+    # Norm of the unrelaxed coupling equation residual, also used for step acceptance.
+    "CEXT_VESS_COUPLING_NORM": "rms",
+    # Absolute convergence tolerance in mol/m^3 for the selected residual norm.
+    "CEXT_VESS_COUPLING_TOL": 1.0e-4,
     # Base relaxation factor for vessel-Cext coupling updates before acceleration modifies it.
     "CEXT_VESS_COUPLING_OMEGA": 1.0,
     # Relative convergence tolerance for vessel-Cext coupling; 0 disables this relative stop test.
@@ -173,9 +175,9 @@ DEFAULTS = {
     "CEXT_HYBRID_FFT_O2_MOMENT_BATCH": max(
         int(os.environ.get("SVV_CEXT_HYBRID_FFT_O2_MOMENT_BATCH", "1")), 1
     ),
-    # If true, cache GPU hybrid-background data between coupling iterations.
+    # Build hybrid FFT source weights on GPU, refreshing the current field and final tissue source handoff.
     "CEXT_HYBRID_GPU_ITERATION_CACHE": os.environ.get(
-        "SVV_CEXT_HYBRID_GPU_ITERATION_CACHE", "false"
+        "SVV_CEXT_HYBRID_GPU_ITERATION_CACHE", "true"
     )
     .strip()
     .lower()
@@ -275,6 +277,7 @@ ALIASES = {
     "window_factor": "CEXT_WINDOW_FACTOR",
     "vess_coupling_max_iter": "CEXT_VESS_COUPLING_MAX_ITER",
     "vess_coupling_tol": "CEXT_VESS_COUPLING_TOL",
+    "vess_coupling_norm": "CEXT_VESS_COUPLING_NORM",
     "vess_coupling_omega": "CEXT_VESS_COUPLING_OMEGA",
     "vess_coupling_omega_min": "CEXT_VESS_COUPLING_OMEGA_MIN",
     "vess_coupling_omega_max": "CEXT_VESS_COUPLING_OMEGA_MAX",

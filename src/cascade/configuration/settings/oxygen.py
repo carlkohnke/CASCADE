@@ -5,6 +5,11 @@ from __future__ import annotations
 import os
 
 DEFAULTS = {
+    "NETWORK_TRANSPORT_ACCEL": "auto",
+    # Conserve total oxygen flux, including hemoglobin-bound oxygen.
+    "JUNCTION_OXYGEN_BALANCE": "total_content",
+    # Discharge hematocrit is appropriate for convective oxygen flux.
+    "BLOOD_CONVECTIVE_HEMATOCRIT": "discharge",
     # Default intravascular concentration solver used when a run does not specify one.
     "CONCENTRATION_SOLVER": "network_ext",
     # Inlet oxygen concentration by fluid type, in the concentration units used by the solver.
@@ -103,6 +108,9 @@ DEFAULTS = {
 }
 
 ALIASES = {
+    "network_transport_accel": "NETWORK_TRANSPORT_ACCEL",
+    "junction_oxygen_balance": "JUNCTION_OXYGEN_BALANCE",
+    "blood_convective_hematocrit": "BLOOD_CONVECTIVE_HEMATOCRIT",
     "solver": "CONCENTRATION_SOLVER",
     "concentration_solver": "CONCENTRATION_SOLVER",
     "cmax": "CONC_MAX_FOR_NORMALIZATION",

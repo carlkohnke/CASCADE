@@ -98,9 +98,9 @@ class FlowProblem:
             raise ValueError("Flow boundary node indices must lie within node_count.")
         solver = str(self.solver).strip().lower().replace("-", "_")
         solver = {"tree_neumann": "tree", "tree_current_bc": "tree"}.get(solver, solver)
-        if solver not in {"tree", "auto", "cg", "gmres_ilu", "spsolve"}:
+        if solver not in {"tree", "auto", "cg", "gmres_ilu", "spsolve", "gpu", "gpu_amg"}:
             raise ValueError(
-                "solver must be one of 'tree', 'auto', 'cg', 'gmres_ilu', or 'spsolve'."
+                "solver must be one of 'tree', 'auto', 'cg', 'gmres_ilu', 'spsolve', 'gpu', or 'gpu_amg'."
             )
         boundary_condition = (
             str(self.boundary_condition).strip().lower().replace("-", "_")
@@ -218,9 +218,9 @@ class PressureDropProblem:
         solver = {"tree_neumann": "tree", "tree_current_bc": "tree"}.get(
             solver, solver
         )
-        if solver not in {"tree", "auto", "cg", "gmres_ilu", "spsolve"}:
+        if solver not in {"tree", "auto", "cg", "gmres_ilu", "spsolve", "gpu", "gpu_amg"}:
             raise ValueError(
-                "solver must be one of 'tree', 'auto', 'cg', 'gmres_ilu', or 'spsolve'."
+                "solver must be one of 'tree', 'auto', 'cg', 'gmres_ilu', 'spsolve', 'gpu', or 'gpu_amg'."
             )
 
         object.__setattr__(self, "proximal_nodes", proximal)

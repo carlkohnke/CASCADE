@@ -6,7 +6,6 @@ from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
-from cascade.configuration import solver_state as _state
 from cascade.concentration.external_field.diagnostics import (
     _default_cext_timing_details,
 )
@@ -19,9 +18,11 @@ from cascade.concentration.external_field.topdown_solver import (
 from cascade.concentration.external_field.treecode_solver import (
     _solve_channel_concentrations_topdown_ext_treecode,
 )
+from cascade.configuration import solver_state as _state
 from cascade.flow.topology import _build_node_indices
 
 from .network import solve_network_concentrations
+from .oxygen_transport import network_discharge_hematocrit
 from .topdown import _solve_channel_concentrations_topdown
 
 
@@ -37,6 +38,7 @@ def _resolve_concentration_solver(value: str | None) -> str:
         "topdown_ext_hybrid_bg",
         "network_ext_hybrid_bg",
         "topdown_ext_treecode",
+        "network_ext_treecode",
     ):
         return mode
     raise ValueError(
@@ -159,7 +161,14 @@ def _solve_channel_concentrations(
                 else tuple(int(node) for node in outlet_nodes),
             },
         )
-    if mode == "topdown_ext_treecode":
+    if mode in {'topdown_ext_treecode','network_ext_treecode'}:
+        topology = None
+        if mode == 'network_ext_treecode':
+            if prox_ids is None or dist_ids is None:
+                geometry = np.column_stack((starts,ends))
+                prox_ids,dist_ids,_ = _build_node_indices(geometry)
+            topology = dict(prox_ids=np.asarray(prox_ids,dtype=np.int64),dist_ids=np.asarray(dist_ids,dtype=np.int64),
+                            inlet_nodes=tuple(inlet_nodes),outlet_nodes=outlet_nodes)
         return _solve_channel_concentrations_topdown_ext_treecode(
             tree,
             flows,
@@ -172,6 +181,7 @@ def _solve_channel_concentrations(
             vmax=vmax,
             km=km,
             fluid=fluid,
+            network_topology=topology,
         )
     cin, cout, _, _ = solve_network_concentrations(
         starts,
@@ -183,6 +193,9 @@ def _solve_channel_concentrations(
         outlet_nodes,
         inlet_concentration,
         fluid=fluid,
+        discharge_hematocrit=network_discharge_hematocrit(tree, flows)
+        if str(fluid).lower() == "blood"
+        else None,
         prox_ids=prox_ids,
         dist_ids=dist_ids,
         diffusivity=diffusivity,

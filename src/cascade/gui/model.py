@@ -134,6 +134,8 @@ def default_project() -> dict[str, Any]:
                 "hd_discharge": 0.42,
             },
             "oxygen": {
+                "junction_oxygen_balance": "total_content",
+                "blood_convective_hematocrit": "discharge",
                 "concentration_inlet_by_fluid": {
                     "water": 100.0 * ALPHA_MMHG,
                     "blood": 100.0 * ALPHA_MMHG,
@@ -153,7 +155,8 @@ def default_project() -> dict[str, Any]:
             "cext": {
                 "accel_mode": "auto",
                 "vess_coupling_max_iter": 1,
-                "vess_coupling_tol": 1e-3,
+                "vess_coupling_norm": "rms",
+                "vess_coupling_tol": 1e-4,
                 "window_factor": 6,
                 "hybrid_bg_grid": 256,
                 "hybrid_bg_lambda_bins": 5,
@@ -249,9 +252,7 @@ def load_project(path: str | Path) -> dict[str, Any]:
     return merge_project(raw)
 
 
-def materialize_project_assets(
-    config: dict[str, Any], project_dir: str | Path
-) -> None:
+def materialize_project_assets(config: dict[str, Any], project_dir: str | Path) -> None:
     """Copy external domain/network inputs into the portable project folder."""
     root = Path(project_dir).expanduser().resolve()
     assets = root / "assets"
@@ -369,7 +370,13 @@ def validate_project(
         report.errors.append(f"Unknown boundary-condition mode: {bc_mode}")
 
     domain = config.get("domain", {})
-    if domain.get("type") not in {"cube", "box", "sphere", "cylinder", "disk"} and not domain.get("path"):
+    if domain.get("type") not in {
+        "cube",
+        "box",
+        "sphere",
+        "cylinder",
+        "disk",
+    } and not domain.get("path"):
         report.errors.append("An uploaded domain requires a readable domain file path.")
     domain_path = resolve_domain_path(domain.get("path"))
     if domain.get("path") and (domain_path is None or not domain_path.exists()):
@@ -394,7 +401,9 @@ def validate_project(
             if not custom_path.is_absolute() and base_dir is not None:
                 custom_path = Path(base_dir).expanduser() / custom_path
             if not custom_path.is_file():
-                report.errors.append(f"Custom geometry file does not exist: {custom_path}")
+                report.errors.append(
+                    f"Custom geometry file does not exist: {custom_path}"
+                )
     if source == "lattice" or simple.get("mode") == "lattice":
         if domain.get("type") not in {"cube", "box"}:
             report.notes.append(
@@ -702,7 +711,7 @@ def create_jobs(config: dict[str, Any], project_dir: str | Path) -> list[JobReco
     gui_config = config.get("gui", {})
     project_name = str(gui_config.get("project_name", "CASCADE project"))
     requested_name = str(gui_config.get("run_name") or "").strip()
-    run_name = requested_name or f"Run {len(list(runs_dir.glob('*')))+1:03d}"
+    run_name = requested_name or f"Run {len(list(runs_dir.glob('*'))) + 1:03d}"
     records: list[JobRecord] = []
     expanded = expand_sweeps(config)
     active_sweeps = [
@@ -950,9 +959,7 @@ class QueueStore:
                     archived[job_id] = JobRecord(
                         id=job_id,
                         name=str(
-                            gui.get("run_name")
-                            or gui.get("project_name")
-                            or job_id
+                            gui.get("run_name") or gui.get("project_name") or job_id
                         ),
                         settings_path=str(manifest.get("settings_path") or ""),
                         output_dir=str(manifest_path.parent),
@@ -984,9 +991,7 @@ class QueueStore:
                     continue
                 if resolved.is_dir():
                     shutil.rmtree(resolved)
-        remaining = [
-            job for job in self.load_results() if job.id not in target_ids
-        ]
+        remaining = [job for job in self.load_results() if job.id not in target_ids]
         self.root.mkdir(parents=True, exist_ok=True)
         _atomic_json(
             self.results_path,

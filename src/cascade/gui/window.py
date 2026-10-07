@@ -618,9 +618,7 @@ class MainWindow(QMainWindow):
         report = getattr(self, "_validation_report", None)
         errors = list(getattr(report, "errors", []) or [])
         if errors:
-            QMessageBox.warning(
-                self, "Cannot queue this setup", "\n\n".join(errors)
-            )
+            QMessageBox.warning(self, "Cannot queue this setup", "\n\n".join(errors))
             return
         self._enqueue(False, stay_on_page=True)
 
@@ -654,8 +652,7 @@ class MainWindow(QMainWindow):
         ).astimezone()
         hour = saved_at.hour % 12 or 12
         saved_text = (
-            f"{saved_at:%b} {saved_at.day}, {saved_at.year}, "
-            f"{hour}:{saved_at:%M %p}"
+            f"{saved_at:%b} {saved_at.day}, {saved_at.year}, {hour}:{saved_at:%M %p}"
         )
         dirty = " | Unsaved changes" if self._project_dirty else ""
         label = f"Project {display_path.parent.name}: Last saved {saved_text}{dirty}"
@@ -695,9 +692,11 @@ class MainWindow(QMainWindow):
                     "network_ext_hybrid_bg",
                 }:
                     updated["simulation"]["concentration_solver"] = "network_ext"
-                updated.setdefault("settings", {}).setdefault("hemodynamics", {})[
-                    "kirchhoff_solver"
-                ] = "spsolve"
+                hemodynamics = updated.setdefault("settings", {}).setdefault(
+                    "hemodynamics", {}
+                )
+                if str(hemodynamics.get("kirchhoff_solver", "auto")).startswith("tree"):
+                    hemodynamics["kirchhoff_solver"] = "auto"
         except Exception as exc:
             if show_error:
                 QMessageBox.warning(self, "Check the current setup", str(exc))
@@ -817,10 +816,7 @@ class MainWindow(QMainWindow):
             "domain": deepcopy(config.get("domain", {})),
             "network": deepcopy(config.get("network", {})),
             "growth": deepcopy(config.get("growth", {})),
-            "simulation": {
-                key: simulation.get(key)
-                for key in simulation_keys
-            },
+            "simulation": {key: simulation.get(key) for key in simulation_keys},
             "settings": {
                 "hemodynamics": {
                     key: settings.get("hemodynamics", {}).get(key)

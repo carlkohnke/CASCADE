@@ -104,6 +104,7 @@ class VesselConcentrationProblem:
             "topdown_ext_hybrid_bg",
             "network_ext_hybrid_bg",
             "topdown_ext_treecode",
+            "network_ext_treecode",
         }
         if solver not in supported_solvers:
             raise ValueError(

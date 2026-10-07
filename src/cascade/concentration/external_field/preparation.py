@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 
@@ -42,8 +43,12 @@ def hematocrit_capacity(
             flows=flows,
         )
     else:
-        _, tube = cached
-    return np.asarray(tube, dtype=np.float32) * np.float32(
+        discharge, tube = cached
+    mode = str(getattr(runtime, "BLOOD_CONVECTIVE_HEMATOCRIT", "tube")).lower()
+    if mode not in {"tube", "discharge"}:
+        raise ValueError("blood_convective_hematocrit must be 'tube' or 'discharge'")
+    hematocrit = discharge if mode == "discharge" else tube
+    return np.asarray(hematocrit, dtype=np.float32) * np.float32(
         float(runtime.O2_CAP_PER_HCT)
     )
 
@@ -131,6 +136,8 @@ def prepare_network_external_field(
         float(transport_runtime.SOLUTE_DIFFUSIVITY),
         float(transport_runtime.VMAX_MM),
         float(transport_runtime.K_M_MM),
+        str(getattr(runtime, "JUNCTION_OXYGEN_BALANCE", "dissolved")),
+        str(getattr(runtime, "BLOOD_CONVECTIVE_HEMATOCRIT", "tube")),
     )
     state = runtime._initialize_cext_state(
         network,

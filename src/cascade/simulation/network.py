@@ -442,6 +442,7 @@ def run_tree_simulation(
             "topdown_ext_hybrid_bg",
             "network_ext_hybrid_bg",
             "topdown_ext_treecode",
+            "network_ext_treecode",
         }
         else None
     )
@@ -590,6 +591,8 @@ def run_tree_simulation(
         ),
         "distance_sample_count": int(_state.DISTANCE_SAMPLE_COUNT),
         "concentration_solver": concentration_solver_mode,
+        "junction_oxygen_balance": str(_state.JUNCTION_OXYGEN_BALANCE),
+        "blood_convective_hematocrit": str(_state.BLOOD_CONVECTIVE_HEMATOCRIT),
         "tissue_quadrature_order": int(_state.GL_ORDER),
         "external_field_quadrature_order": int(_state.GL_ORDER_CEXT),
         "finite_radius_o2_terms": str(_state.FINITE_RADIUS_O2_TERMS),
@@ -758,6 +761,8 @@ def run_tree_simulation(
         "cext_rel_residual_last": float(
             concentration_timing_details.get("cext_rel_residual_last", 0.0) or 0.0
         ),
+        "cext_residual_norm": str(_state.CEXT_VESS_COUPLING_NORM),
+        "cext_residual_last": float(concentration_timing_details.get("cext_max_delta_last", 0.0) or 0.0),
         "cext_max_delta_last": float(
             concentration_timing_details.get("cext_max_delta_last", 0.0) or 0.0
         ),

@@ -7,18 +7,19 @@ evaluation and records convergence/timing diagnostics.
 from __future__ import annotations
 
 from time import perf_counter
-from typing import Tuple
 
 import numpy as np
 
-from cascade.configuration import solver_state as _state
 from cascade.concentration.vessel.greens import _normalize_cext_lambda_source
+from cascade.concentration.vessel.oxygen_transport import transport_capacity,network_discharge_hematocrit
 from cascade.concentration.vessel.topdown import _solve_channel_concentrations_topdown
+from cascade.configuration import solver_state as _state
 from cascade.flow.hematocrit import (
     _get_tree_hematocrit_cache,
     _hematocrit_context_for_tree,
     _store_tree_hematocrit_cache,
     compute_tree_hematocrit,
+    _tube_hematocrit_from_hd_radius,
 )
 
 from .acceleration import _cext_apply_component_acceleration
@@ -35,6 +36,7 @@ from .state import (
     _build_cext_iteration_cache,
     _cext_state_cache_key,
     _initialize_cext_state,
+    _set_last_cext_source_state,
 )
 from .topdown_solver import _solve_channel_concentrations_topdown_ext
 from .treecode import (
@@ -59,7 +61,8 @@ def _solve_channel_concentrations_topdown_ext_treecode(
     vmax: float,
     km: float,
     fluid: str,
-) -> Tuple[np.ndarray, np.ndarray]:
+    network_topology: dict | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Couple top-down lumen transport to hierarchical Cext evaluation.
 
     Near interactions remain explicit while the treecode approximates distant
@@ -69,6 +72,14 @@ def _solve_channel_concentrations_topdown_ext_treecode(
 
     # Mutable runtime state is centralized in configuration.solver_state.
     if float(_state.CEXT_WINDOW_FACTOR) <= 0.0:
+        if network_topology is not None:
+            from cascade.concentration.vessel.network import solve_network_concentrations
+            cin,cout,_,_ = solve_network_concentrations(starts,ends,radii,lengths,flows,
+                network_topology['inlet_nodes'],network_topology.get('outlet_nodes'),inlet_concentration,
+                fluid=fluid,prox_ids=network_topology['prox_ids'],dist_ids=network_topology['dist_ids'],
+                diffusivity=diffusivity,vmax=vmax,km=km,
+                discharge_hematocrit=network_discharge_hematocrit(tree,flows) if fluid=='blood' else None)
+            return cin,cout
         cin, cout = _solve_channel_concentrations_topdown(
             tree,
             flows,
@@ -99,6 +110,7 @@ def _solve_channel_concentrations_topdown_ext_treecode(
             vmax=vmax,
             km=km,
             fluid=fluid,
+            network_topology=network_topology,
         )
 
     t_total = perf_counter()
@@ -107,8 +119,8 @@ def _solve_channel_concentrations_topdown_ext_treecode(
         or getattr(getattr(tree, "parameters", None), "fluid", None)
         or _state.ACTIVE_FLUID
     ).lower()
-    hct_context = _hematocrit_context_for_tree(tree)
-    radii_arr = np.asarray(hct_context["radii"], dtype=float)
+    hct_context = None if network_topology is not None else _hematocrit_context_for_tree(tree)
+    radii_arr = np.asarray(radii if network_topology is not None else hct_context['radii'], dtype=float)
     flows_arr = np.asarray(flows, dtype=float)
     chb_max = np.zeros_like(radii_arr)
     hct_source = "none"
@@ -119,7 +131,11 @@ def _solve_channel_concentrations_topdown_ext_treecode(
             model=_state.HEMATOCRIT_MODEL,
             flows=flows_arr,
         )
-        if cached_hct is not None:
+        if network_topology is not None:
+            HD = network_discharge_hematocrit(tree,flows_arr)
+            HT = _tube_hematocrit_from_hd_radius(radii_arr,HD)
+            hct_source = 'network-discharge'
+        elif cached_hct is not None:
             HD, HT = cached_hct
             hct_source = "cache"
         else:
@@ -139,7 +155,7 @@ def _solve_channel_concentrations_topdown_ext_treecode(
                 fixed_flow_bc=False,
             )
             hct_source = "computed"
-        chb_max = np.asarray(HT, dtype=float) * float(_state.O2_CAP_PER_HCT)
+        chb_max = transport_capacity(HD, HT)
     context = _build_cext_geometry_context(
         tree,
         flows_arr,
@@ -151,6 +167,7 @@ def _solve_channel_concentrations_topdown_ext_treecode(
         diffusivity=diffusivity,
         vmax=vmax,
         km=km,
+        network_topology=network_topology,
     )
     backend = _resolve_cext_accel_mode()
     frozen_backend = _resolve_cext_frozen_accel_mode()
@@ -167,6 +184,7 @@ def _solve_channel_concentrations_topdown_ext_treecode(
             vmax=vmax,
             km=km,
             fluid=fluid,
+            network_topology=network_topology,
         )
     context["candidate_query_mode"] = "treecode"
     context["candidate_build_time_s"] = 0.0
@@ -534,7 +552,7 @@ def _solve_channel_concentrations_topdown_ext_treecode(
         if _state.SOLVER_TIMING_DETAILS:
             print(
                 f"    Cext iter {iter_idx}/{int(_state.CEXT_VESS_COUPLING_MAX_ITER)}: "
-                f"max_delta={max_delta_last:.3e} rel={rel_residual_last:.3e} "
+                f"residual[{_state.CEXT_VESS_COUPLING_NORM}]={max_delta_last:.3e} rel={rel_residual_last:.3e} "
                 f"step={accel_step_last} omega={omega_last:.3f} stable={stable_iters} "
                 f"active_src={int(np.count_nonzero(active_source_mask))} "
                 f"frozen_src={int(nseg - np.count_nonzero(active_source_mask))} active_tgt={nseg} frozen_tgt=0 "
@@ -547,6 +565,13 @@ def _solve_channel_concentrations_topdown_ext_treecode(
         ):
             break
 
+    cin_seg,cout_seg,c_iv_gl,frozen_backend,_ = _run_topdown_ext_frozen_step(
+        context,ext_state,inlet_concentration=float(inlet_concentration),vmax=float(vmax),km=float(km),
+        chb_max=np.asarray(chb_max,dtype=np.float32),fluid_mode=fluid_mode,frozen_backend=frozen_backend)
+    ext_state['cin_seg'],ext_state['cout_seg'],ext_state['c_iv_gl'] = cin_seg,cout_seg,c_iv_gl
+    _build_cext_iteration_cache(context,ext_state)
+    _set_last_cext_source_state(context,ext_state,
+        solver='network_ext_treecode' if network_topology is not None else 'topdown_ext_treecode',backend=backend)
     total_elapsed = perf_counter() - t_total
     _state._LAST_CONCENTRATION_TIMINGS = _default_cext_timing_details(backend=backend)
     _state._LAST_CONCENTRATION_TIMINGS.update(

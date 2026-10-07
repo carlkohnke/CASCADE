@@ -9,21 +9,24 @@ from __future__ import annotations
 import hashlib
 import math
 from time import perf_counter
-from typing import Tuple
 
 import numpy as np
 
-from cascade.configuration import solver_state as _state
-from cascade.concentration.vessel.network import solve_network_concentrations
 from cascade.concentration.vessel.greens import _normalize_cext_lambda_source
+from cascade.concentration.vessel.network import solve_network_concentrations
+from cascade.concentration.vessel.oxygen_transport import (
+    network_discharge_hematocrit,
+    transport_capacity,
+)
 from cascade.concentration.vessel.topdown import _solve_channel_concentrations_topdown
+from cascade.configuration import solver_state as _state
 from cascade.flow.hematocrit import (
     _get_tree_hematocrit_cache,
     _hematocrit_context_for_tree,
     _store_tree_hematocrit_cache,
+    _tube_hematocrit_from_hd_radius,
     compute_tree_hematocrit,
 )
-from cascade.flow.rheology import tube_hematocrit
 
 from .acceleration import _cext_apply_component_acceleration
 from .backend import _resolve_cext_accel_mode, _resolve_cext_frozen_accel_mode
@@ -138,7 +141,7 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
     km: float,
     fluid: str,
     network_topology: dict | None = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Couple lumen transport to the hybrid FFT and local-correction Cext path.
 
     Long-range sources are deposited on a background grid, nearby vessels are
@@ -236,13 +239,8 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
     hct_source = "none"
     if fluid_mode == "blood":
         if network_topology is not None:
-            HT = np.asarray(
-                [
-                    tube_hematocrit(radius, hd=_state.HD_DISCHARGE)
-                    for radius in radii_arr
-                ],
-                dtype=float,
-            )
+            HD = network_discharge_hematocrit(tree, flows_arr)
+            HT = _tube_hematocrit_from_hd_radius(radii_arr, HD)
             hct_source = "network-radius"
         else:
             cached_hct = _get_tree_hematocrit_cache(
@@ -271,12 +269,13 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
                     fixed_flow_bc=False,
                 )
                 hct_source = "computed"
-        chb_max = np.asarray(HT, dtype=float) * float(_state.O2_CAP_PER_HCT)
+        chb_max = transport_capacity(HD, HT)
     hct_setup_s = perf_counter() - t_stage
 
     t_stage = perf_counter()
     reuse_context = bool(
-        network_topology is None and getattr(tree, "_cascade_reuse_cext_context", False)
+        network_topology is not None
+        or getattr(tree, "_cascade_reuse_cext_context", False)
     )
     context_key = None
     context = None
@@ -292,6 +291,27 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
             vmax=vmax,
             km=km,
         )
+        if network_topology is not None:
+            # General-network public arrays may be edited in place. Include
+            # their contents rather than relying on the tree's immutable views.
+            digest = hashlib.blake2b(digest_size=16)
+            for array in (
+                starts,
+                ends,
+                radii,
+                lengths,
+                network_topology["prox_ids"],
+                network_topology["dist_ids"],
+            ):
+                digest.update(np.ascontiguousarray(array).view(np.uint8))
+            context_key += (
+                "network",
+                digest.digest(),
+                tuple(network_topology.get("inlet_nodes", ())),
+                tuple(network_topology["outlet_nodes"])
+                if network_topology.get("outlet_nodes") is not None
+                else (),
+            )
         cached_context = getattr(tree, "_cascade_cext_context_cache", None)
         if (
             isinstance(cached_context, dict)
@@ -460,11 +480,8 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
     min_active_sources = max(
         1,
         int(_state.CEXT_ACTIVE_SET_MIN_ACTIVE_COUNT),
-        int(
-            math.ceil(
-                max(float(_state.CEXT_ACTIVE_SET_MIN_ACTIVE_FRACTION), 0.0)
-                * float(nseg)
-            )
+        math.ceil(
+            max(float(_state.CEXT_ACTIVE_SET_MIN_ACTIVE_FRACTION), 0.0) * float(nseg)
         ),
     )
     frozen_mass_grids_g = None
@@ -1197,7 +1214,7 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
         if _state.SOLVER_TIMING_DETAILS:
             print(
                 f"    Cext iter {iter_idx}/{int(_state.CEXT_VESS_COUPLING_MAX_ITER)}: "
-                f"max_delta={max_delta_last:.3e} rel={rel_residual_last:.3e} "
+                f"residual[{_state.CEXT_VESS_COUPLING_NORM}]={max_delta_last:.3e} rel={rel_residual_last:.3e} "
                 f"step={accel_step_last} omega={omega_last:.3f} stable={stable_iters} "
                 f"active_src={active_source_count} frozen_src={frozen_source_count} "
                 f"active_tgt={active_target_count} frozen_tgt={frozen_target_count} "
@@ -1234,7 +1251,12 @@ def _solve_channel_concentrations_topdown_ext_hybrid_bg(
     ext_state["cout_seg"] = np.asarray(cout_seg, dtype=np.float32)
     ext_state["c_iv_gl"] = np.asarray(c_iv_gl, dtype=np.float32)
     t_cache = perf_counter()
-    _build_cext_iteration_cache(context, ext_state)
+    if gpu_iteration_cache_enabled:
+        _build_cext_iteration_cache_gpu(
+            context, ext_state, runtime_state, materialize=True
+        )
+    else:
+        _build_cext_iteration_cache(context, ext_state)
     final_cache_total = perf_counter() - t_cache
     t_source_state = perf_counter()
     _set_last_cext_source_state(

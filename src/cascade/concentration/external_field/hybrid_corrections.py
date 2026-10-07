@@ -11,8 +11,8 @@ from time import perf_counter
 
 import numpy as np
 
-from cascade.configuration import solver_state as _state
 from cascade.accelerators.cuda import load_cuda_source
+from cascade.configuration import solver_state as _state
 
 from .direct import _ensure_cext_gpu_geometry_static
 from .hybrid_deposit import (
@@ -709,6 +709,9 @@ def _cext_fft_discrete_same_segment_contribution_gpu(
         has_o2
         and bool(_state.CEXT_HYBRID_FFT_SELF_SUB_FUSED)
         and not use_runtime_moments
+        # This kernel reads stored per-source stencils. Runtime-stencil mode
+        # supplies one-element placeholders, not those arrays.
+        and not bool(static.get("runtime_stencil", False))
     ):
         try:
             grid_shape = tuple(state["active_mass_grids_g"].shape)
@@ -843,10 +846,10 @@ def _cext_fft_discrete_same_segment_contribution_gpu(
 
 
 __all__ = [
-    "_cext_fft_o2_term_correction_gpu",
-    "_get_cext_fft_discrete_self_kernel",
-    "_get_cext_fft_discrete_self_fused_o2_kernel",
-    "_cext_fft_response_grids_gpu",
-    "_cext_fft_response_cache_name",
     "_cext_fft_discrete_same_segment_contribution_gpu",
+    "_cext_fft_o2_term_correction_gpu",
+    "_cext_fft_response_cache_name",
+    "_cext_fft_response_grids_gpu",
+    "_get_cext_fft_discrete_self_fused_o2_kernel",
+    "_get_cext_fft_discrete_self_kernel",
 ]

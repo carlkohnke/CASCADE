@@ -10,7 +10,8 @@ from collections import defaultdict
 
 import numpy as np
 
-from cascade.configuration import solver_state as _state
+from cascade.accelerators.cuda import load_cuda_source
+from cascade.concentration.quadrature import _get_gl_nodes_weights
 from cascade.concentration.vessel.greens import (
     _cext_green_lambda_from_fields,
     _finite_radius_o2_term_flags,
@@ -18,8 +19,8 @@ from cascade.concentration.vessel.greens import (
     _lambda_if_from_civ,
     _normalize_cext_lambda_source,
 )
-from cascade.concentration.quadrature import _get_gl_nodes_weights
-from cascade.accelerators.cuda import load_cuda_source
+from cascade.configuration import solver_state as _state
+from cascade.flow.linear_system import njit
 
 from .direct import _ensure_cext_gpu_static
 from .frozen import _build_local_exclusion_arrays_numba
@@ -74,7 +75,63 @@ def _build_local_exclusion_lists(
     return out_idx, out_count
 
 
+@njit(cache=True)
+def _network_exclusions_csr(prox, dist, offsets, incident, max_local):
+    """Keep the smallest unique edge IDs in each exact two-hop neighborhood."""
+    out = np.full((len(prox), max_local), -1, dtype=np.int32)
+    counts = np.zeros(len(prox), dtype=np.uint8)
+    for edge in range(len(prox)):
+        count = 0
+        for endpoint in range(2):
+            node = prox[edge] if endpoint == 0 else dist[edge]
+            for pos in range(offsets[node], offsets[node + 1]):
+                adjacent = incident[pos]
+                for other in range(2):
+                    neighbor = prox[adjacent] if other == 0 else dist[adjacent]
+                    for slot in range(offsets[neighbor], offsets[neighbor + 1]):
+                        candidate = incident[slot]
+                        index = 0
+                        while index < count and out[edge, index] < candidate:
+                            index += 1
+                        if index < count and out[edge, index] == candidate:
+                            continue
+                        if index >= max_local:
+                            continue
+                        limit = min(count, max_local - 1)
+                        for move in range(limit, index, -1):
+                            out[edge, move] = out[edge, move - 1]
+                        out[edge, index] = candidate
+                        count = min(count + 1, max_local)
+        counts[edge] = count
+    return out, counts
+
+
 def _build_network_local_exclusion_lists(
+    prox_ids: np.ndarray,
+    dist_ids: np.ndarray,
+    *,
+    max_local: int = 32,
+) -> tuple[np.ndarray, np.ndarray]:
+    if not _state._HAVE_NUMBA:
+        return _build_network_local_exclusion_lists_python(
+            prox_ids, dist_ids, max_local=max_local
+        )
+    prox, dist = (
+        np.asarray(prox_ids, dtype=np.int64),
+        np.asarray(dist_ids, dtype=np.int64),
+    )
+    if not len(prox):
+        return np.empty((0, max_local), np.int32), np.empty(0, np.uint8)
+    if not 0 <= max_local <= 255:
+        raise ValueError("max_local must fit the uint8 exclusion count")
+    nodes = np.concatenate((prox, dist))
+    incident = np.tile(np.arange(len(prox), dtype=np.int32), 2)
+    order = np.argsort(nodes, kind="stable")
+    offsets = np.concatenate(([0], np.cumsum(np.bincount(nodes)))).astype(np.int64)
+    return _network_exclusions_csr(prox, dist, offsets, incident[order], max_local)
+
+
+def _build_network_local_exclusion_lists_python(
     prox_ids: np.ndarray,
     dist_ids: np.ndarray,
     *,
@@ -120,7 +177,7 @@ def _cext_state_cache_key(
     diffusivity_si: float,
     vmax: float,
     km: float,
-) -> tuple[str, int, float, float, float, float]:
+) -> tuple:
     return (
         str(fluid_mode).lower(),
         int(_state.GL_ORDER_CEXT),
@@ -128,6 +185,9 @@ def _cext_state_cache_key(
         float(diffusivity_si),
         float(vmax),
         float(km),
+        str(_state.JUNCTION_OXYGEN_BALANCE),
+        str(_state.BLOOD_CONVECTIVE_HEMATOCRIT),
+        str(_state.CEXT_VESS_COUPLING_NORM),
     )
 
 
@@ -309,7 +369,7 @@ def _get_cext_iteration_cache_kernel():
 
 
 def _build_cext_iteration_cache_gpu(
-    context: dict, ext_state: dict, runtime_state: dict
+    context: dict, ext_state: dict, runtime_state: dict, *, materialize: bool = False
 ) -> None:
     if _state._cp is None:
         raise RuntimeError("CuPy is not available.")
@@ -340,6 +400,12 @@ def _build_cext_iteration_cache_gpu(
         ext_state["lambda_iv_gl"] = np.zeros(gl_shape, dtype=np.float32)
         ext_state["_lambda_bin_epoch"] = int(ext_state.get("_lambda_bin_epoch", 0)) + 1
         return
+    for name in ("lambda_if_gl", "k_if_gl", "q_line_gl"):
+        if name not in runtime_state or tuple(runtime_state[name].shape) != gl_shape:
+            runtime_state[name] = _state._cp.empty(gl_shape, dtype=_state._cp.float32)
+    # A retained runtime can outlive a reset/reinitialized numerical field.
+    # Refresh the authoritative field even for intermediate source updates.
+    runtime_state["c_ext_gl"].set(np.asarray(ext_state["c_ext_gl"], dtype=np.float32))
     threads = 256
     blocks = (total + threads - 1) // threads
     kernel = _get_cext_iteration_cache_kernel()
@@ -369,10 +435,37 @@ def _build_cext_iteration_cache_gpu(
             runtime_state["dipole2_weight_gl"].ravel(),
             runtime_state["lambda_iv_gl"].ravel(),
             runtime_state["seg_cap_gl"],
+            runtime_state["lambda_if_gl"].ravel(),
+            runtime_state["k_if_gl"].ravel(),
+            runtime_state["q_line_gl"].ravel(),
         ),
     )
     _state._cp.cuda.Stream.null.synchronize()
     ext_state["lambda_iv_gl"] = _state._cp.asnumpy(runtime_state["lambda_iv_gl"])
+    if materialize:
+        # Preserve the complete public source handoff, including flux checks;
+        # intermediate iterations need only download lambda-bin input.
+        for name in (
+            "q_weighted_gl",
+            "mono2_weight_gl",
+            "dipole2_weight_gl",
+            "seg_cap_gl",
+            "lambda_if_gl",
+            "k_if_gl",
+            "q_line_gl",
+        ):
+            ext_state[name] = _state._cp.asnumpy(runtime_state[name])
+        for name, device_name in (
+            ("c_bulk_gl", "cache_c_bulk_gl"),
+            ("c_wall_gl", "cache_c_wall_gl"),
+        ):
+            ext_state[name] = np.maximum(
+                np.nan_to_num(
+                    _state._cp.asnumpy(runtime_state[device_name]),
+                    nan=_state.VESS_CONC_FLOOR,
+                ),
+                np.float32(_state.VESS_CONC_FLOOR),
+            )
     ext_state["_lambda_bin_epoch"] = int(ext_state.get("_lambda_bin_epoch", 0)) + 1
 
 
@@ -584,20 +677,20 @@ def _set_last_cext_source_state(
 
 
 __all__ = [
+    "_build_cext_iteration_cache",
+    "_build_cext_iteration_cache_gpu",
     "_build_local_exclusion_lists",
     "_build_network_local_exclusion_lists",
     "_cext_initial_chunk_targets",
     "_cext_state_cache_key",
-    "_get_tree_cext_state_cache",
-    "_store_tree_cext_state_cache",
     "_clear_cext_runtime_state",
-    "_initialize_cext_state",
-    "_build_cext_iteration_cache",
     "_get_cext_iteration_cache_kernel",
-    "_build_cext_iteration_cache_gpu",
-    "validate_cext_tissue_flux_consistency",
-    "_snapshot_cext_source_state",
-    "_resample_cext_source_state_for_tissue",
+    "_get_tree_cext_state_cache",
+    "_initialize_cext_state",
     "_prepare_cext_source_state_for_tissue",
+    "_resample_cext_source_state_for_tissue",
     "_set_last_cext_source_state",
+    "_snapshot_cext_source_state",
+    "_store_tree_cext_state_cache",
+    "validate_cext_tissue_flux_consistency",
 ]

@@ -45,9 +45,10 @@ dependencies = [
 [project.optional-dependencies]
 gpu-cu13 = [
     "cupy-cuda13x[ctk]>=14,<15",
+    "pyamg>=5.2",
 ]
-gpu-cu12 = ["cupy-cuda12x>=13"]
-gpu-cu11 = ["cupy-cuda11x>=13"]
+gpu-cu12 = ["cupy-cuda12x>=13", "pyamg>=5.2"]
+gpu-cu11 = ["cupy-cuda11x>=13", "pyamg>=5.2"]
 gui = ["PySide6>=6.6"]
 dev = ["pytest>=8", "ruff>=0.16"]
 

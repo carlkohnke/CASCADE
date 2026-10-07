@@ -72,7 +72,8 @@ class SolverPage(Page):
         self.flow_solver = _combo(
             [
                 ("Tree-specialized", "tree"),
-                ("Automatic sparse", "auto"),
+                ("Automatic (GPU when available)", "auto"),
+                ("GPU multigrid", "gpu_amg"),
                 ("Sparse direct (spsolve)", "spsolve"),
                 ("Conjugate gradient", "cg"),
                 ("GMRES + ILU", "gmres"),
@@ -141,9 +142,7 @@ class SolverPage(Page):
                 labeled("Axial blood steps", self.axial_steps),
             )
         )
-        self.hct_iterations_row = labeled(
-            "Hct / flow iterations", self.hct_iterations
-        )
+        self.hct_iterations_row = labeled("Hct / flow iterations", self.hct_iterations)
         self.hct_tol_row = labeled("Hct convergence tolerance", self.hct_tol)
         primary.add(
             row_of(
@@ -199,18 +198,14 @@ class SolverPage(Page):
                 "Precision for accelerated tissue calculations.",
             )
         )
-        self.cext_method_row = labeled(
-            "Vessel-vessel coupling method", self.cext_mode
-        )
+        self.cext_method_row = labeled("Vessel-vessel coupling method", self.cext_mode)
         self.window_row = labeled("Interaction window λ", self.window)
         self.cext_card.add(row_of(self.cext_method_row, self.window_row))
         self.cext_grid_row = labeled(
             "FFT grid per axis", self.cext_grid, important=True
         )
         self.lambda_bins_row = labeled("Screening bins", self.lambda_bins)
-        self.cext_card.add(
-            row_of(self.cext_grid_row, self.lambda_bins_row)
-        )
+        self.cext_card.add(row_of(self.cext_grid_row, self.lambda_bins_row))
         self.cext_iterations_row = labeled("Coupling iterations", self.cext_iters)
         self.cext_tol_row = labeled("Coupling convergence tolerance", self.cext_tol)
         self.cext_card.add(
@@ -244,9 +239,7 @@ class SolverPage(Page):
         self.closure.currentIndexChanged.connect(self._update_kappa_visibility)
         self.hct_stop.currentIndexChanged.connect(self._update_stop_controls)
         self.cext_stop.currentIndexChanged.connect(self._update_stop_controls)
-        self.cext_mode.currentIndexChanged.connect(
-            self._update_cext_method_controls
-        )
+        self.cext_mode.currentIndexChanged.connect(self._update_cext_method_controls)
         self._update_stop_controls()
         self._update_cext_method_controls()
         self.finish()
@@ -267,7 +260,9 @@ class SolverPage(Page):
         self.cext_method_row.setVisible(hybrid_path)
         self.cext_grid_row.setVisible(hybrid_path and mode in {"fft", "hybrid"})
         self.lambda_bins_row.setVisible(hybrid_path)
-        self.window_row.setVisible(not hybrid_path or mode in {"local_only_nlambda", "hybrid"})
+        self.window_row.setVisible(
+            not hybrid_path or mode in {"local_only_nlambda", "hybrid"}
+        )
 
     def _populate_expert(self):
         self.tree.clear()
@@ -321,16 +316,14 @@ class SolverPage(Page):
             "network_ext_hybrid_bg",
         }:
             _set_combo(self.conc_solver, "network_ext")
-            _set_combo(self.flow_solver, "spsolve")
-        wellmixed_only = self.conc_solver.currentData() in {
-            "network_ext_hybrid_bg",
-            "network",
-        }
+            if str(self.flow_solver.currentData()).startswith("tree"):
+                _set_combo(self.flow_solver, "auto")
+        wellmixed_only = self.conc_solver.currentData() == "network"
         if wellmixed_only:
             _set_combo(self.closure, "wellmixed")
         self.closure.setEnabled(not wellmixed_only)
         self.closure.setToolTip(
-            "This FFT or uncoupled network path currently uses the well-mixed lumen closure."
+            "The uncoupled network path uses the well-mixed lumen closure."
             if wellmixed_only
             else ""
         )
@@ -346,7 +339,7 @@ class SolverPage(Page):
         )
         if self._lattice_mode:
             self.solver_hint.set_message(
-                "Network oxygen and sparse-direct flow are required for lattices",
+                "Lattices use network oxygen; automatic flow uses the GPU when available",
                 "info",
             )
         else:
@@ -372,18 +365,19 @@ class SolverPage(Page):
                 "network",
             }:
                 _set_combo(self.conc_solver, "network_ext")
-            _set_combo(self.flow_solver, "spsolve")
+            if str(self.flow_solver.currentData()).startswith("tree"):
+                _set_combo(self.flow_solver, "auto")
             self.conc_solver.setToolTip(
                 "Lattices require one of the general-network oxygen solvers."
             )
             self.flow_solver.setToolTip(
-                "Locked to Sparse direct (spsolve) for the generated lattice."
+                "Choose automatic or GPU multigrid for accelerated general-network flow."
             )
         else:
             self.conc_solver.setToolTip("")
             self.flow_solver.setToolTip("")
         self.conc_solver.setEnabled(True)
-        self.flow_solver.setEnabled(not self._lattice_mode)
+        self.flow_solver.setEnabled(True)
         self._applicability()
 
     def load(self, config):
@@ -392,11 +386,13 @@ class SolverPage(Page):
         solver_value = sim.get("concentration_solver", "network_ext")
         # Keep old treecode projects loadable without exposing the unvalidated
         # choice in the current interface.
-        if solver_value == "topdown_ext_treecode":
-            solver_value = "topdown_ext_hybrid_bg"
+        solver_value = {
+            "topdown_ext_treecode": "topdown_ext_hybrid_bg",
+            "network_ext_treecode": "network_ext_hybrid_bg",
+        }.get(solver_value, solver_value)
         _set_combo(self.conc_solver, solver_value)
         _set_combo(
-            self.flow_solver, _value(config, "hemodynamics", "kirchhoff_solver", "spsolve")
+            self.flow_solver, _value(config, "hemodynamics", "kirchhoff_solver", "auto")
         )
         _set_combo(
             self.closure, _value(config, "oxygen", "lumen_wall_closure", "graetz")
@@ -433,7 +429,7 @@ class SolverPage(Page):
             int(_value(config, "cext", "vess_coupling_max_iter", 1))
         )
         self.cext_tol.setValue(
-            max(0.0, float(_value(config, "cext", "vess_coupling_tol", 1e-3)))
+            max(0.0, float(_value(config, "cext", "vess_coupling_tol", 1e-4)))
         )
         _set_combo(self.cext_stop, gui.get("cext_stop_mode", "iterations"))
         _set_combo(
@@ -542,9 +538,7 @@ class SolverPage(Page):
                     else self.hct_tol.value()
                 ),
                 "qtol_nl_min": (
-                    -1.0
-                    if self.hct_stop.currentData() == "iterations"
-                    else 1.0e30
+                    -1.0 if self.hct_stop.currentData() == "iterations" else 1.0e30
                 ),
             }
         )

@@ -95,7 +95,16 @@ def test_solver_has_no_preset_and_uses_one_stop_rule(qapp):
     config = default_project()
     page.load(config)
     assert not hasattr(page, "preset")
-    assert page.flow_solver.currentData() == "spsolve"
+    assert config["settings"]["oxygen"]["junction_oxygen_balance"] == "total_content"
+    assert config["settings"]["oxygen"]["blood_convective_hematocrit"] == "discharge"
+    assert config["settings"]["cext"]["vess_coupling_norm"] == "rms"
+    assert page.cext_tol.value() == pytest.approx(1e-4)
+    assert page.flow_solver.currentData() == "auto"
+    page.set_lattice_mode(True)
+    _select(page.flow_solver, "gpu_amg")
+    page.write(config)
+    assert config["settings"]["hemodynamics"]["kirchhoff_solver"] == "gpu_amg"
+    assert page.flow_solver.isEnabled()
     _select(page.hct_stop, "iterations")
     _select(page.cext_stop, "tolerance")
     page.write(config)
@@ -126,6 +135,24 @@ def test_root_endpoint_rows_follow_inlet_count(qapp):
     }
 
 
+def test_general_network_fft_keeps_graetz_and_gpu_flow(qapp):
+    from cascade.gui.model import default_project
+    from cascade.gui.pages.solver import SolverPage
+
+    page = SolverPage()
+    config = default_project()
+    page.load(config)
+    page.set_lattice_mode(True)
+    _select(page.conc_solver, "network_ext_hybrid_bg")
+    _select(page.flow_solver, "gpu_amg")
+    assert page.closure.isEnabled()
+    _select(page.closure, "graetz")
+    page.write(config)
+    assert config["simulation"]["concentration_solver"] == "network_ext_hybrid_bg"
+    assert config["settings"]["oxygen"]["lumen_wall_closure"] == "graetz"
+    assert config["settings"]["hemodynamics"]["kirchhoff_solver"] == "gpu_amg"
+
+
 def test_solver_only_changes_do_not_rebuild_network_preview(qapp):
     from copy import deepcopy
     from cascade.gui.main import MainWindow
@@ -140,5 +167,7 @@ def test_solver_only_changes_do_not_rebuild_network_preview(qapp):
     second.setdefault("settings", {}).setdefault("hematocrit", {}).update(
         {"flow_iterations": 30, "hdtol": 1e-8}
     )
-    assert window._case_preview_signature(first) == window._case_preview_signature(second)
+    assert window._case_preview_signature(first) == window._case_preview_signature(
+        second
+    )
     window.close()

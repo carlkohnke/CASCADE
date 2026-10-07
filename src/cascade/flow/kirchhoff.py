@@ -165,9 +165,9 @@ def solve_kirchhoff_tree(
     balance = np.bincount(prox_ids, weights=flows, minlength=int(num_nodes)).astype(
         float, copy=False
     )
-    balance -= np.bincount(
-        dist_ids, weights=flows, minlength=int(num_nodes)
-    ).astype(float, copy=False)
+    balance -= np.bincount(dist_ids, weights=flows, minlength=int(num_nodes)).astype(
+        float, copy=False
+    )
     check_mask = np.ones(int(num_nodes), dtype=bool)
     if bc_mode != "legacy_equal_terminal_flow":
         check_mask[outlet_arr] = False
@@ -214,6 +214,24 @@ def solve_kirchhoff(
     boundary_condition: str | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     solver_mode = str(solver_mode or _state.KIRCHHOFF_SOLVER).strip().lower()
+    if solver_mode == "auto":
+        from cascade.concentration.vessel.network_gpu import resolve_network_accel
+
+        if resolve_network_accel() == "gpu":
+            solver_mode = "gpu_amg"
+    if solver_mode in ("gpu", "gpu_amg"):
+        from .gpu import solve_kirchhoff_gpu
+
+        return solve_kirchhoff_gpu(
+            prox_ids,
+            dist_ids,
+            resistances,
+            inlet_nodes,
+            inlet_flow_cm3_s,
+            outlet_nodes,
+            num_nodes=num_nodes,
+            boundary_condition=boundary_condition,
+        )
     if solver_mode in ("tree", "tree_neumann", "tree-current-bc"):
         t_tree = perf_counter()
         tree_result = solve_kirchhoff_tree(

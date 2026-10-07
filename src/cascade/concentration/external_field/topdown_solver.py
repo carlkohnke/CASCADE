@@ -8,21 +8,24 @@ from __future__ import annotations
 
 import math
 from time import perf_counter
-from typing import Tuple
 
 import numpy as np
 
-from cascade.configuration import solver_state as _state
-from cascade.concentration.vessel.network import solve_network_concentrations
 from cascade.concentration.vessel.greens import _normalize_cext_lambda_source
+from cascade.concentration.vessel.network import solve_network_concentrations
+from cascade.concentration.vessel.oxygen_transport import (
+    network_discharge_hematocrit,
+    transport_capacity,
+)
 from cascade.concentration.vessel.topdown import _solve_channel_concentrations_topdown
+from cascade.configuration import solver_state as _state
 from cascade.flow.hematocrit import (
     _get_tree_hematocrit_cache,
     _hematocrit_context_for_tree,
     _store_tree_hematocrit_cache,
     compute_tree_hematocrit,
+    _tube_hematocrit_from_hd_radius,
 )
-from cascade.flow.rheology import tube_hematocrit
 
 from .acceleration import _cext_apply_component_acceleration
 from .backend import _resolve_cext_accel_mode, _resolve_cext_frozen_accel_mode
@@ -63,7 +66,7 @@ def _solve_channel_concentrations_topdown_ext(
     km: float,
     fluid: str,
     network_topology: dict | None = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Couple top-down lumen transport to direct external-field evaluation.
 
     Each iteration updates vessel concentrations, recomputes nearby source
@@ -137,13 +140,8 @@ def _solve_channel_concentrations_topdown_ext(
     hct_source = "none"
     if fluid_mode == "blood":
         if network_topology is not None:
-            HT = np.asarray(
-                [
-                    tube_hematocrit(radius, hd=_state.HD_DISCHARGE)
-                    for radius in radii_arr
-                ],
-                dtype=float,
-            )
+            HD = network_discharge_hematocrit(tree, flows_arr)
+            HT = _tube_hematocrit_from_hd_radius(radii_arr,HD)
             hct_source = "network-radius"
         else:
             cached_hct = _get_tree_hematocrit_cache(
@@ -172,7 +170,7 @@ def _solve_channel_concentrations_topdown_ext(
                     fixed_flow_bc=False,
                 )
                 hct_source = "computed"
-        chb_max = np.asarray(HT, dtype=float) * float(_state.O2_CAP_PER_HCT)
+        chb_max = transport_capacity(HD, HT)
     context = _build_cext_geometry_context(
         tree,
         flows_arr,
@@ -566,7 +564,7 @@ def _solve_channel_concentrations_topdown_ext(
                             source_cell_stats,
                         )
                     )
-                    active_component_count = int(len(component_lists))
+                    active_component_count = len(component_lists)
 
             for component_ids in component_lists:
                 comp_targets = np.asarray(component_ids, dtype=np.int32)
@@ -848,7 +846,7 @@ def _solve_channel_concentrations_topdown_ext(
         if _state.SOLVER_TIMING_DETAILS:
             print(
                 f"    Cext iter {iter_idx}/{int(_state.CEXT_VESS_COUPLING_MAX_ITER)}: "
-                f"max_delta={max_delta_last:.3e} rel={rel_residual_last:.3e} "
+                f"residual[{_state.CEXT_VESS_COUPLING_NORM}]={max_delta_last:.3e} rel={rel_residual_last:.3e} "
                 f"step={accel_step_last} omega={omega_last:.3f} stable={stable_iters} "
                 f"active_src={active_source_count} frozen_src={frozen_source_count} "
                 f"active_tgt={active_target_count} frozen_tgt={frozen_target_count} "
@@ -922,7 +920,7 @@ def _solve_channel_concentrations_topdown_ext(
         "cext_omega_last": float(omega_last),
         "cext_rel_residual_last": float(rel_residual_last),
         "cext_max_delta_last": float(max_delta_last),
-        "cext_candidate_batches": int(len(context.get("candidate_batches", ()))),
+        "cext_candidate_batches": len(context.get("candidate_batches", ())),
         "cext_candidate_query_mode": str(context.get("candidate_query_mode", "grid")),
         "cext_frozen_backend": str(frozen_backend),
         "cext_active_source_count": int(active_source_count),

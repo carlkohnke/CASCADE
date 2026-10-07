@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from time import perf_counter
-from typing import Tuple
 
 import numpy as np
 
+from cascade.concentration.vessel.oxygen_transport import transport_capacity
 from cascade.configuration import solver_state as _state
 from cascade.flow.hematocrit import (
     _get_tree_hematocrit_cache,
@@ -23,7 +23,7 @@ from .greens import (
 )
 
 
-def _fmt_seconds(value: float | int | None) -> str:
+def _fmt_seconds(value: float | None) -> str:
     return "n/a" if value is None else f"{float(value):.3f}s"
 
 
@@ -36,7 +36,7 @@ def _solve_channel_concentrations_topdown(
     vmax: float,
     km: float,
     fluid: str,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     nseg = int(getattr(tree, "segment_count", 0))
     if nseg <= 0:
         empty = np.empty((0,), dtype=float)
@@ -93,7 +93,7 @@ def _solve_channel_concentrations_topdown(
                 fixed_flow_bc=False,
             )
             hct_source = "computed"
-        Chb_max = np.asarray(HT, dtype=float) * float(_state.O2_CAP_PER_HCT)
+        Chb_max = transport_capacity(HD, HT)
         t_hema = perf_counter() - t0
     else:
         Chb_max = np.zeros_like(radii)

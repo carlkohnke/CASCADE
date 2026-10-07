@@ -26,6 +26,9 @@ extern "C" __global__ void frozen_topdown_kernel(
     const int* seg_ids,
     int n_level,
     const int* parents,
+#ifdef CASCADE_NETWORK
+    const float* node_conc,
+#endif
     const float* flows_si,
     const float* radii_si,
     const float* lengths_si,
@@ -52,9 +55,21 @@ extern "C" __global__ void frozen_topdown_kernel(
     int seg_idx = seg_ids[idx];
     int parent = parents[seg_idx];
     float cin_local = inlet_concentration;
+#ifdef CASCADE_NETWORK
+    cin_local = node_conc[parent];
+#else
     if (parent >= 0) cin_local = cout_seg[parent];
+#endif
     if (cin_local < vess_floor) cin_local = vess_floor;
     cin_seg[seg_idx] = cin_local;
+#ifdef CASCADE_NETWORK
+    if (fabsf(flows_si[seg_idx]) <= 1.0e-30f) {
+        cout_seg[seg_idx] = cin_local;
+        for (int j = 0; j < gl_order; ++j)
+            c_iv_gl[seg_idx * gl_order + j] = cin_local;
+        return;
+    }
+#endif
 
     float flow_mag_si = fabsf(flows_si[seg_idx]);
     if (flow_mag_si <= 1.0e-30f) flow_mag_si = 1.0e-30f;

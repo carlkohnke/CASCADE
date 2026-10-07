@@ -7,18 +7,24 @@ arbitrary directed vessel networks. Tree-specialized transport lives in
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 import numpy as np
 
 from cascade.configuration import solver_state as _state
-from cascade.flow.rheology import tube_hematocrit
 from cascade.flow.topology import _build_node_indices
 
 from .greens import (
     _blood_greens_decay_factor,
     _greens_decay_factor,
-    segment_O2_capacity_from_HT,
+    severinghaus_dSdP,
+)
+from .oxygen_transport import (
+    junction_flux_residual,
+    nodal_capacity,
+    oxygen_content,
+    total_content_enabled,
+    transport_capacity,
 )
 
 try:
@@ -36,7 +42,7 @@ def solve_network_concentrations(
     lengths: np.ndarray,
     flows: np.ndarray,
     inlet_nodes: Sequence[int],
-    outlet_nodes: Optional[Sequence[int]],
+    outlet_nodes: Sequence[int] | None,
     inlet_concentration: float,
     *,
     fluid: str,
@@ -48,7 +54,9 @@ def solve_network_concentrations(
     max_iter: int = 100,
     tol: float = 1e-3,
     omega: float = _state.OMEGA,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, List[float]]]:
+    discharge_hematocrit: np.ndarray | None = None,
+    accel: str | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, list[float]]]:
     """Solve concentration transport on an arbitrary directed vessel graph.
 
     Flow signs determine edge direction. Incoming solute fluxes mix at each
@@ -74,19 +82,35 @@ def solve_network_concentrations(
 
     num_nodes = int(max(up.max(), down.max()) + 1) if up.size else 0
     if num_nodes == 0:
-        empty_hist: Dict[str, List[float]] = {
+        empty_hist: dict[str, list[float]] = {
             "iter": [],
             "max_delta": [],
             "M_in": [],
             "M_out": [],
             "M_drop": [],
             "MB_resid": [],
+            "total_oxygen_junction_rel_resid": [],
         }
         return np.empty((0,)), np.empty((0,)), np.empty((0,)), empty_hist
 
+    fluid_mode = (fluid or _state.ACTIVE_FLUID).lower()
+    Chb_max = np.zeros_like(radii)
+    if fluid_mode == "blood":
+        HD = (np.full_like(radii, float(_state.HD_DISCHARGE))
+              if discharge_hematocrit is None else np.asarray(discharge_hematocrit,dtype=float))
+        if HD.shape != np.asarray(radii).shape:
+            raise ValueError("discharge_hematocrit must have one value per edge")
+        from cascade.flow.hematocrit import _tube_hematocrit_from_hd_radius
+        Chb_max = transport_capacity(HD, _tube_hematocrit_from_hd_radius(radii,HD))
+    from .network_gpu import resolve_network_accel, solve_network_greens_gpu
+    if resolve_network_accel(accel) == 'gpu':
+        return solve_network_greens_gpu(up, down, q, np.asarray(radii), np.asarray(lengths),
+                                       Chb_max, inlet_nodes, outlet_nodes, inlet_concentration,
+                                       fluid_mode, diffusivity, vmax, km, max_iter, tol, omega)
+
     valid_edges = q > 0.0
-    outgoing: List[List[int]] = [[] for _ in range(num_nodes)]
-    incoming: List[List[int]] = [[] for _ in range(num_nodes)]
+    outgoing: list[list[int]] = [[] for _ in range(num_nodes)]
+    incoming: list[list[int]] = [[] for _ in range(num_nodes)]
     for i in range(q.size):
         if not valid_edges[i]:
             continue
@@ -121,20 +145,17 @@ def solve_network_concentrations(
     for node, value in dirichlet.items():
         C[node] = value
 
-    fluid_mode = (fluid or _state.ACTIVE_FLUID).lower()
-    Chb_max = np.zeros_like(radii)
-    if fluid_mode == "blood":
-        for i, r in enumerate(radii):
-            HT = tube_hematocrit(r, hd=_state.HD_DISCHARGE)
-            Chb_max[i] = segment_O2_capacity_from_HT(HT)
+    conserve_total = total_content_enabled(fluid_mode)
+    node_capacity = nodal_capacity(up, down, q, Chb_max, num_nodes)
 
-    history: Dict[str, List[float]] = {
+    history: dict[str, list[float]] = {
         "iter": [],
         "max_delta": [],
         "M_in": [],
         "M_out": [],
         "M_drop": [],
         "MB_resid": [],
+        "total_oxygen_junction_rel_resid": [],
     }
 
     for it in range(1, max_iter + 1):
@@ -165,35 +186,49 @@ def solve_network_concentrations(
                     cin,
                 )
 
+        node_flow = np.where(sum_out > 0.0, sum_out, sum_in)
+        node_flow[np.asarray(sink_nodes, dtype=int)] = sum_in[
+            np.asarray(sink_nodes, dtype=int)
+        ]
+        node_flow = np.where(node_flow > 0.0, node_flow, 1.0)
+        edge_weight = q.copy()
+        diagonal_weight = node_flow.copy()
+        rhs = np.zeros(num_nodes)
+        if conserve_total:
+            cout_old = C[up] * decay
+            edge_B = 1.0 + Chb_max / _state.ALPHA_MMHG * severinghaus_dSdP(
+                cout_old / _state.ALPHA_MMHG
+            )
+            node_B = 1.0 + node_capacity / _state.ALPHA_MMHG * severinghaus_dSdP(
+                C / _state.ALPHA_MMHG
+            )
+            edge_d = oxygen_content(cout_old, Chb_max) - edge_B * cout_old
+            node_d = oxygen_content(C, node_capacity) - node_B * C
+            edge_weight *= edge_B
+            diagonal_weight *= node_B
+            np.add.at(rhs, down, q * edge_d)
+            rhs -= node_flow * node_d
+
         if _state._HAVE_SCIPY_SPARSE:
-            rows: List[int] = []
-            cols: List[int] = []
-            data: List[float] = []
+            rows: list[int] = []
+            cols: list[int] = []
+            data: list[float] = []
             for i in range(q.size):
                 if not valid_edges[i]:
                     continue
                 rows.append(int(down[i]))
                 cols.append(int(up[i]))
-                data.append(float(-q[i] * decay[i]))
+                data.append(float(-edge_weight[i] * decay[i]))
 
-            sink_set = set(sink_nodes)
             for n in range(num_nodes):
-                if n in sink_set:
-                    diag = sum_in[n] if sum_in[n] > 0.0 else 1.0
-                elif sum_out[n] > 0.0:
-                    diag = sum_out[n]
-                elif sum_in[n] > 0.0:
-                    diag = sum_in[n]
-                else:
-                    diag = 1.0
                 rows.append(n)
                 cols.append(n)
-                data.append(float(diag))
+                data.append(float(diagonal_weight[n]))
 
             A = _sp.coo_matrix(
                 (data, (rows, cols)), shape=(num_nodes, num_nodes)
             ).tolil()
-            b = np.zeros(num_nodes, dtype=float)
+            b = rhs.copy()
             for node, value in dirichlet.items():
                 col = np.asarray(A[:, node].todense()).ravel()
                 b -= col * value
@@ -207,7 +242,7 @@ def solve_network_concentrations(
             for i in range(q.size):
                 if not valid_edges[i]:
                     continue
-                A[down[i], up[i]] -= q[i] * decay[i]
+                A[down[i], up[i]] -= edge_weight[i] * decay[i]
 
             sink_set = set(sink_nodes)
             for n in range(num_nodes):
@@ -223,7 +258,9 @@ def solve_network_concentrations(
                 else:
                     A[n, n] += 1.0
 
-            b = np.zeros(num_nodes, dtype=float)
+            if conserve_total:
+                A[np.diag_indices(num_nodes)] += diagonal_weight - node_flow
+            b = rhs.copy()
             for node, value in dirichlet.items():
                 b -= A[:, node] * value
                 A[:, node] = 0.0
@@ -233,19 +270,35 @@ def solve_network_concentrations(
 
             C_new = np.linalg.solve(A, b)
         dC = C_new - C
+        if conserve_total and np.any(C_new < 0.0):
+            falling = dC < 0.0
+            step = min(1.0, 0.9 * float(np.min(C[falling] / -dC[falling])))
+            dC *= step
         delta = float(np.nanmax(np.abs(dC)))
 
         cin = C[up]
         cout = cin * decay
+        content_in = oxygen_content(cin, Chb_max)
+        content_out = oxygen_content(cout, Chb_max)
+        if conserve_total:
+            cin_balance, cout_balance = content_in, content_out
+        else:
+            cin_balance, cout_balance = cin, cout
         M_in = (
-            float(np.sum(q[inlet_edges] * cin[inlet_edges]))
+            float(np.sum(q[inlet_edges] * cin_balance[inlet_edges]))
             if inlet_edges.size
             else 0.0
         )
         M_out = (
-            float(np.sum(q[sink_edges] * cout[sink_edges])) if sink_edges.size else 0.0
+            float(np.sum(q[sink_edges] * cout_balance[sink_edges]))
+            if sink_edges.size
+            else 0.0
         )
-        M_drop = float(np.sum(q * (cin - cout)))
+        returning = np.isin(down,list(inlet_nodes))
+        M_in -= float(np.sum(q[returning]*cout_balance[returning]))
+        leaving_sink = np.isin(up,sink_nodes)
+        M_out -= float(np.sum(q[leaving_sink]*cin_balance[leaving_sink]))
+        M_drop = float(np.sum(q * (cin_balance - cout_balance)))
         MB_resid = (M_in - M_out) - M_drop
 
         history["iter"].append(it)
@@ -254,8 +307,12 @@ def solve_network_concentrations(
         history["M_out"].append(M_out)
         history["M_drop"].append(M_drop)
         history["MB_resid"].append(MB_resid)
+        junction_residual = junction_flux_residual(
+            up, down, q, cin, cout, Chb_max, num_nodes, boundary_nodes=inlet_nodes
+        )
+        history["total_oxygen_junction_rel_resid"].append(junction_residual)
         C = C + omega * dC
-        if delta < tol:
+        if delta < tol and (not conserve_total or junction_residual < tol):
             break
 
     decay = np.ones_like(q)
@@ -286,6 +343,10 @@ def solve_network_concentrations(
             )
     cin = C[up]
     cout = cin * decay
+    if history["total_oxygen_junction_rel_resid"]:
+        history["total_oxygen_junction_rel_resid"][-1] = junction_flux_residual(
+            up, down, q, cin, cout, Chb_max, num_nodes, boundary_nodes=inlet_nodes
+        )
     return cin, cout, C, history
 
 

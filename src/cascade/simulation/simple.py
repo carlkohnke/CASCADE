@@ -7,8 +7,9 @@ from typing import Any
 
 import numpy as np
 
+from cascade.concentration.external_field.backend import _resolve_cext_frozen_accel_mode
 from cascade.concentration.external_field.coupling_steps import (
-    _run_network_ext_frozen_step,
+    _run_topdown_ext_frozen_step,
 )
 from cascade.concentration.external_field.geometry import _build_cext_geometry_context
 from cascade.concentration.properties import get_concentration_inlet
@@ -36,10 +37,10 @@ def solve_simple_network(
         getattr(ts, "KIRCHHOFF_SOLVER", "tree")
     ).strip().lower().startswith("tree"):
         print(
-            "Lattice graph selected: switching Kirchhoff solver from tree to spsolve.",
+            "Lattice graph selected: switching Kirchhoff solver from tree to auto.",
             flush=True,
         )
-        ts.KIRCHHOFF_SOLVER = "spsolve"
+        ts.KIRCHHOFF_SOLVER = "auto"
 
     mu_vals = ts.segment_viscosity_from_radius(
         network.radii,
@@ -53,10 +54,10 @@ def solve_simple_network(
     vmax = float(raw.get("vmax", ts.VMAX_MM))
     km = float(raw.get("km", ts.K_M_MM))
     pressure_pressure_mode = _normalize_kirchhoff_bc_mode() == "pressure_pressure"
+    HD = None
     if (
         not pressure_pressure_mode
-        and
-        solve_separate
+        and solve_separate
         and network.starts.shape[0] > 1
         and network.mode == "multichannel"
     ):
@@ -73,10 +74,43 @@ def solve_simple_network(
             km=km,
         )
     else:
-        if pressure_pressure_mode:
+        from cascade.concentration.vessel.network_gpu import resolve_network_accel
+
+        if str(fluid).lower() == "blood":
+            from cascade.flow.network_blood import solve_network_blood
+
+            boundary = None
+            if pressure_pressure_mode:
+                boundary = (
+                    float(ts.ROOT_PRESSURE) * ts.PA_TO_DYN_PER_CM2,
+                    float(ts.TERMINAL_PRESSURE) * ts.PA_TO_DYN_PER_CM2,
+                )
+            _pressures, flows, HD, HT, hemo_timing = solve_network_blood(
+                network.prox_ids,
+                network.dist_ids,
+                network.radii,
+                network.lengths,
+                network.inlet_nodes,
+                network.outlet_nodes,
+                q_inlet_cm3_s,
+                _fluid_mu_base(ts, fluid),
+                pressure_boundary=boundary,
+                pressure_solver=getattr(ts, "KIRCHHOFF_SOLVER", "auto"),
+                accel=resolve_network_accel(),
+            )
+            network.metadata["hemodynamics_timing"] = hemo_timing
+            network.discharge_hematocrit, network.tube_hematocrit = HD, HT
+            if pressure_pressure_mode:
+                nnode = int(max(network.prox_ids.max(), network.dist_ids.max()) + 1)
+                net = np.bincount(
+                    network.prox_ids, weights=flows, minlength=nnode
+                ) - np.bincount(network.dist_ids, weights=flows, minlength=nnode)
+                q_inlet_cm3_s = float(np.sum(net[network.inlet_nodes]))
+                network.metadata["flow_ul_min"] = q_inlet_cm3_s * 60000.0
+        elif pressure_pressure_mode:
             solver = str(getattr(ts, "KIRCHHOFF_SOLVER", "spsolve"))
-            if len(network.inlet_nodes) != 1:
-                solver = "spsolve"
+            if len(network.inlet_nodes) != 1 and solver.startswith("tree"):
+                solver = "auto"
             pressure_result = solve_pressure_drop(
                 PressureDropProblem(
                     proximal_nodes=network.prox_ids,
@@ -84,8 +118,7 @@ def solve_simple_network(
                     resistances=resistances,
                     inlet_nodes=network.inlet_nodes,
                     outlet_nodes=network.outlet_nodes,
-                    outlet_pressure=float(ts.TERMINAL_PRESSURE)
-                    * ts.PA_TO_DYN_PER_CM2,
+                    outlet_pressure=float(ts.TERMINAL_PRESSURE) * ts.PA_TO_DYN_PER_CM2,
                     pressure_drop=(
                         float(ts.ROOT_PRESSURE) - float(ts.TERMINAL_PRESSURE)
                     )
@@ -122,11 +155,68 @@ def solve_simple_network(
             vmax=vmax,
             km=km,
             omega=float(raw.get("omega", getattr(ts, "OMEGA", 0.5))),
+            **({"discharge_hematocrit": HD} if HD is not None else {}),
         )
 
     network.flows = np.asarray(flows, dtype=float)
+    if str(fluid).lower() == "blood" and HD is None:
+        from cascade.flow.hematocrit_network import compute_network_hematocrit_cpu
+
+        # Independent channels also need a flow-matched cache for field coupling.
+        HD, HT = compute_network_hematocrit_cpu(
+            network.prox_ids, network.dist_ids, network.flows, network.radii
+        )
     network.vessel_quadrature = None
-    if str(getattr(ts, "LUMEN_WALL_CLOSURE", "wellmixed")).strip().lower() == "graetz":
+    network.cext_source_state = None
+    mode = str(getattr(config.simulation, "concentration_solver", "network")).lower()
+    mode = {
+        "topdown_ext": "network_ext",
+        "topdown_ext_hybrid_bg": "network_ext_hybrid_bg",
+        "topdown_ext_treecode": "network_ext_treecode",
+    }.get(mode, mode)
+    if mode in {"network_ext", "network_ext_hybrid_bg", "network_ext_treecode"}:
+        from cascade.concentration.vessel.dispatch import _solve_channel_concentrations
+        from cascade.configuration import solver_state
+
+        if HD is not None:
+            from cascade.flow.hematocrit import _store_tree_hematocrit_cache
+
+            _store_tree_hematocrit_cache(
+                network,
+                HD,
+                HT,
+                model=solver_state.HEMATOCRIT_MODEL,
+                flows=network.flows,
+                fixed_flow_bc=False,
+            )
+        cin, cout = _solve_channel_concentrations(
+            network,
+            network.flows,
+            network.inlet_nodes,
+            network.outlet_nodes,
+            network.starts,
+            network.ends,
+            network.radii,
+            network.lengths,
+            prox_ids=network.prox_ids,
+            dist_ids=network.dist_ids,
+            inlet_concentration=inlet_conc,
+            diffusivity=diffusivity,
+            vmax=vmax,
+            km=km,
+            fluid=fluid,
+            solver=mode,
+        )
+        network.cext_source_state = solver_state._LAST_CEXT_SOURCE_STATE
+        if isinstance(network.cext_source_state, dict):
+            network.vessel_quadrature = network.cext_source_state
+        network.metadata["concentration_solver"] = mode
+        network.metadata["concentration_timings"] = dict(
+            solver_state._LAST_CONCENTRATION_TIMINGS
+        )
+    elif (
+        str(getattr(ts, "LUMEN_WALL_CLOSURE", "wellmixed")).strip().lower() == "graetz"
+    ):
         network_topology = {
             "prox_ids": np.asarray(network.prox_ids, dtype=np.int64),
             "dist_ids": np.asarray(network.dist_ids, dtype=np.int64),
@@ -149,16 +239,22 @@ def solve_simple_network(
         )
         chb_max = np.zeros_like(network.radii, dtype=float)
         if str(fluid).lower() == "blood":
-            for segment_id, radius in enumerate(network.radii):
-                ht = ts.tube_hematocrit(radius, hd=ts.HD_DISCHARGE)
-                chb_max[segment_id] = ts.segment_O2_capacity_from_HT(ht)
+            from cascade.concentration.vessel.oxygen_transport import transport_capacity
+            from cascade.flow.hematocrit import _tube_hematocrit_from_hd_radius
+
+            discharge = (
+                np.full_like(network.radii, ts.HD_DISCHARGE) if HD is None else HD
+            )
+            chb_max = transport_capacity(
+                discharge, _tube_hematocrit_from_hd_radius(network.radii, discharge)
+            )
         ext_state = {
             "c_ext_gl": np.zeros(
                 (network.segment_count, int(np.asarray(context["gl_t"]).size)),
                 dtype=np.float32,
             )
         }
-        cin, cout, _civ, _backend, _transfer = _run_network_ext_frozen_step(
+        cin, cout, _civ, _backend, _transfer = _run_topdown_ext_frozen_step(
             context,
             ext_state,
             inlet_concentration=inlet_conc,
@@ -166,6 +262,7 @@ def solve_simple_network(
             km=km,
             chb_max=chb_max,
             fluid_mode=str(fluid).lower(),
+            frozen_backend=_resolve_cext_frozen_accel_mode(),
         )
         network.vessel_quadrature = {
             "solver": "simple_channel_graetz",
@@ -213,20 +310,33 @@ def simple_details(
     raw = dict(config.network.simple or {})
     inlet_concentration = float(network.metadata["concentration_inlet"])
     if sample_points.size:
-        mask, tissue_conc = ts.compute_tissue_samples_greens(
-            sample_points,
-            network.tissue_starts,
-            network.tissue_ends,
-            network.radii,
-            network.cin,
-            network.flows,
-            diffusivity=float(raw.get("diffusivity", ts.SOLUTE_DIFFUSIVITY)),
-            vmax=float(raw.get("vmax", ts.VMAX_MM)),
-            km=float(raw.get("km", ts.K_M_MM)),
-            window_factor=float(raw.get("window_factor", ts.WINDOW_FACTOR)),
-            inlet_concentration=inlet_concentration,
-            tissue_cache=None,
-        )
+        if isinstance(getattr(network, "cext_source_state", None), dict):
+            from cascade.concentration.tissue.greens import (
+                compute_tissue_samples_greens_from_cext_state,
+            )
+
+            mask, tissue_conc = compute_tissue_samples_greens_from_cext_state(
+                sample_points,
+                network.tissue_starts,
+                network.tissue_ends,
+                network.radii,
+                network.cext_source_state,
+            )
+        else:
+            mask, tissue_conc = ts.compute_tissue_samples_greens(
+                sample_points,
+                network.tissue_starts,
+                network.tissue_ends,
+                network.radii,
+                network.cin,
+                network.flows,
+                diffusivity=float(raw.get("diffusivity", ts.SOLUTE_DIFFUSIVITY)),
+                vmax=float(raw.get("vmax", ts.VMAX_MM)),
+                km=float(raw.get("km", ts.K_M_MM)),
+                window_factor=float(raw.get("window_factor", ts.WINDOW_FACTOR)),
+                inlet_concentration=inlet_concentration,
+                tissue_cache=None,
+            )
         keep = np.asarray(mask, dtype=bool)
         tissue_points = sample_points[keep]
         tissue_values = np.asarray(tissue_conc, dtype=float)[keep]
@@ -248,7 +358,9 @@ def simple_details(
         "target_terminals": int(network.n_terminals),
         "cube_side_length": float(config.domain.side_length),
         "distance_sample_count": int(sample_points.shape[0]),
-        "concentration_solver": "simple_channel",
+        "concentration_solver": network.metadata.get(
+            "concentration_solver", "simple_channel"
+        ),
         "finite_radius_o2_terms": str(getattr(ts, "FINITE_RADIUS_O2_TERMS", "none")),
         "lumen_wall_closure": str(getattr(ts, "LUMEN_WALL_CLOSURE", "wellmixed")),
         "total_volume": total_volume,
@@ -327,10 +439,37 @@ def _solve_independent_channels(
     flows = np.full((starts.shape[0],), float(q_inlet_cm3_s), dtype=float)
     cin = np.full((starts.shape[0],), float(inlet_conc), dtype=float)
     cout = np.empty_like(cin)
+    from cascade.concentration.vessel.network_gpu import resolve_network_accel
+
+    if resolve_network_accel() == "gpu":
+        from cascade.concentration.vessel.network import solve_network_concentrations
+
+        n = starts.shape[0]
+        up, down = 2 * np.arange(n), 2 * np.arange(n) + 1
+        cin, cout, _, _ = solve_network_concentrations(
+            starts,
+            starts,
+            radii,
+            lengths,
+            flows,
+            up.tolist(),
+            down.tolist(),
+            inlet_conc,
+            fluid=fluid,
+            prox_ids=up,
+            dist_ids=down,
+            diffusivity=diffusivity,
+            vmax=vmax,
+            km=km,
+            accel="gpu",
+        )
+        return flows, cin, cout
     for i in range(starts.shape[0]):
         if str(fluid).lower() == "blood":
+            from cascade.concentration.vessel.oxygen_transport import transport_capacity
+
             ht = ts.tube_hematocrit(radii[i], hd=ts.HD_DISCHARGE)
-            ccap = ts.segment_O2_capacity_from_HT(ht)
+            ccap = float(transport_capacity(ts.HD_DISCHARGE, ht))
             decay = ts._blood_greens_decay_factor(
                 flows[i] * ts.CM3_TO_M3,
                 radii[i] * ts.CM_TO_M,

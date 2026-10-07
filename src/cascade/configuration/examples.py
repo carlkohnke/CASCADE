@@ -34,6 +34,8 @@ def example_config() -> dict[str, Any]:
             "kirchhoff": {"solver": "tree", "bc_mode": "legacy_equal_terminal_flow"},
             "hematocrit": {"model": "pries_secomb", "flow_iterations": 2},
             "oxygen": {
+                "junction_oxygen_balance": "total_content",
+                "blood_convective_hematocrit": "discharge",
                 "finite_radius_o2_terms": "both",
                 "lumen_wall_closure": "graetz",
             },

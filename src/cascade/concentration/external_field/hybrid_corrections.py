@@ -461,6 +461,22 @@ def _cext_fft_response_cache_name(
     return name
 
 
+_SELF_CORRELATION_ENABLE = True
+_SELF_CORRELATION_KERNEL = None
+
+
+def _get_self_correlation_kernel():
+    global _SELF_CORRELATION_KERNEL
+    if _SELF_CORRELATION_KERNEL is None:
+        _SELF_CORRELATION_KERNEL = _state._cp.RawKernel(
+            load_cuda_source("cext_runtime_stencil.cuh")
+            + "\n"
+            + load_cuda_source("cext_fft_discrete_self_correlated_kernel.cu"),
+            "cext_fft_discrete_self_correlated_kernel",
+        )
+    return _SELF_CORRELATION_KERNEL
+
+
 def _cext_fft_discrete_same_segment_contribution_gpu(
     context: dict,
     hybrid: dict,
@@ -516,6 +532,9 @@ def _cext_fft_discrete_same_segment_contribution_gpu(
         assignment_mode = 0
 
     def accumulate(source_weight_g, response_g) -> None:
+        if _SELF_CORRELATION_ENABLE and bool(static.get("runtime_stencil", False)):
+            accumulate_runtime_moment(source_weight_g, response_g, 0)
+            return
         total = int(target_count * gl_order)
         threads = 128
         blocks = (total + threads - 1) // threads
@@ -588,7 +607,11 @@ def _cext_fft_discrete_same_segment_contribution_gpu(
         total = int(target_count * gl_order)
         threads = 128
         blocks = (total + threads - 1) // threads
-        kernel = _get_cext_fft_discrete_self_runtime_moment_kernel()
+        kernel = (
+            _get_self_correlation_kernel()
+            if _SELF_CORRELATION_ENABLE
+            else _get_cext_fft_discrete_self_runtime_moment_kernel()
+        )
         kernel(
             (blocks,),
             (threads,),

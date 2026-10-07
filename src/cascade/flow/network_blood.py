@@ -13,6 +13,10 @@ from .hematocrit import _normalize_hematocrit_model
 from .hematocrit_gpu import compute_network_hematocrit_gpu, segment_viscosity_gpu
 
 
+_GPU_HEMATOCRIT_CONTEXTS = ({}, {})
+_DEVICE_PRESSURE_ENABLE = True
+
+
 def solve_network_blood(
     up,
     down,
@@ -58,6 +62,7 @@ def solve_network_blood(
         str(pressure_solver).lower() == "auto" and accel == "gpu"
     )
     for iteration in range(max(iterations, 1)):
+        pass_started = perf_counter()
         if accel == "gpu":
             mu = segment_viscosity_gpu(
                 radius_gpu,
@@ -75,10 +80,34 @@ def solve_network_blood(
                 if model == "pries_secomb"
                 else mu_base * eta_rel_pries(diameter, hd)
             )
-        resistance = to_cpu(
+        resistance = (
             8.0 * mu * length_gpu / (np.pi * cp.maximum(radius_gpu, 1e-12) ** 4)
         )
-        if pressure_boundary is None:
+        use_device_pressure = (
+            _DEVICE_PRESSURE_ENABLE and accel == "gpu" and gpu_pressure
+        )
+        if use_device_pressure:
+            try:
+                from cupyx.scipy import sparse  # noqa: F401
+            except (ImportError, OSError):
+                use_device_pressure = False
+        if not use_device_pressure:
+            resistance = to_cpu(resistance)
+        viscosity_s = perf_counter() - pass_started
+        pressure_started = perf_counter()
+        if use_device_pressure:
+            from .device_pressure import solve_device_pressure
+
+            pressure, flow = solve_device_pressure(
+                up,
+                down,
+                resistance,
+                inlets,
+                outlets,
+                inlet_flow,
+                pressure_boundary=pressure_boundary,
+            )
+        elif pressure_boundary is None:
             if gpu_pressure:
                 implementation = solve_kirchhoff_gpu
                 kwargs = {}
@@ -111,6 +140,13 @@ def solve_network_blood(
             pressure, flow = implementation(
                 up, down, resistance, inlets, pin, outlets, pout
             )
+        pressure_s = perf_counter() - pressure_started
+        pressure_details = {}
+        if gpu_pressure:
+            from .gpu import LAST_GPU_FLOW_TIMINGS
+
+            pressure_details = dict(LAST_GPU_FLOW_TIMINGS)
+        hematocrit_started = perf_counter()
         new_hd, tube = hematocrit(
             up,
             down,
@@ -118,12 +154,21 @@ def solve_network_blood(
             radii,
             hd_root=state.HD_DISCHARGE,
             model=model,
-            context=context,
+            context=(
+                _GPU_HEMATOCRIT_CONTEXTS[iteration]
+                if accel == "gpu" and iteration < 2
+                else context
+            ),
             **({"return_device": True} if accel == "gpu" else {}),
         )
         change = float(cp.max(cp.abs(new_hd - hd)).item()) if len(radii) else 0.0
+        hematocrit_s = perf_counter() - hematocrit_started
         qchange = (
-            float(np.max(abs(flow - previous_flow)))
+            (
+                float(cp.max(cp.abs(flow - previous_flow)).item())
+                if use_device_pressure
+                else float(np.max(abs(flow - previous_flow)))
+            )
             if previous_flow is not None
             else float("inf")
         )
@@ -132,6 +177,10 @@ def solve_network_blood(
                 "iteration": iteration + 1,
                 "max_hd_delta": change,
                 "max_flow_delta_cm3_s": qchange,
+                "viscosity_resistance_s": viscosity_s,
+                "pressure_s": pressure_s,
+                "pressure_details": pressure_details,
+                "hematocrit_s": hematocrit_s,
             }
         )
         if iterations == 0 or model != "pries_secomb":
@@ -154,9 +203,9 @@ def solve_network_blood(
         relaxation = float(np.clip(state.HEMATOCRIT_RELAXATION, 0.0, 1.0))
         hd = hd + relaxation * (new_hd - hd)
     # Always report flux-conservative HD for the final solved flow.
-    hd, tube = hematocrit(
-        up, down, flow, radii, hd_root=state.HD_DISCHARGE, model=model, context=context
-    )
+    hd, tube = to_cpu(new_hd), to_cpu(tube)
+    if use_device_pressure:
+        pressure, flow = to_cpu(pressure), to_cpu(flow)
     timing = {
         "backend": f"{accel}-network",
         "flow_backend": "gpu-amg" if gpu_pressure else str(pressure_solver),

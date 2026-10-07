@@ -88,8 +88,13 @@ def _csr_kernel():
     return state._cp.RawKernel(_CSR_SOURCE, "csr_mv")
 
 
-@lru_cache(maxsize=7)
+@lru_cache(maxsize=16)
 def _cycle_kernel(name):
+    if name.endswith("_f32"):
+        return state._cp.RawKernel(
+            _CSR_SOURCE.replace("double", "float").replace("fmax(", "fmaxf("),
+            name.removesuffix("_f32"),
+        )
     return state._cp.RawKernel(_CSR_SOURCE, name)
 
 
@@ -111,6 +116,10 @@ class GPUAMGSolver:
         capture_krylov=True,
         device_update=True,
         warp_threshold=16,
+        smoothing_bound="positive",
+        hierarchy_options=None,
+        preconditioner_precision="float32",
+        hierarchy_cache=True,
     ):
         import pyamg
 
@@ -127,13 +136,24 @@ class GPUAMGSolver:
             )
         scale = 1.0 / np.sqrt(diagonal)
         scaled = sp.diags(scale) @ matrix @ sp.diags(scale)
-        hierarchy = pyamg.smoothed_aggregation_solver(
-            scaled,
+        from .hierarchy_cache import prepare_hierarchy
+
+        options = dict(
             symmetry="symmetric",
             max_coarse=32,
+            smooth=None,
             presmoother=("jacobi", {"omega": 4.0 / 3.0, "iterations": 2}),
             postsmoother=("jacobi", {"omega": 4.0 / 3.0, "iterations": 2}),
         )
+        options.update(hierarchy_options or {})
+        hierarchy, cache_hit = prepare_hierarchy(
+            scaled,
+            options,
+            builder=pyamg.smoothed_aggregation_solver,
+            version=pyamg.__version__,
+            use_cache=hierarchy_cache,
+        )
+        LAST_GPU_FLOW_TIMINGS["hierarchy_cache_hit"] = cache_hit
         self.scale = cp.asarray(scale)
         self.levels = []
         self.transfers = []
@@ -148,6 +168,14 @@ class GPUAMGSolver:
         self.krylov_graph = None
         self.device_update = device_update
         self.warp_threshold = warp_threshold
+        self.smoothing_bound = smoothing_bound
+        self.preconditioner_dtype = cp.dtype(preconditioner_precision)
+        if self.preconditioner_dtype not in (cp.dtype("float32"), cp.dtype("float64")):
+            raise ValueError("Preconditioner precision must be float32 or float64")
+        self.preconditioner_scalar = self.preconditioner_dtype.type
+        self.preconditioner_suffix = (
+            "_f32" if preconditioner_precision == "float32" else ""
+        )
 
         def upload(a):
             a = a.tocsr()
@@ -155,31 +183,38 @@ class GPUAMGSolver:
                 a.shape[0],
                 cp.asarray(a.indptr, dtype=cp.int32),
                 cp.asarray(a.indices, dtype=cp.int32),
-                cp.asarray(a.data, dtype=cp.float64),
+                cp.asarray(a.data, dtype=self.preconditioner_dtype),
             )
 
         for level in hierarchy.levels:
             item = {
                 "A": upload(level.A),
-                "invdiag": cp.asarray(1.0 / level.A.diagonal()),
-                "x": cp.zeros(level.A.shape[0]),
-                "tmp": cp.zeros(level.A.shape[0]),
-                "rhs": cp.zeros(level.A.shape[0]),
-                "residual": cp.zeros(level.A.shape[0]),
-                "correction": cp.zeros(level.A.shape[0]),
+                "invdiag": cp.asarray(
+                    1.0 / level.A.diagonal(), dtype=self.preconditioner_dtype
+                ),
+                "x": cp.zeros(level.A.shape[0], dtype=self.preconditioner_dtype),
+                "tmp": cp.zeros(level.A.shape[0], dtype=self.preconditioner_dtype),
+                "rhs": cp.zeros(level.A.shape[0], dtype=self.preconditioner_dtype),
+                "residual": cp.zeros(level.A.shape[0], dtype=self.preconditioner_dtype),
+                "correction": cp.zeros(
+                    level.A.shape[0], dtype=self.preconditioner_dtype
+                ),
             }
             if hasattr(level, "P"):
                 self.transfers.append((level.P.tocsr(), level.R.tocsr()))
                 item.update(P=upload(level.P), R=upload(level.R))
                 # Jacobi relaxation weight bounded by Gershgorin spectral radius.
-                bound = (
-                    np.asarray(abs(level.A).sum(axis=1)).ravel() / level.A.diagonal()
-                )
-                item["omega"] = self.weight_factor / float(bound.max())
+                item["omega"] = self._smoothing_weight(level.A)
             self.levels.append(item)
+        fine = hierarchy.levels[0].A.tocsr()
+        self.fine_matrix = (
+            *self.levels[0]["A"][:3],
+            cp.asarray(fine.data, dtype=cp.float64),
+        )
         # Tiny coarse inverse is built once; its matvec also executes on CUDA.
         self.coarse_inverse = cp.asarray(
-            np.linalg.inv(hierarchy.levels[-1].A.toarray())
+            np.linalg.inv(hierarchy.levels[-1].A.toarray()),
+            dtype=self.preconditioner_dtype,
         )
         cp.cuda.Stream.null.synchronize()
         self.setup_seconds = perf_counter() - started
@@ -187,11 +222,51 @@ class GPUAMGSolver:
         self.previous_solution = None
         size = matrix.shape[0]
         self.krylov = {
-            name: cp.empty(size, cp.float64) for name in ("x", "r", "p", "ap", "dot")
+            name: cp.empty(size, cp.float64)
+            for name in ("x", "r", "p", "ap", "dot", "z")
         }
         self.krylov.update(
             {name: cp.empty((), cp.float64) for name in ("rz", "newrz", "pap")}
         )
+
+    def _smoothing_weight(self, matrix):
+        """Upper bounds for the eigenvalues of the diagonally scaled SPD matrix."""
+        diagonal = matrix.diagonal()
+        absolute = abs(matrix)
+        bound = np.asarray(absolute.sum(axis=1)).ravel() / diagonal
+        upper = float(bound.max())
+        if self.smoothing_bound == "positive":
+            off = matrix - sp.diags(diagonal)
+            if not off.nnz or np.max(off.data) <= 0.0:
+                # For a symmetric positive-definite Stieltjes matrix,
+                # I - D^-1/2 A D^-1/2 is nonnegative with spectral radius < 1.
+                upper = min(upper, 2.0)
+            else:
+                vector = np.ones(matrix.shape[0])
+                for _ in range(3):
+                    product = (absolute @ vector) / diagonal
+                    upper = min(upper, float(np.max(product / vector)))
+                    vector = product / max(float(product.max()), 1e-300)
+        return self.weight_factor / upper
+
+    def _smoothing_weight_gpu(self, matrix, diagonal):
+        cp = state._cp
+        absolute = abs(matrix)
+        bound = cp.asarray(absolute.sum(axis=1)).ravel() / diagonal
+        upper = float(cp.max(bound).item())
+        if self.smoothing_bound == "positive":
+            from cupyx.scipy import sparse as gpu_sparse
+
+            off = matrix - gpu_sparse.diags(diagonal)
+            if not off.nnz or float(cp.max(off.data).item()) <= 0.0:
+                upper = min(upper, 2.0)
+            else:
+                vector = cp.ones(matrix.shape[0])
+                for _ in range(3):
+                    product = (absolute @ vector) / diagonal
+                    upper = min(upper, float(cp.max(product / vector).item()))
+                    vector = product / cp.maximum(cp.max(product), 1e-300)
+        return self.weight_factor / upper
 
     def update(self, matrix):
         """Reuse aggregation for viscosity changes; refresh every matrix value."""
@@ -200,9 +275,17 @@ class GPUAMGSolver:
         # Captured graphs contain matrix pointers and relaxation scalars by value.
         self.cycle_graph = None
         self.krylov_graph = None
-        scale = 1.0 / np.sqrt(matrix.diagonal())
-        a = (sp.diags(scale) @ matrix @ sp.diags(scale)).tocsr()
-        self.scale.set(scale)
+        on_device = isinstance(matrix.data, cp.ndarray)
+        if on_device:
+            from cupyx.scipy import sparse as gpu_sparse
+
+            scale = 1.0 / cp.sqrt(matrix.diagonal())
+            a = (gpu_sparse.diags(scale) @ matrix @ gpu_sparse.diags(scale)).tocsr()
+            cp.copyto(self.scale, scale)
+        else:
+            scale = 1.0 / np.sqrt(matrix.diagonal())
+            a = (sp.diags(scale) @ matrix @ sp.diags(scale)).tocsr()
+            self.scale.set(scale)
         if self.device_update:
             try:
                 from cupyx.scipy import sparse as gpu_sparse
@@ -210,57 +293,79 @@ class GPUAMGSolver:
                 # Minimal CUDA installs still support the custom-kernel path.
                 gpu_sparse = None
             if gpu_sparse is not None:
-                a_gpu = gpu_sparse.csr_matrix(
-                    (
-                        cp.asarray(a.data),
-                        cp.asarray(a.indices, dtype=cp.int32),
-                        cp.asarray(a.indptr, dtype=cp.int32),
-                    ),
-                    shape=a.shape,
+                a_gpu = (
+                    a
+                    if on_device
+                    else gpu_sparse.csr_matrix(
+                        (
+                            cp.asarray(a.data),
+                            cp.asarray(a.indices, dtype=cp.int32),
+                            cp.asarray(a.indptr, dtype=cp.int32),
+                        ),
+                        shape=a.shape,
+                    )
                 )
                 for idx, level in enumerate(self.levels):
                     level["A"] = (
                         a_gpu.shape[0],
                         a_gpu.indptr,
                         a_gpu.indices,
-                        a_gpu.data,
+                        a_gpu.data.astype(self.preconditioner_dtype, copy=False),
                     )
-                    diagonal = a_gpu.diagonal()
-                    level["invdiag"] = 1.0 / diagonal
-                    if idx < len(self.transfers):
-                        bound = cp.asarray(abs(a_gpu).sum(axis=1)).ravel() / diagonal
-                        level["omega"] = self.weight_factor / float(
-                            cp.max(bound).item()
+                    if idx == 0:
+                        self.fine_matrix = (
+                            a_gpu.shape[0],
+                            a_gpu.indptr,
+                            a_gpu.indices,
+                            a_gpu.data,
                         )
+                    diagonal = a_gpu.diagonal()
+                    level["invdiag"] = (1.0 / diagonal).astype(
+                        self.preconditioner_dtype
+                    )
+                    if idx < len(self.transfers):
+                        level["omega"] = self._smoothing_weight_gpu(a_gpu, diagonal)
                         p, r = self.transfers[idx]
                         pg, rg = level["P"], level["R"]
                         p_gpu = gpu_sparse.csr_matrix(
-                            (pg[3], pg[2], pg[1]), shape=p.shape
+                            (cp.asarray(p.data), pg[2], pg[1]), shape=p.shape
                         )
                         r_gpu = gpu_sparse.csr_matrix(
-                            (rg[3], rg[2], rg[1]), shape=r.shape
+                            (cp.asarray(r.data), rg[2], rg[1]), shape=r.shape
                         )
                         a_gpu = (r_gpu @ a_gpu @ p_gpu).tocsr()
-                self.coarse_inverse.set(np.linalg.inv(a_gpu.get().toarray()))
+                self.coarse_inverse.set(
+                    np.linalg.inv(a_gpu.get().toarray()).astype(
+                        self.preconditioner_dtype
+                    )
+                )
                 cp.cuda.get_current_stream().synchronize()
                 self.setup_seconds = perf_counter() - started
                 self.last_setup_seconds = self.setup_seconds
                 LAST_GPU_FLOW_TIMINGS["hierarchy_update_backend"] = "gpu"
                 return
+        if on_device:
+            a = a.get()
         for idx, level in enumerate(self.levels):
             level["A"] = (
                 a.shape[0],
                 cp.asarray(a.indptr, dtype=cp.int32),
                 cp.asarray(a.indices, dtype=cp.int32),
-                cp.asarray(a.data, dtype=cp.float64),
+                cp.asarray(a.data, dtype=self.preconditioner_dtype),
             )
-            level["invdiag"].set(1.0 / a.diagonal())
+            if idx == 0:
+                self.fine_matrix = (
+                    *level["A"][:3],
+                    cp.asarray(a.data, dtype=cp.float64),
+                )
+            level["invdiag"].set((1.0 / a.diagonal()).astype(self.preconditioner_dtype))
             if idx < len(self.transfers):
-                bound = np.asarray(abs(a).sum(axis=1)).ravel() / a.diagonal()
-                level["omega"] = self.weight_factor / float(bound.max())
+                level["omega"] = self._smoothing_weight(a)
                 p, r = self.transfers[idx]
                 a = (r @ a @ p).tocsr()
-        self.coarse_inverse.set(np.linalg.inv(a.toarray()))
+        self.coarse_inverse.set(
+            np.linalg.inv(a.toarray()).astype(self.preconditioner_dtype)
+        )
         cp.cuda.Stream.null.synchronize()
         self.setup_seconds = perf_counter() - started
         self.last_setup_seconds = self.setup_seconds
@@ -269,19 +374,21 @@ class GPUAMGSolver:
     def matvec(self, matrix, x, out=None):
         cp = state._cp
         n, row, col, val = matrix
+        suffix = "_f32" if val.dtype == cp.float32 else ""
+        if x.dtype != val.dtype:
+            x = x.astype(val.dtype)
         if out is None:
-            out = cp.empty(n, cp.float64)
+            out = cp.empty(n, val.dtype)
         if (
             self.warp_threshold is not None
             and len(val) / max(n, 1) >= self.warp_threshold
         ):
-            _cycle_kernel("csr_mv_warp")(
+            _cycle_kernel("csr_mv_warp" + suffix)(
                 ((n * 32 + 127) // 128,), (128,), (np.int32(n), row, col, val, x, out)
             )
         else:
-            _csr_kernel()(
-                ((n + 127) // 128,), (128,), (np.int32(n), row, col, val, x, out)
-            )
+            kernel = _cycle_kernel("csr_mv_f32") if suffix else _csr_kernel()
+            kernel(((n + 127) // 128,), (128,), (np.int32(n), row, col, val, x, out))
         return out
 
     def _cycle(self, idx, b):
@@ -308,19 +415,29 @@ class GPUAMGSolver:
         """Allocation-free symmetric V-cycle with fused sparse smoothing."""
         level = self.levels[idx]
         x, tmp = level["x"], level["tmp"]
+        if b.dtype != self.preconditioner_dtype:
+            state._cp.copyto(level["rhs"], b)
+            b = level["rhs"]
         n = len(x)
         launch = ((n + 127) // 128,), (128,)
         if idx == len(self.levels) - 1:
-            _cycle_kernel("dense_coarse")(
+            _cycle_kernel("dense_coarse" + self.preconditioner_suffix)(
                 *launch, (np.int32(n), self.coarse_inverse, b, x)
             )
             return x
         a = level["A"]
         # The first Jacobi step starts from zero; its matvec is identically zero.
-        _cycle_kernel("jacobi_initial")(
-            *launch, (np.int32(n), b, level["invdiag"], np.float64(level["omega"]), x)
+        _cycle_kernel("jacobi_initial" + self.preconditioner_suffix)(
+            *launch,
+            (
+                np.int32(n),
+                b,
+                level["invdiag"],
+                self.preconditioner_scalar(level["omega"]),
+                x,
+            ),
         )
-        smooth = _cycle_kernel("csr_jacobi")
+        smooth = _cycle_kernel("csr_jacobi" + self.preconditioner_suffix)
         smooth(
             *launch,
             (
@@ -329,11 +446,11 @@ class GPUAMGSolver:
                 x,
                 b,
                 level["invdiag"],
-                np.float64(level["omega"]),
+                self.preconditioner_scalar(level["omega"]),
                 tmp,
             ),
         )
-        _cycle_kernel("csr_residual")(
+        _cycle_kernel("csr_residual" + self.preconditioner_suffix)(
             *launch, (np.int32(n), *a[1:], tmp, b, level["residual"])
         )
         restricted = self.matvec(
@@ -350,7 +467,7 @@ class GPUAMGSolver:
                 tmp,
                 b,
                 level["invdiag"],
-                np.float64(level["omega"]),
+                self.preconditioner_scalar(level["omega"]),
                 x,
             ),
         )
@@ -362,7 +479,7 @@ class GPUAMGSolver:
                 x,
                 b,
                 level["invdiag"],
-                np.float64(level["omega"]),
+                self.preconditioner_scalar(level["omega"]),
                 tmp,
             ),
         )
@@ -392,13 +509,16 @@ class GPUAMGSolver:
         cp, w = state._cp, self.krylov
         n = len(w["x"])
         launch = ((n + 127) // 128,), (128,)
-        self.matvec(self.levels[0]["A"], w["p"], w["ap"])
+        self.matvec(self.fine_matrix, w["p"], w["ap"])
         cp.multiply(w["p"], w["ap"], out=w["dot"])
         cp.sum(w["dot"], out=w["pap"])
         _cycle_kernel("cg_update")(
             *launch, (np.int32(n), w["x"], w["r"], w["p"], w["ap"], w["rz"], w["pap"])
         )
         z = self._fused_cycle(0, w["r"])
+        if z.dtype != cp.float64:
+            cp.copyto(w["z"], z)
+            z = w["z"]
         cp.multiply(w["r"], z, out=w["dot"])
         cp.sum(w["dot"], out=w["newrz"])
         _cycle_kernel("cg_direction")(
@@ -424,20 +544,28 @@ class GPUAMGSolver:
                 self.krylov_graph = stream.end_capture()
         self.krylov_graph.launch()
 
-    def solve(self, rhs, *, tolerance=1e-10, max_iterations=1000):
+    def solve(self, rhs, *, tolerance=1e-10, max_iterations=1000, return_device=False):
         cp = state._cp
         started = perf_counter()
         b = cp.asarray(rhs) * self.scale
+        rhs_norm = float(cp.sqrt(cp.sum(b * b)).item())
+        if rhs_norm == 0.0:
+            self.previous_solution = cp.zeros_like(b)
+            return (
+                self.previous_solution
+                if return_device
+                else cp.asnumpy(self.previous_solution)
+            )
+        # Normalize globally so float preconditioning also supports very small
+        # physical flows without losing its residual to float32 underflow.
+        b /= rhs_norm
         x = (
             cp.zeros_like(b)
             if self.previous_solution is None
-            else self.previous_solution / self.scale
+            else self.previous_solution / self.scale / rhs_norm
         )
-        r = b - self.matvec(self.levels[0]["A"], x)
-        norm = float(cp.sqrt(cp.sum(b * b)).item())
-        if norm == 0.0:
-            self.previous_solution = cp.zeros_like(b)
-            return cp.asnumpy(self.previous_solution)
+        r = b - self.matvec(self.fine_matrix, x)
+        norm = 1.0
         initial_residual = float(cp.sqrt(cp.sum(r * r)).item()) / norm
         if initial_residual < tolerance:
             LAST_GPU_FLOW_TIMINGS.update(
@@ -448,7 +576,8 @@ class GPUAMGSolver:
                 scaled_true_relative_residual=initial_residual,
                 levels=len(self.levels),
             )
-            return cp.asnumpy(x * self.scale)
+            result = x * self.scale * rhs_norm
+            return result if return_device else cp.asnumpy(result)
         if self.capture_krylov:
             w = self.krylov
             cp.copyto(w["x"], x)
@@ -467,7 +596,7 @@ class GPUAMGSolver:
                     for _ in range(count):
                         self._krylov_step()
                 iteration += count
-                true_r = b - self.matvec(self.levels[0]["A"], w["x"])
+                true_r = b - self.matvec(self.fine_matrix, w["x"])
                 residual = float(cp.sqrt(cp.sum(true_r * true_r)).item()) / norm
                 if residual < tolerance:
                     break
@@ -477,11 +606,25 @@ class GPUAMGSolver:
                 b, x, r, norm, tolerance, max_iterations
             )
         if not np.isfinite(residual) or residual >= tolerance:
+            if self.preconditioner_dtype == cp.float32:
+                self._restore_double_preconditioner()
+                result = self.solve(
+                    rhs,
+                    tolerance=tolerance,
+                    max_iterations=max_iterations,
+                    return_device=return_device,
+                )
+                LAST_GPU_FLOW_TIMINGS["preconditioner_fallback"] = True
+                return result
             raise RuntimeError(
                 f"GPU AMG pressure solve did not converge: residual={residual:.3e}, iterations={iteration}"
             )
-        self.previous_solution = (x * self.scale).copy()
-        result = cp.asnumpy(self.previous_solution)
+        self.previous_solution = (x * self.scale * rhs_norm).copy()
+        result = (
+            self.previous_solution
+            if return_device
+            else cp.asnumpy(self.previous_solution)
+        )
         LAST_GPU_FLOW_TIMINGS.update(
             backend="gpu-amg",
             setup_s=self.last_setup_seconds,
@@ -490,26 +633,53 @@ class GPUAMGSolver:
             scaled_true_relative_residual=residual,
             levels=len(self.levels),
             captured_krylov=self.capture_krylov,
+            preconditioner_precision=str(self.preconditioner_dtype),
         )
         return result
 
+    def _restore_double_preconditioner(self):
+        """Rebuild a robust preconditioner without relaxing the solve tolerance."""
+        cp = state._cp
+        n, row, col, value = self.fine_matrix
+        scaled = sp.csr_matrix(
+            (cp.asnumpy(value), cp.asnumpy(col), cp.asnumpy(row)), shape=(n, n)
+        )
+        inverse_scale = 1.0 / cp.asnumpy(self.scale)
+        matrix = (sp.diags(inverse_scale) @ scaled @ sp.diags(inverse_scale)).tocsr()
+        previous = self.previous_solution
+        replacement = GPUAMGSolver(
+            matrix,
+            smoothing_bound="positive",
+            preconditioner_precision="float64",
+            fused_cycle=self.fused_cycle,
+            capture_cycle=self.capture_cycle,
+            capture_krylov=self.capture_krylov,
+            weight_factor=self.weight_factor,
+            warp_threshold=self.warp_threshold,
+            device_update=self.device_update,
+            hierarchy_options={"smooth": ("jacobi", {"omega": 4.0 / 3.0})},
+            hierarchy_cache=True,
+        )
+        replacement.previous_solution = previous
+        self.__dict__.update(replacement.__dict__)
+
     def _solve_uncaptured(self, b, x, r, norm, tolerance, max_iterations):
         cp = state._cp
-        z = self._precondition(r).copy()
+        z = self._precondition(r).astype(cp.float64, copy=True)
         p, rz = z.copy(), cp.sum(r * z)
         residual = float("inf")
         for iteration in range(1, max_iterations + 1):
-            ap = self.matvec(self.levels[0]["A"], p)
+            ap = self.matvec(self.fine_matrix, p)
             alpha = rz / cp.maximum(cp.sum(p * ap), 1e-300)
             x += alpha * p
             r -= alpha * ap
             if iteration % 8 == 0 or iteration == max_iterations:
                 # True, rather than recursively accumulated, residual.
-                true_r = b - self.matvec(self.levels[0]["A"], x)
+                true_r = b - self.matvec(self.fine_matrix, x)
                 residual = float(cp.sqrt(cp.sum(true_r * true_r)).item()) / norm
                 if residual < tolerance:
                     break
-            z = self._precondition(r).copy()
+            z = self._precondition(r).astype(cp.float64, copy=True)
             new_rz = cp.sum(r * z)
             p = z + (new_rz / cp.maximum(rz, 1e-300)) * p
             rz = new_rz

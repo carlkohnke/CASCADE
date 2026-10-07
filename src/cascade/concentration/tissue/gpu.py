@@ -473,6 +473,23 @@ def _get_cext_tissue_cell_gpu_kernel():
     return _state._CEXT_TISSUE_CELL_GPU_KERNEL
 
 
+_CEXT_TISSUE_WARP_KERNELS = {}
+_CEXT_TISSUE_WARP_MIN_WORK = 4096.0
+_CEXT_TISSUE_GROUP_WIDTH = 4
+_CEXT_TISSUE_GPU_REACH_MIN_NODES = 65536
+
+
+def _get_cext_tissue_cell_warp_gpu_kernel():
+    width = _CEXT_TISSUE_GROUP_WIDTH
+    if width not in _CEXT_TISSUE_WARP_KERNELS:
+        _CEXT_TISSUE_WARP_KERNELS[width] = _state._cp.RawKernel(
+            f"#define CEXT_TISSUE_WARP\n#define CEXT_TISSUE_WIDTH {width}\n"
+            + load_cuda_source("cext_tissue_cell_greens_kernel.cu"),
+            "cext_tissue_cell_greens_warp_kernel",
+        )
+    return _CEXT_TISSUE_WARP_KERNELS[width]
+
+
 def _build_cext_tissue_cell_list_gpu(
     gl_points_valid: np.ndarray,
     lambda_valid: np.ndarray,
@@ -482,6 +499,7 @@ def _build_cext_tissue_cell_list_gpu(
     radii_si: np.ndarray,
     seg_len_si: np.ndarray | None = None,
     tissue_cache: dict | None = None,
+    lambda_device=None,
 ) -> tuple[dict, dict[str, float | int]]:
     if _state._cp is None:
         raise RuntimeError("CuPy is not available.")
@@ -520,6 +538,10 @@ def _build_cext_tissue_cell_list_gpu(
             and np.array_equal(np.asarray(item.get("mins")), mins)
             and np.array_equal(np.asarray(item.get("maxs")), maxs)
             and float(item.get("search_radius", -1.0)) == search_radius
+            and np.array_equal(item.get("gl_flat_host"), gl_flat)
+            and np.array_equal(item.get("radii_host"), np.asarray(radii_si))
+            and np.array_equal(item.get("seg_len_host"), seg_len_si)
+            and item.get("device_id") == int(_state._cp.cuda.Device().id)
         ),
         None,
     )
@@ -541,9 +563,7 @@ def _build_cext_tissue_cell_list_gpu(
         min_grid = max(int(_state.TISSUE_CEXT_CELL_MIN_GRID), 1)
         max_grid = max(min(int(_state.TISSUE_CEXT_CELL_MAX_GRID), 512), min_grid)
         target_occ = max(int(_state.TISSUE_CEXT_CELL_TARGET_OCCUPANCY), 1)
-        occ_grid = int(
-            math.ceil((float(n_nodes) / float(target_occ)) ** (1.0 / 3.0))
-        )
+        occ_grid = int(math.ceil((float(n_nodes) / float(target_occ)) ** (1.0 / 3.0)))
         start_grid = max(min_grid, min(max_grid, max(occ_grid // 2, min_grid)))
         stop_grid = max(min(max_grid, max(occ_grid * 2, start_grid)), start_grid)
         max_rad_cells = max(int(_state.TISSUE_CEXT_CELL_MAX_RAD_CELLS), 1)
@@ -551,11 +571,7 @@ def _build_cext_tissue_cell_list_gpu(
         best_grid = max(min_grid, min(max_grid, occ_grid))
         best_rad = max(
             1,
-            int(
-                math.ceil(
-                    search_radius / max(float(side) / float(best_grid), 1.0e-30)
-                )
-            )
+            int(math.ceil(search_radius / max(float(side) / float(best_grid), 1.0e-30)))
             + 1,
         )
         best_score = float("inf")
@@ -563,16 +579,11 @@ def _build_cext_tissue_cell_list_gpu(
             spacing_candidate = float(side) / float(grid_candidate)
             rad_candidate = max(
                 1,
-                int(
-                    math.ceil(search_radius / max(spacing_candidate, 1.0e-30))
-                )
-                + 1,
+                int(math.ceil(search_radius / max(spacing_candidate, 1.0e-30))) + 1,
             )
             if rad_candidate > max_rad_cells:
                 continue
-            avg_occ_candidate = float(n_nodes) / max(
-                float(grid_candidate) ** 3, 1.0
-            )
+            avg_occ_candidate = float(n_nodes) / max(float(grid_candidate) ** 3, 1.0)
             cells_visited = float((2 * rad_candidate + 1) ** 3)
             score = cells_visited * (avg_occ_candidate + empty_cell_weight)
             if score < best_score:
@@ -581,17 +592,14 @@ def _build_cext_tissue_cell_list_gpu(
                 best_rad = int(rad_candidate)
         if not np.isfinite(best_score):
             rad_cap_grid = int(
-                math.floor(
-                    float(max_rad_cells) * side / max(search_radius, 1.0e-30)
-                )
+                math.floor(float(max_rad_cells) * side / max(search_radius, 1.0e-30))
             )
             best_grid = max(min_grid, min(max_grid, max(rad_cap_grid, min_grid)))
             best_rad = max(
                 1,
                 int(
                     math.ceil(
-                        search_radius
-                        / max(float(side) / float(best_grid), 1.0e-30)
+                        search_radius / max(float(side) / float(best_grid), 1.0e-30)
                     )
                 )
                 + 1,
@@ -599,9 +607,9 @@ def _build_cext_tissue_cell_list_gpu(
         grid_n = int(best_grid)
         spacing = float(side) / float(grid_n)
         rad_cells = int(best_rad)
-        coords = np.floor(
-            (gl_flat - origin[None, :]) / np.float32(spacing)
-        ).astype(np.int32)
+        coords = np.floor((gl_flat - origin[None, :]) / np.float32(spacing)).astype(
+            np.int32
+        )
         coords = np.clip(coords, 0, grid_n - 1)
         flat = (
             coords[:, 0].astype(np.int64) * np.int64(grid_n)
@@ -616,30 +624,46 @@ def _build_cext_tissue_cell_list_gpu(
             np.asarray(counts, dtype=np.int64), dtype=np.int64
         ).astype(np.int32)
 
-    node_seg_ids = np.arange(n_nodes, dtype=np.int64) // max(int(gl_order), 1)
-    radii_arr = np.asarray(radii_si, dtype=np.float32).reshape(-1)
-    if radii_arr.size:
-        node_radius = radii_arr[np.clip(node_seg_ids, 0, radii_arr.size - 1)]
-    else:
-        node_radius = np.zeros((n_nodes,), dtype=np.float32)
-    if seg_len_si is not None and np.asarray(seg_len_si).size:
-        seg_len_arr = np.asarray(seg_len_si, dtype=np.float32).reshape(-1)
-        node_seg_len = seg_len_arr[np.clip(node_seg_ids, 0, seg_len_arr.size - 1)]
-    else:
-        node_seg_len = np.zeros((n_nodes,), dtype=np.float32)
-    node_source_reach = np.asarray(
-        float(window_factor) * np.maximum(lambda_flat, 0.0), dtype=np.float32
-    )
-    node_segment_reach = np.asarray(
-        np.maximum(node_radius, 0.0) + np.maximum(node_seg_len, 0.0), dtype=np.float32
-    )
-    cell_source_reach = np.zeros((grid_cells,), dtype=np.float32)
     if not structure_reused:
+        node_seg_ids = np.arange(n_nodes, dtype=np.int64) // max(int(gl_order), 1)
+        radii_arr = np.asarray(radii_si, dtype=np.float32).reshape(-1)
+        node_radius = (
+            radii_arr[np.clip(node_seg_ids, 0, radii_arr.size - 1)]
+            if radii_arr.size
+            else np.zeros(n_nodes, np.float32)
+        )
+        if seg_len_si is not None and np.asarray(seg_len_si).size:
+            seg_len_arr = np.asarray(seg_len_si, dtype=np.float32).reshape(-1)
+            node_seg_len = seg_len_arr[np.clip(node_seg_ids, 0, seg_len_arr.size - 1)]
+        else:
+            node_seg_len = np.zeros(n_nodes, np.float32)
+        node_segment_reach = np.maximum(node_radius, 0.0) + np.maximum(
+            node_seg_len, 0.0
+        )
         cell_segment_reach = np.zeros((grid_cells,), dtype=np.float32)
-    if n_nodes > 0:
+        np.maximum.at(cell_segment_reach, flat, node_segment_reach)
+    flat_g = structure.get("flat_g") if structure_reused else None
+    if n_nodes >= _CEXT_TISSUE_GPU_REACH_MIN_NODES:
+        cp = _state._cp
+        if flat_g is None:
+            flat_g = cp.asarray(flat, dtype=cp.int32)
+        lam_g = (
+            cp.asarray(lambda_flat) if lambda_device is None else lambda_device.ravel()
+        )
+        cell_source_reach_g = cp.zeros(grid_cells, cp.float32)
+        cp.maximum.at(
+            cell_source_reach_g,
+            flat_g,
+            np.float32(window_factor) * cp.maximum(lam_g, 0.0),
+        )
+        cell_source_reach = cp.asnumpy(cell_source_reach_g)
+    else:
+        node_source_reach = np.asarray(
+            float(window_factor) * np.maximum(lambda_flat, 0.0), dtype=np.float32
+        )
+        cell_source_reach = np.zeros(grid_cells, np.float32)
         np.maximum.at(cell_source_reach, flat, node_source_reach)
-        if not structure_reused:
-            np.maximum.at(cell_segment_reach, flat, node_segment_reach)
+        cell_source_reach_g = _state._cp.asarray(cell_source_reach)
     build_s = perf_counter() - t0
 
     t0 = perf_counter()
@@ -654,7 +678,7 @@ def _build_cext_tissue_cell_list_gpu(
     cell = {
         "cell_ptr_g": cell_ptr_g,
         "cell_node_ids_g": cell_node_ids_g,
-        "cell_source_reach_g": _state._cp.asarray(cell_source_reach),
+        "cell_source_reach_g": cell_source_reach_g,
         "cell_segment_reach_g": cell_segment_reach_g,
         "origin": np.asarray(origin, dtype=np.float32),
         "spacing": float(spacing),
@@ -667,25 +691,34 @@ def _build_cext_tissue_cell_list_gpu(
     _state._cp.cuda.Stream.null.synchronize()
     upload_s = perf_counter() - t0
     if isinstance(tissue_cache, dict) and not structure_reused:
-        structures.append({
-            "n_nodes": n_nodes,
-            "gl_order": gl_order,
-            "mins": mins.copy(),
-            "maxs": maxs.copy(),
-            "search_radius": search_radius,
-            "origin": origin.copy(),
-            "spacing": spacing,
-            "grid_n": grid_n,
-            "rad_cells": rad_cells,
-            "flat": flat,
-            "order": order,
-            "counts": counts,
-            "cell_ptr": cell_ptr,
-            "cell_segment_reach": cell_segment_reach,
-            "cell_ptr_g": cell_ptr_g,
-            "cell_node_ids_g": cell_node_ids_g,
-            "cell_segment_reach_g": cell_segment_reach_g,
-        })
+        structures.append(
+            {
+                "n_nodes": n_nodes,
+                "gl_order": gl_order,
+                "mins": mins.copy(),
+                "maxs": maxs.copy(),
+                "search_radius": search_radius,
+                "origin": origin.copy(),
+                "spacing": spacing,
+                "grid_n": grid_n,
+                "rad_cells": rad_cells,
+                "flat": flat,
+                "flat_g": flat_g,
+                "gl_flat_host": gl_flat.copy(),
+                "radii_host": np.asarray(radii_si).copy(),
+                "seg_len_host": None
+                if seg_len_si is None
+                else np.asarray(seg_len_si).copy(),
+                "device_id": int(_state._cp.cuda.Device().id),
+                "order": order,
+                "counts": counts,
+                "cell_ptr": cell_ptr,
+                "cell_segment_reach": cell_segment_reach,
+                "cell_ptr_g": cell_ptr_g,
+                "cell_node_ids_g": cell_node_ids_g,
+                "cell_segment_reach_g": cell_segment_reach_g,
+            }
+        )
         # Two entries cover an interactive A/B comparison while bounding both
         # host and device memory independently of sweep length.
         tissue_cache["cext_gpu_cell_structures"] = structures[-2:]
@@ -846,8 +879,17 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
                 radii_si=np.asarray(radii_si, dtype=np.float32),
                 seg_len_si=np.asarray(seg_len, dtype=np.float32),
                 tissue_cache=tissue_cache,
+                lambda_device=lambda_g,
             )
-            kernel_cell = _get_cext_tissue_cell_gpu_kernel()
+            use_warp = (
+                float(cell_metrics["estimated_nodes_per_point"])
+                >= _CEXT_TISSUE_WARP_MIN_WORK
+            )
+            kernel_cell = (
+                _get_cext_tissue_cell_warp_gpu_kernel()
+                if use_warp
+                else _get_cext_tissue_cell_gpu_kernel()
+            )
             # Small/medium trees benefit strongly from one launch because the
             # cell-list kernel uses only O(points) device storage.  On very
             # dense forests, however, each point walks thousands of nodes and
@@ -873,7 +915,10 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
 
                     t0 = perf_counter()
                     threads = 128
-                    blocks = (int(chunk.shape[0]) + threads - 1) // threads
+                    work = int(chunk.shape[0]) * (
+                        _CEXT_TISSUE_GROUP_WIDTH if use_warp else 1
+                    )
+                    blocks = (work + threads - 1) // threads
                     origin = np.asarray(cell["origin"], dtype=np.float32)
                     kernel_cell(
                         (blocks,),
@@ -958,6 +1003,9 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
                 "backend": "cext_gpu_cell_list",
                 "source_mode": "cext_converged_q_flux",
                 "cache_mode": "gpu_cell_list",
+                "kernel_mode": f"tile{_CEXT_TISSUE_GROUP_WIDTH}"
+                if use_warp
+                else "thread",
                 "t_tissue_geometry_s": geometry_elapsed,
                 "t_tissue_oxygen_s": float(t_greens),
                 "t_tissue_total_s": float(total_elapsed),

@@ -7,6 +7,7 @@ reusable device buffers for hybrid solves.
 from __future__ import annotations
 
 import hashlib
+from itertools import count
 import math
 import os
 
@@ -14,6 +15,9 @@ import numpy as np
 
 from cascade.configuration import solver_state as _state
 from cascade.accelerators.cuda import load_cuda_source
+
+
+_LAMBDA_BIN_STATE_TOKENS = count()
 
 
 def _ensure_cext_hybrid_bg_context(context: dict) -> dict:
@@ -705,6 +709,9 @@ def _cext_hybrid_init_lambda_bins(
     edges = hybrid.get("lambda_bin_edges")
     centers = hybrid.get("lambda_bin_centers")
     epoch = int(ext_state.get("_lambda_bin_epoch", -1))
+    if "_lambda_bin_state_token" not in ext_state:
+        ext_state["_lambda_bin_state_token"] = next(_LAMBDA_BIN_STATE_TOKENS)
+    token = ext_state["_lambda_bin_state_token"]
     quantile_fft = (
         bool(_state.CEXT_HYBRID_FFT_QUANTILE_BINS)
         and str(hybrid.get("bg_mode", _resolve_cext_hybrid_bg_mode())).strip().lower()
@@ -716,6 +723,7 @@ def _cext_hybrid_init_lambda_bins(
         and edges is not None
         and centers is not None
         and int(hybrid.get("lambda_bin_epoch", -2)) == epoch
+        and hybrid.get("lambda_bin_state_token") == token
     ):
         edge_arr = np.asarray(edges, dtype=np.float32)
         center_arr = np.asarray(centers, dtype=np.float32)
@@ -774,6 +782,7 @@ def _cext_hybrid_init_lambda_bins(
     center_arr = np.asarray(centers, dtype=np.float32)
     hybrid["lambda_bin_policy"] = policy
     hybrid["lambda_bin_epoch"] = int(epoch)
+    hybrid["lambda_bin_state_token"] = token
     hybrid["lambda_bin_edges_hash"] = hashlib.sha256(edge_arr.tobytes()).hexdigest()[
         :16
     ]

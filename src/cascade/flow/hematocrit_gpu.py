@@ -88,6 +88,7 @@ def compute_network_hematocrit_gpu(
     if cp is None:
         raise RuntimeError("GPU hematocrit requires CUDA/CuPy")
     started = perf_counter()
+    flows = cp.asnumpy(flows) if isinstance(flows, cp.ndarray) else np.asarray(flows)
     up, down = (
         np.asarray(up, dtype=np.int64).copy(),
         np.asarray(down, dtype=np.int64).copy(),

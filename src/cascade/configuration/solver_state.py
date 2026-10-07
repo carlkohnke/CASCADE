@@ -282,16 +282,16 @@ try:
 except ValueError:
     CEXT_HYBRID_FFT_O2_MOMENT_BATCH = 1
 CEXT_HYBRID_GPU_ITERATION_CACHE = str(
-    os.environ.get("SVV_CEXT_HYBRID_GPU_ITERATION_CACHE", "false")
+    os.environ.get("SVV_CEXT_HYBRID_GPU_ITERATION_CACHE", "true")
 ).strip().lower() in ("1", "true", "yes", "on")
 CEXT_HYBRID_GPU_RUNTIME_WEIGHTS = str(
     os.environ.get("SVV_CEXT_HYBRID_GPU_RUNTIME_WEIGHTS", "true")
 ).strip().lower() in ("1", "true", "yes", "on")
 CEXT_HYBRID_GPU_RUNTIME_STENCIL = str(
-    os.environ.get("SVV_CEXT_HYBRID_GPU_RUNTIME_STENCIL", "false")
+    os.environ.get("SVV_CEXT_HYBRID_GPU_RUNTIME_STENCIL", "true")
 ).strip().lower() in ("1", "true", "yes", "on")
 CEXT_HYBRID_GPU_RUNTIME_MOMENTS = str(
-    os.environ.get("SVV_CEXT_HYBRID_GPU_RUNTIME_MOMENTS", "false")
+    os.environ.get("SVV_CEXT_HYBRID_GPU_RUNTIME_MOMENTS", "true")
 ).strip().lower() in ("1", "true", "yes", "on")
 CEXT_LOCAL_ONLY_FAST_SELF = True
 CEXT_TREECODE_THETA = 0.5

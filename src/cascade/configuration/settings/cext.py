@@ -191,14 +191,14 @@ DEFAULTS = {
     in ("1", "true", "yes", "on"),
     # If true, compute grid assignment stencils inside CUDA kernels instead of storing large stencil arrays.
     "CEXT_HYBRID_GPU_RUNTIME_STENCIL": os.environ.get(
-        "SVV_CEXT_HYBRID_GPU_RUNTIME_STENCIL", "false"
+        "SVV_CEXT_HYBRID_GPU_RUNTIME_STENCIL", "true"
     )
     .strip()
     .lower()
     in ("1", "true", "yes", "on"),
     # If true, compute FFT O2 moment weights inside runtime-stencil kernels instead of caching moment arrays.
     "CEXT_HYBRID_GPU_RUNTIME_MOMENTS": os.environ.get(
-        "SVV_CEXT_HYBRID_GPU_RUNTIME_MOMENTS", "false"
+        "SVV_CEXT_HYBRID_GPU_RUNTIME_MOMENTS", "true"
     )
     .strip()
     .lower()

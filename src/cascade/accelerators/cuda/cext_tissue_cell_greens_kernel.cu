@@ -1,6 +1,14 @@
 // Evaluate Cext-derived tissue oxygen using a uniform-cell source index.
 // concentration/tissue/gpu.py compiles this kernel for large sparse searches.
-extern "C" __global__ void cext_tissue_cell_greens_kernel(
+#ifdef CEXT_TISSUE_WARP
+#ifndef CEXT_TISSUE_WIDTH
+#define CEXT_TISSUE_WIDTH 32
+#endif
+#define CEXT_TISSUE_KERNEL cext_tissue_cell_greens_warp_kernel
+#else
+#define CEXT_TISSUE_KERNEL cext_tissue_cell_greens_kernel
+#endif
+extern "C" __global__ void CEXT_TISSUE_KERNEL(
     const float* points_si,
     const int* cell_ptr,
     const int* cell_node_ids,
@@ -31,6 +39,10 @@ extern "C" __global__ void cext_tissue_cell_greens_kernel(
     float* out
 ) {
     int row = blockDim.x * blockIdx.x + threadIdx.x;
+#ifdef CEXT_TISSUE_WARP
+    int lane = row & (CEXT_TISSUE_WIDTH - 1);
+    row /= CEXT_TISSUE_WIDTH;
+#endif
     if (row >= n_points) return;
 
     float px = points_si[row * 3 + 0];
@@ -86,7 +98,13 @@ extern "C" __global__ void cext_tissue_cell_greens_kernel(
                     int do_inside = (!inside_any) && (cell_dist <= cell_segment_reach[cell_flat]);
                     if (!do_source && !do_inside) continue;
 
-                    for (int pos = row_start; pos < row_end; ++pos) {
+                    int pos = row_start;
+                    int stride = 1;
+#ifdef CEXT_TISSUE_WARP
+                    pos += lane;
+                    stride = CEXT_TISSUE_WIDTH;
+#endif
+                    for (; pos < row_end; pos += stride) {
                         int node_idx = cell_node_ids[pos];
                         if (node_idx < 0) continue;
                         int seg_i = node_idx / gl_order;
@@ -155,6 +173,16 @@ extern "C" __global__ void cext_tissue_cell_greens_kernel(
         }
     }
 
+#ifdef CEXT_TISSUE_WARP
+    unsigned int mask = __activemask();
+    unsigned int group_mask = (0xffffffff >> (32 - CEXT_TISSUE_WIDTH)) << ((threadIdx.x & 31) & ~(CEXT_TISSUE_WIDTH - 1));
+    inside_any = (__ballot_sync(mask, inside_any) & group_mask) != 0;
+    for (int offset = CEXT_TISSUE_WIDTH / 2; offset > 0; offset /= 2) {
+        total += __shfl_down_sync(mask, total, offset, CEXT_TISSUE_WIDTH);
+        cap_max = fmaxf(cap_max, __shfl_down_sync(mask, cap_max, offset, CEXT_TISSUE_WIDTH));
+    }
+    if (lane != 0) return;
+#endif
     if (inside_any) {
         keep_mask[row] = 0;
         out[row] = 0.0f;

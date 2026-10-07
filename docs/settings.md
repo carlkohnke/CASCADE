@@ -672,8 +672,8 @@ Extravascular concentration coupling and its acceleration algorithms.
 | `hybrid_fft_o2_moment_batch` `CEXT_HYBRID_FFT_O2_MOMENT_BATCH` | Performance/runtime | `1` | Batch size for FFT oxygen moment calculations; larger batches can improve throughput but use more memory. |
 | `hybrid_fft_response_batched` `CEXT_HYBRID_FFT_RESPONSE_BATCHED` | Performance/runtime | `false` | If true, batch FFT response calculations to reduce Python overhead at the cost of more temporary memory. |
 | `hybrid_gpu_iteration_cache` `CEXT_HYBRID_GPU_ITERATION_CACHE` | Performance/runtime | `true` | Build hybrid FFT source weights on GPU, refreshing the current field and final tissue source handoff. |
-| `hybrid_gpu_runtime_moments` `CEXT_HYBRID_GPU_RUNTIME_MOMENTS` | Performance/runtime | `false` | If true, compute FFT O2 moment weights inside runtime-stencil kernels instead of caching moment arrays. |
-| `hybrid_gpu_runtime_stencil` `CEXT_HYBRID_GPU_RUNTIME_STENCIL` | Performance/runtime | `false` | If true, compute grid assignment stencils inside CUDA kernels instead of storing large stencil arrays. |
+| `hybrid_gpu_runtime_moments` `CEXT_HYBRID_GPU_RUNTIME_MOMENTS` | Performance/runtime | `true` | If true, compute FFT O2 moment weights inside runtime-stencil kernels instead of caching moment arrays. |
+| `hybrid_gpu_runtime_stencil` `CEXT_HYBRID_GPU_RUNTIME_STENCIL` | Performance/runtime | `true` | If true, compute grid assignment stencils inside CUDA kernels instead of storing large stencil arrays. |
 | `hybrid_gpu_runtime_weights` `CEXT_HYBRID_GPU_RUNTIME_WEIGHTS` | Performance/runtime | `true` | If true, update hybrid GPU work weights from measured runtime instead of static estimates. |
 | `index_dtype` `CEXT_INDEX_DTYPE` | Performance/runtime | `int32` | Integer dtype used in Cext index arrays. |
 | `local_only_fast_self` `CEXT_LOCAL_ONLY_FAST_SELF` | Performance/runtime | `true` | If true, use a faster self-interaction path for local-only Cext modes. |

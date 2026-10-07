@@ -10,7 +10,7 @@ Columns, in centimetres:
 start_x,start_y,start_z,end_x,end_y,end_z,radius_cm,prox_id,dist_id
 ```
 
-Make sure the columns have headers. The last 3 are optional. When `radius_cm` is absent, `network.simple.radius_cm` supplies the radius. When node IDs are absent, coincident endpoints are matched after rounding coordinates to 12 decimal places.
+Make sure the columns have headers. Coordinates and `radius_cm` are required; only `prox_id` and `dist_id` are optional. When node IDs are absent, coincident endpoints are matched after rounding coordinates to 12 decimal places.
 
 ## NPZ
 

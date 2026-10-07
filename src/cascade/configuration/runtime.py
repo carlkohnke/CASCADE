@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 import numpy as np
 
-from cascade.configuration.settings import apply_settings, collect_config_settings
+from cascade.configuration.settings import (
+    apply_settings,
+    collect_config_settings,
+    default_settings,
+)
 
 
 @dataclass(frozen=True)
@@ -44,6 +49,11 @@ class RuntimeConfiguration:
 
     def apply_compatibility_state(self, runtime: Any) -> dict[str, Any]:
         """Apply typed settings to the shared TissueSim runtime state."""
+        # GUI workers and batch jobs share this state across runs. Restore even
+        # nullable defaults before applying this run's typed and explicit values.
+        for values in default_settings().values():
+            for name, value in values.items():
+                setattr(runtime, name, deepcopy(value))
         runtime.FLUID = self.fluid
         runtime.ACTIVE_FLUID = self.fluid
         runtime.BUILD_FLUID = self.build_fluid

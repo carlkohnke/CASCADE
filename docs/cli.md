@@ -5,7 +5,7 @@ options.
 
 ## Quick start
 
-Create a CPU-safe starter configuration, then run it:
+Create a starter configuration with automatic GPU detection and CPU fallback, then run it:
 
 ```bash
 cascade init-settings case.json

@@ -1,7 +1,9 @@
 # Main-text simulations
 
 This guide summarizes the inputs used for Figs. 2–5. Use the paper's Methods
-and Supplementary Table S3 for full details.
+and the physical-parameter table in the Supplementary Information for full details.
+This repository release requires Python 3.12; the Python 3.9 environment reported
+in the manuscript describes the original implementation.
 
 ## Set up a case
 
@@ -19,11 +21,22 @@ Use [custom geometry](custom-geometry.md) for imported segments,
 for individual controls. For comparisons, reuse the same saved network and
 sample coordinates, disable growth, and give each case a separate output folder.
 
+The small [publication demo](publication-demo.md) uses reduced uptake and an
+uncoupled `topdown` solve. For the paper's direct vessel–vessel exchange model,
+set `simulation.concentration_solver="network_ext"`. For prescribed inlet flow
+and outlet pressure, replace the starter's `settings.kirchhoff.bc_mode` with
+`"terminal_pressure"`; for prescribed inlet and outlet pressures, use
+`"pressure_pressure"`. Set the physical pressures explicitly in Pa and disable
+`settings.hemodynamics.scale_q_by_volume` and `scale_dp_by_volume` when using
+the stated whole-domain flows and pressures.
+
 ## Physical inputs
 
 Lengths in settings files are in cm, flow in µL/min, and pressure in Pa.
 Concentration is in mol/m³ (numerically equal to mM); Vmax is in mol/m³/s.
 Convert paper diffusivities from m²/s to cm²/s by multiplying by 10,000.
+Convert concentrations reported in mmol/m³, and uptake rates in mmol/(m³ s),
+to the corresponding settings units by dividing by 1,000.
 
 | Input | Setting |
 | --- | --- |
@@ -61,7 +74,7 @@ For large cube trees, switch to equal-bifurcation growth at approximately
 
 For Fig. 4a–d, vary vascular density
 with inlet flow 900 µL/min and outlet pressure 4000 Pa; compare blood and
-cell-culture medium. Use the myocardial uptake settings in Supplementary Table S3 and a
+cell-culture medium. Use the myocardial uptake settings in the Supplementary Information and a
 100 × 100 × 100 tissue grid. Fig. 4a cross-sections use 500 × 500 samples.
 
 For Fig. 3, save and reload the generated networks to exclude growth from timing.

@@ -64,7 +64,8 @@ CSV files can be opened in a spreadsheet or Python. VTP/VTU files can be opened
 in ParaView or PyVista; ParaView is not required to run the demo. In
 `summary.csv`, expect exactly 201 total segments and
 inlet flow of approximately 100 microlitres/minute. Truncated numeric reference values for
-the tested environment are listed below.
+the tested environment are listed below, rechecked on 7 October 2026 after the
+blood oxygen-transport corrections.
 
 | Summary column | Reference value |
 | --- | --- |
@@ -72,13 +73,13 @@ the tested environment are listed below.
 | `terminal_segments` | 101 |
 | `inlet_flow_ul_per_min` | 100. |
 | `pressure_drop` | 5518. Pa |
-| `C_LQ_over_Cmax` | 0.872 |
-| `C_tiss_over_Cmax` | 0.0343 |
+| `C_LQ_over_Cmax` | 0.889 |
+| `C_tiss_over_Cmax` | 0.0345 |
 
 
 ## Expected demo run time
 
-The current 10,000-point CPU demo took 5.17 seconds on the
+The 10,000-point CPU demo took 1.33 seconds on 7 October 2026 on the
 [tested WSL laptop](tested-environments.md#ubuntu-under-wsl-2) with existing
 caches. Allow approximately 10 seconds on a comparable machine; the first run
 and different hardware can take longer.

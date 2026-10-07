@@ -105,11 +105,26 @@ def load_config(path: str | Path) -> RunConfig:
     if config.network_mode == "simple":
         simple = dict(config.network.simple or {})
         if str(simple.get("mode", "")).strip().lower() == "custom":
-            custom_path = Path(str(simple["path"])).expanduser()
+            custom_path = Path(
+                str(simple.get("path", simple.get("geometry_path")))
+            ).expanduser()
             if not custom_path.is_absolute():
                 custom_path = settings_path.parent / custom_path
             if not custom_path.is_file():
                 raise FileNotFoundError(f"Custom geometry file not found: {custom_path}")
+    if config.network.input_path:
+        input_path = Path(config.network.input_path).expanduser()
+        if not input_path.is_absolute():
+            input_path = settings_path.parent / input_path
+        checkpoint = config.growth.checkpoint_path
+        if config.growth.resume_from_checkpoint and checkpoint:
+            checkpoint_path = Path(checkpoint).expanduser()
+            if not checkpoint_path.is_absolute():
+                checkpoint_path = settings_path.parent / checkpoint_path
+            if checkpoint_path.is_file():
+                input_path = checkpoint_path
+        if not input_path.is_file():
+            raise FileNotFoundError(f"Network input file not found: {input_path}")
     return config
 
 
@@ -837,6 +852,11 @@ def _validate(
     if network.mode not in {"tree", "forest", "simple"}:
         raise ValueError("network.mode must be 'tree', 'forest', or 'simple'.")
     if network.mode in {"tree", "forest"} and network.input_path is None:
+        if not growth.enabled:
+            raise ValueError(
+                "network.input_path is required for tree/forest runs when "
+                "growth.enabled=false."
+            )
         if (
             network.target_terminal_count is not None
             and network.target_terminal_count < 1

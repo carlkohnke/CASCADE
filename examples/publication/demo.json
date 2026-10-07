@@ -49,6 +49,9 @@
       "flow_iterations": 2
     },
     "oxygen": {
+      "network_transport_accel": "cpu",
+      "junction_oxygen_balance": "total_content",
+      "blood_convective_hematocrit": "discharge",
       "vmax_mm": 0.001,
       "k_m_mm": 0.005,
       "solute_diffusivity": 2.41e-5,
@@ -57,6 +60,7 @@
     },
     "cext": {
       "accel_mode": "cpu",
+      "frozen_accel_mode": "cpu",
       "vess_coupling_accel": "anderson"
     },
     "tissue": {

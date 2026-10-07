@@ -410,6 +410,7 @@ def _resolve_configured_simulation(
 ):
     """Load, build, and optionally solve one case using reusable state."""
     from cascade.accelerators.backend import require_gpu_runtime
+    from cascade.configuration.bridge import apply_runtime_settings, load_runtime_module
     from cascade.simulation.engine import run_simulation
     from cascade.vessels.build import build_or_load_network
 
@@ -429,6 +430,18 @@ def _resolve_configured_simulation(
             f"{out_dir} already contains a CASCADE run; choose a new outputs.out_dir "
             "or set outputs.overwrite=true."
         )
+    if out_dir is not None:
+        from tempfile import TemporaryFile
+
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with TemporaryFile(dir=out_dir):
+                pass
+        except OSError as exc:
+            raise OSError(
+                f"Cannot write outputs.out_dir={out_dir}: {exc}. "
+                "Choose a writable output directory."
+            ) from exc
     gpu = require_gpu_runtime(config)
     if gpu is not None:
         print(f"GPU preflight passed: {gpu.summary}", flush=True)
@@ -437,6 +450,8 @@ def _resolve_configured_simulation(
         build_reused = False
     else:
         build, build_reused = workspace.resolve_build(config)
+    if build_reused:
+        apply_runtime_settings(load_runtime_module(), config)
     print(
         f"Network ready: mode={config.network_mode} trees={len(build.trees)} "
         f"segments={[int(getattr(t, 'segment_count', 0) or 0) for t in build.trees]} "

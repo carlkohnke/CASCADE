@@ -72,8 +72,17 @@ def _run_case(root: Path, *, require_gpu: bool) -> dict[str, Any]:
             "tissue_accel": "cpu",
         },
         "settings": {
-            "oxygen": {"gl_order": 5, "gl_order_cext": 1},
-            "cext": {"accel_mode": "cpu", "window_factor": 6.0},
+            "hemodynamics": {"kirchhoff_solver": "tree"},
+            "oxygen": {
+                "gl_order": 5,
+                "gl_order_cext": 1,
+                "network_transport_accel": "cpu",
+            },
+            "cext": {
+                "accel_mode": "cpu",
+                "frozen_accel_mode": "cpu",
+                "window_factor": 6.0,
+            },
             "tissue": {"accel_mode": "cpu"},
         },
         "outputs": {
@@ -94,11 +103,13 @@ def _run_case(root: Path, *, require_gpu: bool) -> dict[str, Any]:
                 "gl_order_cext": 1,
                 "finite_radius_o2_terms": "none",
                 "lumen_wall_closure": "wellmixed",
+                "network_transport_accel": "gpu",
             }
         )
         settings["settings"]["cext"].update(
             {
                 "accel_mode": "gpu",
+                "frozen_accel_mode": "gpu",
                 "vess_coupling_max_iter": 1,
                 "window_factor": 6.0,
             }

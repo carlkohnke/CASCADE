@@ -73,7 +73,12 @@ def test_recreate_refuses_symlinked_environment(tmp_path: Path) -> None:
     environment.mkdir()
     (environment / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
     link = tmp_path / "linked-venv"
-    link.symlink_to(environment, target_is_directory=True)
+    try:
+        link.symlink_to(environment, target_is_directory=True)
+    except OSError as error:
+        if getattr(error, "winerror", None) in {1, 50, 1314}:
+            pytest.skip(f"Windows filesystem/account cannot create symlinks: {error}")
+        raise
 
     with pytest.raises(ValueError, match="symlinked"):
         setup_linux._validate_recreate_target(link)

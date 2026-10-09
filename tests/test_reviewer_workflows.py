@@ -287,7 +287,12 @@ def test_blood_batch_matches_independent_runs_after_physics_and_flow_changes(tmp
             )
         )
     log = run("batch", "--settings", *paths)
-    assert "Reusing interactive geometry" in log
+    # On a busy host the memory guard can intentionally discard geometry.
+    # Both cached and rebuilt batches must retain the same scientific results.
+    assert (
+        "Reusing interactive geometry" in log
+        or "Interactive memory pressure: evicted all" in log
+    )
     for expected, label in zip(independent, ("second", "third")):
         actual = summary(label)
         for field in (

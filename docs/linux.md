@@ -27,6 +27,11 @@ The setup is source-based and editable; keep the repository after
 installation. Activating the environment is optional: you can launch Studio
 directly with `.venv/bin/cascade-gui` or run the CLI as `.venv/bin/cascade`.
 
+Setup validates the selected Python version before modifying an environment.
+With `--gui`, it constructs every Studio page in a disposable offscreen session
+before reporting success. Repeat this check with
+`python -m cascade.gui.smoke_test` in the installed environment.
+
 ## NVIDIA GPU installation
 
 Choose the CUDA package family compatible with the installed NVIDIA driver.

@@ -23,6 +23,7 @@ Installation path for someone who doesn't want to use a terminal:
 The installer builds CASCADE's wheel, creates a private environment beneath
 `%LOCALAPPDATA%\Programs\CASCADE`, installs binary dependency wheels, runs
 `doctor` and `self-test`, and creates the clearly labeled Studio shortcut. It
+also constructs every Studio page in a disposable offscreen startup check.
 automatically qualifies NVIDIA/CUDA acceleration when an NVIDIA device is
 present. If GPU qualification fails in automatic mode, it verifies the CPU
 path and reports **CPU fallback** rather than leaving a broken installation.

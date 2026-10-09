@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sys
 from tempfile import TemporaryDirectory
 
 
@@ -28,8 +29,14 @@ def main() -> int:
         app.setApplicationName("CASCADE Studio startup check")
         app.setStyle("Fusion")
         app.setStyleSheet(APP_STYLE)
-        window = MainWindow()
+        errors = []
+        previous_hook = sys.excepthook
+        # Qt sends Python signal/callback failures to excepthook instead of
+        # propagating them through processEvents(). They must fail this check.
+        sys.excepthook = lambda kind, error, trace: errors.append((error, trace))
+        window = None
         try:
+            window = MainWindow()
             # Exercise both automatic and explicit root assignment, including
             # the zip(strict=...) calls involved in the startup regression.
             vessels = window.pages[2]
@@ -40,10 +47,15 @@ def main() -> int:
             for index in range(len(window.pages)):
                 window.nav.setCurrentRow(index)
                 app.processEvents()
+            if errors:
+                error, trace = errors[0]
+                raise error.with_traceback(trace)
             print(f"CASCADE Studio GUI ready: {len(window.pages)} pages constructed")
         finally:
-            window.runner.shutdown()
-            window.close()
+            sys.excepthook = previous_hook
+            if window is not None:
+                window.runner.shutdown()
+                window.close()
         return 0
 
 

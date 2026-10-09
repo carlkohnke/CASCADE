@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import subprocess
 import sys
 
@@ -22,13 +23,16 @@ from cascade.vessels.prepared import default_prepared_cache_root
 from cascade.vessels.tree_cache import _tree_cache_dir
 
 
-def test_pytest_imports_checkout_source_tree() -> None:
-    repository = Path(__file__).resolve().parents[1]
+def test_pytest_imports_selected_package() -> None:
+    package = Path(cascade.__file__).resolve()
+    if os.environ.get("CASCADE_TEST_INSTALLED") == "1":
+        assert package.is_relative_to(Path(sys.prefix).resolve())
+        assert "site-packages" in str(package).lower()
+    else:
+        assert package.is_relative_to(Path(__file__).resolve().parents[1] / "src")
 
-    assert Path(cascade.__file__).resolve().is_relative_to(repository / "src")
 
-
-def test_test_subprocesses_import_checkout_source_tree(tmp_path: Path) -> None:
+def test_test_subprocesses_import_same_package(tmp_path: Path) -> None:
     completed = subprocess.run(
         [sys.executable, "-c", "import cascade; print(cascade.__file__)"],
         cwd=tmp_path,
@@ -37,9 +41,7 @@ def test_test_subprocesses_import_checkout_source_tree(tmp_path: Path) -> None:
         check=True,
     )
 
-    assert Path(completed.stdout.strip()).resolve().is_relative_to(
-        Path(__file__).resolve().parents[1] / "src"
-    )
+    assert Path(completed.stdout.strip()).resolve() == Path(cascade.__file__).resolve()
 
 
 def test_runtime_location_overrides_are_shared(monkeypatch, tmp_path: Path) -> None:

@@ -47,6 +47,12 @@ preview backend for reliability. Advanced users can override
 `QT_QPA_PLATFORM` or `CASCADE_RENDER_BACKEND` before launch. Logs are stored
 under the configured CASCADE state directory rather than in the source tree.
 
+The launcher uses an explicit `CASCADE_PYTHON` override first, then the
+checkout's recorded interpreter or `.venv`, and only falls back to shared user
+configuration when no local environment exists. It checks for 64-bit Python
+3.12 before starting Studio. If an older environment is selected, rebuild it
+with `python3.12 setup_linux.py --venv .venv --gui --recreate`.
+
 CLI commands such as `cascade run` work in the activated Ubuntu shell. They do
 not become native PowerShell commands because this environment is Linux. For a
 native Windows GUI and CLI, instead use

@@ -63,18 +63,26 @@ mkdir -p "$STATE_DIR"
 export CASCADE_CONFIG_DIR="$CONFIG_DIR"
 
 # `setup_linux.py` records its interpreter and optional CUDA toolkit in the
-# configuration directory. Explicit environment variables take precedence.
+# checkout and configuration directory. Explicit overrides and checkout-local
+# environments take precedence over shared configuration from other installs.
 PYTHON_PATH="${CASCADE_PYTHON:-$REPOSITORY_DIR/.venv/bin/python}"
-if [[ -f "$CONFIG_DIR/.cascade_python" ]]; then
-    PYTHON_PATH="$(<"$CONFIG_DIR/.cascade_python")"
-elif [[ -f "$REPOSITORY_DIR/.cascade_python" ]]; then
-    PYTHON_PATH="$(<"$REPOSITORY_DIR/.cascade_python")"
+if [[ -z "${CASCADE_PYTHON:-}" ]]; then
+    if [[ -f "$REPOSITORY_DIR/.cascade_python" ]]; then
+        PYTHON_PATH="$(<"$REPOSITORY_DIR/.cascade_python")"
+    elif [[ ! -x "$PYTHON_PATH" && -f "$CONFIG_DIR/.cascade_python" ]]; then
+        PYTHON_PATH="$(<"$CONFIG_DIR/.cascade_python")"
+    fi
 fi
 if [[ -z "${CUDA_PATH:-}" && -f "$CONFIG_DIR/.cascade_cuda_path" ]]; then
     export CUDA_PATH="$(<"$CONFIG_DIR/.cascade_cuda_path")"
 fi
 if [[ ! -x "$PYTHON_PATH" ]]; then
-    echo "CASCADE environment not found. Run: python setup_linux.py --venv .venv --gui" >&2
+    echo "CASCADE environment not found. Run: python3.12 setup_linux.py --venv .venv --gui" >&2
+    exit 1
+fi
+if ! "$PYTHON_PATH" -c 'import struct, sys; sys.exit(0 if sys.implementation.name == "cpython" and sys.version_info[:2] == (3, 12) and struct.calcsize("P") == 8 else 1)'; then
+    echo "CASCADE requires 64-bit CPython 3.12. Selected interpreter: $PYTHON_PATH" >&2
+    echo "Run: python3.12 setup_linux.py --venv .venv --gui --recreate" >&2
     exit 1
 fi
 exec flock -n "$STATE_DIR/gui.instance.lock" \

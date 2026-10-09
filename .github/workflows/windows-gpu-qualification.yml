@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 180
     env:
       QT_QPA_PLATFORM: offscreen
+      CASCADE_TEST_INSTALLED: "1"
       CASCADE_RUN_GPU_QUALIFICATION: "1"
       CASCADE_CACHE_DIR: ${{ github.workspace }}/.ci-gpu/cache
       CASCADE_CONFIG_DIR: ${{ github.workspace }}/.ci-gpu/config
@@ -50,10 +51,11 @@ jobs:
       - name: Required CUDA diagnostics
         run: |
           python -m pip check
+          python -m cascade.gui.smoke_test
           cascade doctor --require-gpu
           cascade self-test --require-gpu --output "${{ runner.temp }}/cascade-gpu/self-test"
       - name: Full native Windows CUDA qualification
-        run: python -m pytest -q
+        run: python -m pytest -q -o pythonpath=
       - name: Upload release-gate evidence
         if: always()
         uses: actions/upload-artifact@v4

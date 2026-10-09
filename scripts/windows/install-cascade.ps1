@@ -367,6 +367,7 @@ Extract it to a normal Windows folder, such as Downloads\CASCADE, and run the in
 
     Write-Stage "Verifying the installed package"
     Invoke-Checked -FilePath $cascadeCli -ArgumentList @("--version")
+    Invoke-Checked -FilePath $runtimePython -ArgumentList @("-m", "cascade.gui.smoke_test")
     $verifiedMode = $selectedMode
     if ($selectedMode -eq "GPU") {
         try {

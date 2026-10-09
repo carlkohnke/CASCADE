@@ -19,6 +19,7 @@ jobs:
             os: windows-latest
     env:
       QT_QPA_PLATFORM: offscreen
+      CASCADE_TEST_INSTALLED: "1"
       CASCADE_CACHE_DIR: ${{ github.workspace }}/.ci/cache
       CASCADE_CONFIG_DIR: ${{ github.workspace }}/.ci/config
       CASCADE_STATE_DIR: ${{ github.workspace }}/.ci/state
@@ -61,9 +62,10 @@ jobs:
           python -m ruff check --select
           E9,F63,F7,F82,F601,F811,E741 src setup_linux.py tests
       - name: Installed-wheel test suite
-        run: python -m pytest -q
+        run: python -m pytest -q -o pythonpath=
       - name: Installed-wheel smoke checks
         run: |
+          python -m cascade.gui.smoke_test
           cascade --version
           cascade doctor --no-gpu-probe
           cascade self-test --output "${{ runner.temp }}/cascade-ci/self-test"

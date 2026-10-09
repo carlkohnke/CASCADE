@@ -112,6 +112,11 @@ def main(argv: list[str] | None = None) -> int:
     venv_dir = venv_dir.absolute()
     venv_python = _venv_python(venv_dir)
 
+    # Check before installing into (or deleting) any existing environment.
+    _validate_python312(args.python, args.dry_run)
+    if venv_python.exists() and not args.recreate:
+        _validate_python312(str(venv_python), args.dry_run)
+
     if args.recreate and venv_dir.exists():
         venv_dir = _validate_recreate_target(venv_dir)
         venv_python = _venv_python(venv_dir)
@@ -190,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
                 [
                     str(venv_python),
                     "-c",
-                    "import PySide6, cascade.gui; print('CASCADE Studio GUI ready')",
+                    "from cascade.gui.smoke_test import main; main()",
                 ],
                 args.dry_run,
                 env=verify_env,
@@ -249,6 +254,34 @@ def _venv_python(venv_dir: Path) -> Path:
     if sys.platform == "win32":
         return venv_dir / "Scripts" / "python.exe"
     return venv_dir / "bin" / "python"
+
+
+def _validate_python312(python: str, dry_run: bool) -> None:
+    if dry_run:
+        print(f"+ verify 64-bit CPython 3.12: {python}")
+        return
+    probe = subprocess.run(
+        [
+            python, "-c",
+            (
+                "import struct, sys; "
+                "print(sys.version.split()[0]); "
+                "sys.exit(0 if sys.implementation.name == 'cpython' "
+                "and sys.version_info[:2] == (3, 12) "
+                "and struct.calcsize('P') == 8 else 1)"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if probe.returncode:
+        raise ValueError(
+            f"CASCADE requires 64-bit CPython 3.12; {python} reported "
+            f"{probe.stdout.strip() or probe.stderr.strip()}. "
+            "Run python3.12 setup_linux.py --venv .venv --gui; "
+            "use --recreate if the existing environment has another Python version."
+        )
 
 
 def _validate_recreate_target(venv_dir: Path) -> Path:
@@ -334,12 +367,13 @@ def _write_cuda_path(cuda_path: Path, dry_run: bool) -> None:
 
 
 def _write_python_path(venv_python: Path, dry_run: bool) -> None:
-    path_file = _config_dir() / ".cascade_python"
-    print(f"+ write {path_file} = {venv_python}")
-    if dry_run:
-        return
-    path_file.parent.mkdir(parents=True, exist_ok=True)
-    path_file.write_text(str(venv_python) + "\n", encoding="utf-8")
+    # Keep each checkout tied to its verified environment when installations
+    # share the same user-level configuration directory.
+    for path_file in (ROOT / ".cascade_python", _config_dir() / ".cascade_python"):
+        print(f"+ write {path_file} = {venv_python}")
+        if not dry_run:
+            path_file.parent.mkdir(parents=True, exist_ok=True)
+            path_file.write_text(str(venv_python) + "\n", encoding="utf-8")
 
 
 def _run(

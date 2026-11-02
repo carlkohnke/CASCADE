@@ -2,4 +2,10 @@
 # repository root only on machines with a compatible NVIDIA driver:
 #   python -m pip install -r requirements/gpu-cu12.txt
 -r base.txt
-cupy-cuda12x>=13
+# CuPy's CTK extra supplies a matched, wheel-only CUDA 12 toolkit: runtime
+# headers, NVRTC for CASCADE's JIT kernels, cuFFT, and their component
+# libraries. A driver reporting CUDA 12.0 or later is still required. To match
+# an older 12.x driver exactly, also pass e.g. "cuda-toolkit==12.4.*".
+cupy-cuda12x[ctk]>=14,<15
+# PyAMG builds the hierarchy for the GPU multigrid pressure solver.
+pyamg>=5.2

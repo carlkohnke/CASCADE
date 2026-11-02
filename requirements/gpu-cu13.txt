@@ -4,5 +4,7 @@
 -r base.txt
 # CuPy's CTK extra supplies a matched, wheel-only CUDA toolkit: runtime headers,
 # NVRTC for CASCADE's JIT kernels, cuFFT, and their transitive component DLLs.
-# A compatible NVIDIA display driver is still required.
+# A driver reporting CUDA 13.0 or later (NVIDIA 580 or newer) is still required.
 cupy-cuda13x[ctk]>=14,<15
+# PyAMG builds the hierarchy for the GPU multigrid pressure solver.
+pyamg>=5.2

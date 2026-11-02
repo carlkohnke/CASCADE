@@ -18,6 +18,7 @@ import numpy as np
 import pyvista as pv
 
 from cascade import __version__
+from cascade.accelerators.cuda_driver import cuda_driver_version, format_cuda_version
 from cascade.configuration.schema import RunConfig
 from cascade.utils.resources import resolve_path
 from cascade.utils.hashing import file_sha256
@@ -780,6 +781,8 @@ def _dependency_versions() -> dict[str, str | None]:
         "cupy-cuda13x",
         "cupy-cuda12x",
         "cupy-cuda11x",
+        "cupy",
+        "cuda-toolkit",
     ):
         key = distribution.replace("-", "_") + "_version"
         try:
@@ -790,9 +793,14 @@ def _dependency_versions() -> dict[str, str | None]:
 
 
 @lru_cache(maxsize=1)
-def _platform_metadata() -> dict[str, str]:
+def _platform_metadata() -> dict[str, str | None]:
     """Cache stable platform probes that may launch an OS subprocess."""
-    return {"platform": platform.platform(), "machine": platform.machine()}
+    driver = cuda_driver_version()
+    return {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "cuda_driver_version": None if driver is None else format_cuda_version(driver),
+    }
 
 
 def warm_export_metadata() -> None:

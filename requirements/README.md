@@ -11,7 +11,14 @@ from the repository root with `conda env create -f requirements/conda.yml`.
 - `dev.txt`: base installation plus test/development tools.
 - `gui.txt`: base installation plus CASCADE Studio dependencies.
 - `gpu-cu11.txt`, `gpu-cu12.txt`, `gpu-cu13.txt`: base installation plus the
-  matching optional CuPy/CUDA runtime.
+  matching optional CuPy/CUDA runtime and PyAMG. Choose the file from the
+  **CUDA Version** that `nvidia-smi` reports and the oldest GPU: 13.0 or later
+  (driver 580+) with sm_75 or newer GPUs uses `gpu-cu13`; 12.x, or sm_50 to
+  sm_72 GPUs such as P100 and V100, uses `gpu-cu12`; 11.2 to 11.8, or Kepler
+  GPUs, uses `gpu-cu11`. The CUDA
+  12 and 13 files use CuPy 14 with its `ctk` wheel toolkit; the CUDA 11 file uses
+  CuPy 13 with the CUDA 11.8 component wheels. They mirror the `gpu-cu*`
+  extras in `pyproject.toml`.
 
 Run requirement-file installs from the repository root, for example:
 

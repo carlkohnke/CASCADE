@@ -122,6 +122,38 @@ function Test-NvidiaGpu {
     return $null -ne $nvidiaSmi
 }
 
+function Get-NvidiaDriverCuda {
+    param(
+        [Parameter(Mandatory = $true)]$PythonCommand,
+        [Parameter(Mandatory = $true)][string]$SourceRoot
+    )
+
+    # The probe is dependency-free and prints "<driver CUDA version> <extra> <sm>",
+    # for example "13020 gpu-cu12 sm_70" (CUDA 13 does not support sm_70), or
+    # "0 none none" without an NVIDIA driver.
+    $probe = Join-Path $SourceRoot "src\cascade\accelerators\cuda_driver.py"
+    $arguments = @($PythonCommand.PrefixArguments) + @("-I", $probe)
+    try {
+        $output = & $PythonCommand.FilePath @arguments 2>$null | Select-Object -Last 1
+    } catch {
+        return $null
+    }
+    if ($LASTEXITCODE -ne 0 -or -not $output) {
+        return $null
+    }
+    $fields = ([string]$output).Trim().Split(" ")
+    if ($fields.Count -ne 3) {
+        return $null
+    }
+    $version = [int]$fields[0]
+    return [pscustomobject]@{
+        Version = $version
+        Display = "{0}.{1}" -f [math]::Floor($version / 1000), [math]::Floor(($version % 1000) / 10)
+        Extra = if ($fields[1] -eq "none") { $null } else { $fields[1] }
+        Architecture = if ($fields[2] -eq "none") { $null } else { $fields[2] }
+    }
+}
+
 function Add-UserPathEntry {
     param([Parameter(Mandatory = $true)][string]$Directory)
 
@@ -290,14 +322,37 @@ Extract it to a normal Windows folder, such as Downloads\CASCADE, and run the in
     Write-Host "Python: $($pythonCommand.Executable)"
 
     $selectedMode = $Mode
+    $gpuExtra = $null
+    $driverCuda = $null
+    $gpuArchitecture = $null
+    if ($selectedMode -ne "CPU") {
+        $driver = Get-NvidiaDriverCuda -PythonCommand $pythonCommand -SourceRoot $sourceRoot
+        if ($null -ne $driver -and $driver.Version -gt 0) {
+            $driverCuda = $driver.Display
+            $gpuExtra = $driver.Extra
+            $gpuArchitecture = $driver.Architecture
+            Write-Host "NVIDIA driver supports CUDA $driverCuda; oldest GPU architecture: $gpuArchitecture."
+            if (-not $gpuExtra) {
+                Write-Warning "CASCADE's GPU packages support neither CUDA $driverCuda nor $gpuArchitecture; update the NVIDIA driver or use CPU mode."
+            }
+        }
+    }
     if ($selectedMode -eq "Auto") {
-        if (Test-NvidiaGpu) {
+        if ($gpuExtra -or ($null -eq $driverCuda -and (Test-NvidiaGpu))) {
             $selectedMode = "GPU"
         } else {
             $selectedMode = "CPU"
         }
     }
+    if ($selectedMode -eq "GPU" -and -not $gpuExtra) {
+        # No usable driver family was read; keep the qualified CUDA 13 default and
+        # let GPU qualification below report any driver problem.
+        $gpuExtra = "gpu-cu13"
+    }
     Write-Host "Acceleration profile: $selectedMode"
+    if ($selectedMode -eq "GPU") {
+        Write-Host "GPU package set: $gpuExtra"
+    }
 
     $runtimeDirectory = Join-Path $InstallRoot "runtime"
     $runtimePython = Join-Path $runtimeDirectory "Scripts\python.exe"
@@ -341,7 +396,7 @@ Extract it to a normal Windows folder, such as Downloads\CASCADE, and run the in
         throw "The CASCADE wheel was not produced in $packageDirectory"
     }
 
-    $extras = if ($selectedMode -eq "GPU") { "gui,gpu-cu13" } else { "gui" }
+    $extras = if ($selectedMode -eq "GPU") { "gui,$gpuExtra" } else { "gui" }
     $wheelRequirement = "$($wheel.FullName)[$extras]"
     Write-Stage "Installing CASCADE and binary dependencies"
     $installArguments = @("-m", "pip", "install", "--upgrade", "--only-binary=:all:") +
@@ -429,6 +484,9 @@ Extract it to a normal Windows folder, such as Downloads\CASCADE, and run the in
         gui = $cascadeGui
         requested_mode = $Mode
         selected_mode = $selectedMode
+        gpu_extra = $gpuExtra
+        driver_cuda_version = $driverCuda
+        gpu_architecture = $gpuArchitecture
         verified_mode = $verifiedMode
         user_path_added = [bool]$pathAdded
         shortcuts = [string[]]$shortcuts

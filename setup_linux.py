@@ -11,12 +11,14 @@ rebuilds the requested virtual-environment directory.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 ROOT = Path(__file__).resolve().parent
 
@@ -49,9 +51,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--gpu",
-        choices=("none", "cu11", "cu12", "cu13"),
+        choices=("none", "auto", "cu11", "cu12", "cu13"),
         default="none",
-        help="Install optional CuPy GPU dependencies for the selected CUDA family.",
+        help=(
+            "Install optional CuPy GPU dependencies for the selected CUDA family. "
+            "'auto' picks the newest family the installed NVIDIA driver supports."
+        ),
     )
     parser.add_argument(
         "--cuda-path",
@@ -105,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
             constraints = ROOT / constraints
         if not constraints.is_file() and not args.dry_run:
             raise FileNotFoundError(f"Constraints file not found: {constraints}")
+
+    args.gpu = _select_gpu_family(args.gpu)
 
     venv_dir = Path(args.venv).expanduser()
     if not venv_dir.is_absolute():
@@ -176,7 +183,11 @@ def main(argv: list[str] | None = None) -> int:
                     str(venv_python),
                     "-c",
                     (
+                        "from cascade.accelerators.cuda_runtime import "
+                        "configure_cuda_runtime, configure_cupy_compiler_paths; "
+                        "configure_cuda_runtime(); "
                         "import cupy as cp; "
+                        "configure_cupy_compiler_paths(cp); "
                         "x = cp.full((4, 4), cp.int32(-1), dtype=cp.int32); "
                         "total = int(cp.sum(x).get()); "
                         "assert total == -16, total; "
@@ -229,6 +240,62 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _cuda_driver_module() -> ModuleType:
+    """Load CASCADE's dependency-free driver probe before CASCADE is installed."""
+    path = ROOT / "src" / "cascade" / "accelerators" / "cuda_driver.py"
+    spec = importlib.util.spec_from_file_location("cascade_setup_cuda_driver", path)
+    module = importlib.util.module_from_spec(spec)
+    # dataclasses resolves the defining module through sys.modules.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _select_gpu_family(requested: str) -> str:
+    """Resolve ``auto`` from the driver and GPUs; warn when a family exceeds them."""
+    if requested == "none":
+        return requested
+    cuda_driver = _cuda_driver_module()
+    version = cuda_driver.cuda_driver_version()
+    devices = cuda_driver.cuda_devices() if version is not None else ()
+    compute = cuda_driver.minimum_compute_capability(devices)
+    extra = cuda_driver.gpu_extra_for_driver(version, compute)
+    detected = extra.removeprefix("gpu-") if extra else "none"
+    if version is None:
+        print("No NVIDIA driver was detected.")
+    else:
+        gpus = ", ".join(device.sm for device in devices) or "no visible GPU"
+        print(
+            "NVIDIA driver supports CUDA "
+            f"{cuda_driver.format_cuda_version(version)} ({gpus}); matching GPU "
+            f"family: {detected}."
+        )
+    if requested == "auto":
+        if extra is None:
+            print("Installing CPU-only dependencies; pass --gpu cu11/cu12/cu13.")
+        else:
+            print(f"Selected --gpu {detected}.")
+        return detected
+    if version is None:
+        return requested
+    major = int(requested[2:])
+    driver_ok = version >= (11020 if major == 11 else major * 1000)
+    oldest = cuda_driver.family_min_compute_capability(major)
+    if not driver_ok:
+        note = " CUDA 13 requires driver 580 or later." if requested == "cu13" else ""
+        print(
+            f"WARNING: --gpu {requested} needs a newer NVIDIA driver than this "
+            f"machine has; use --gpu {detected} or update the driver.{note}"
+        )
+    elif compute is not None and compute < oldest:
+        print(
+            f"WARNING: --gpu {requested} cannot compile for this GPU "
+            f"(sm_{compute[0]}{compute[1]}); CUDA {major} needs "
+            f"sm_{oldest[0]}{oldest[1]} or newer. Use --gpu {detected}."
+        )
+    return requested
+
+
 def _requirements(gpu: str, dev: bool, gui: bool) -> list[Path]:
     if gpu == "cu13":
         reqs = [ROOT / "requirements" / "gpu-cu13.txt"]
@@ -272,7 +339,8 @@ def _validate_python312(python: str, dry_run: bool) -> None:
             ),
         ],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=30,
     )
     if probe.returncode:
@@ -330,13 +398,17 @@ def _resolve_cuda_path(value: str | None) -> Path | None:
             except OSError:
                 pass
     else:
-        candidates.extend(
-            [
-                Path("/usr/local/cuda"),
-                Path("/usr/local/cuda-13"),
-                Path("/usr/local/cuda-12"),
-            ]
-        )
+        candidates.append(Path("/usr/local/cuda"))
+        try:
+            candidates.extend(
+                sorted(
+                    Path("/usr/local").glob("cuda-*"),
+                    key=_cuda_version_key,
+                    reverse=True,
+                )
+            )
+        except OSError:
+            pass
     for path in candidates:
         if _is_cuda_root(path):
             return path.resolve()
@@ -387,13 +459,9 @@ def _run(
     print("+ " + prefix + " ".join(command))
     if dry_run:
         return
-    if env:
-        import os
-
-        run_env = os.environ.copy()
-        run_env.update(env)
-    else:
-        run_env = None
+    # Child Python processes print UTF-8 regardless of the locale.
+    run_env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    run_env.update(env or {})
     subprocess.run(command, cwd=ROOT, check=True, env=run_env)
 
 

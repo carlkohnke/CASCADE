@@ -187,3 +187,74 @@ def test_setup_records_checkout_and_shared_interpreters(monkeypatch, tmp_path):
     setup._write_python_path(python, False)
     assert (checkout / ".cascade_python").read_text().strip() == str(python)
     assert (config / ".cascade_python").read_text().strip() == str(python)
+
+
+@pytest.mark.parametrize(
+    "requested, driver, expected, message",
+    [
+        ("auto", 13020, "cu13", "Selected --gpu cu13."),
+        ("auto", 12040, "cu12", "Selected --gpu cu12."),
+        ("auto", 11080, "cu11", "Selected --gpu cu11."),
+        ("auto", 10020, "none", "Installing CPU-only dependencies"),
+        ("auto", None, "none", "No NVIDIA driver was detected."),
+        ("cu13", 12040, "cu13", "WARNING: --gpu cu13 needs a newer NVIDIA driver"),
+        ("cu12", 13020, "cu12", "matching GPU family: cu13."),
+        ("cu12", None, "cu12", "No NVIDIA driver was detected."),
+        ("none", 12040, "none", ""),
+    ],
+)
+def test_gpu_family_selection_follows_driver(
+    monkeypatch, capsys, requested, driver, expected, message
+) -> None:
+    setup_linux = _load_setup_linux()
+    probe = setup_linux._cuda_driver_module()
+    monkeypatch.setattr(probe, "cuda_driver_version", lambda: driver)
+    monkeypatch.setattr(probe, "cuda_devices", lambda: ())
+    monkeypatch.setattr(setup_linux, "_cuda_driver_module", lambda: probe)
+
+    assert setup_linux._select_gpu_family(requested) == expected
+    output = capsys.readouterr().out
+    assert message in output
+    if requested == "cu13" and driver is not None and driver < 13000:
+        assert "580 or later" in output
+    if requested in {"auto", "cu12"} or requested == "none":
+        assert "WARNING" not in output
+
+
+def test_dry_run_installs_the_auto_selected_requirements(monkeypatch, capsys) -> None:
+    setup_linux = _load_setup_linux()
+    probe = setup_linux._cuda_driver_module()
+    monkeypatch.setattr(probe, "cuda_driver_version", lambda: 12040)
+    monkeypatch.setattr(probe, "cuda_devices", lambda: ())
+    monkeypatch.setattr(setup_linux, "_cuda_driver_module", lambda: probe)
+
+    assert setup_linux.main(["--gpu", "auto", "--dry-run", "--skip-verify"]) == 0
+    output = capsys.readouterr().out
+    assert "requirements/gpu-cu12.txt" in output.replace("\\", "/")
+    assert "gpu-cu13.txt" not in output
+
+
+@pytest.mark.parametrize(
+    "requested, compute, expected, message",
+    [
+        ("auto", (7, 0), "cu12", "Selected --gpu cu12."),
+        ("auto", (3, 7), "cu11", "Selected --gpu cu11."),
+        ("cu13", (7, 0), "cu13", "WARNING: --gpu cu13 cannot compile for this GPU (sm_70)"),
+        ("cu12", (7, 0), "cu12", "(sm_86, sm_70); matching GPU family: cu12."),
+    ],
+)
+def test_gpu_family_selection_follows_oldest_gpu(
+    monkeypatch, capsys, requested, compute, expected, message
+) -> None:
+    setup_linux = _load_setup_linux()
+    probe = setup_linux._cuda_driver_module()
+    monkeypatch.setattr(probe, "cuda_driver_version", lambda: 13020)
+    monkeypatch.setattr(
+        probe,
+        "cuda_devices",
+        lambda: (probe.CudaDevice(0, (8, 6), 0), probe.CudaDevice(1, compute, 3)),
+    )
+    monkeypatch.setattr(setup_linux, "_cuda_driver_module", lambda: probe)
+
+    assert setup_linux._select_gpu_family(requested) == expected
+    assert message in capsys.readouterr().out

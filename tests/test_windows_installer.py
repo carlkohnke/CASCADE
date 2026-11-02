@@ -28,6 +28,9 @@ def test_installer_has_native_isolated_release_guards() -> None:
     assert "--force-reinstall" in text
     assert "--no-deps" in text
     assert "gpu-cu13" in text
+    assert "src\\cascade\\accelerators\\cuda_driver.py" in text
+    assert '"gui,$gpuExtra"' in text
+    assert '"gui,gpu-cu13"' not in text
     assert "--require-gpu" in text
     assert "--no-gpu-probe" in text
     assert "IShellLinkW" in text

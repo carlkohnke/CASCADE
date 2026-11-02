@@ -22,8 +22,13 @@ cascade self-test
 cascade-gui
 ```
 
-For NVIDIA GPU support, add `--gpu cu13` to the setup command and validate with
-`cascade doctor --require-gpu` and `cascade self-test --require-gpu`.
+For NVIDIA GPU support, add `--gpu auto` to the setup command and validate with
+`cascade doctor --require-gpu` and `cascade self-test --require-gpu`. WSL uses
+the Windows NVIDIA driver; `nvidia-smi` inside Ubuntu reports its CUDA
+version, and `--gpu auto` picks `cu13` for CUDA 13 (driver 580 or later) on
+sm_75 or newer GPUs, `cu12` for 12.x or for older GPUs, or `cu11` for 11.2 to
+11.8. The [Linux guide](linux.md#nvidia-gpu-installation)
+lists the families.
 
 ## Optional WSL launchers
 

@@ -31,7 +31,7 @@ New projects default to `~/CASCADE Projects/Untitled`. Set
 configuration and GUI state in that workbench's `config` and `state/gui`
 directories, out of the source tree; it does not change the project location.
 
-Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit
+Use the CUDA option that matches the machine (`auto`, `cu11`, `cu12`, `cu13`, or omit
 `--gpu` for CPU-only work). After setup, `cascade-gui` is equivalent. WSL users
 can run `bash scripts/wsl/launch-studio.sh`; the `.cmd` and `.vbs` files in that
 directory are WSL convenience wrappers and are not the native Windows launch

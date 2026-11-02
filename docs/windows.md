@@ -25,7 +25,9 @@ The installer builds CASCADE's wheel, creates a private environment beneath
 `doctor` and `self-test`, and creates the clearly labeled Studio shortcut. Setup
 also constructs every Studio page in a disposable offscreen startup check.
 It automatically qualifies NVIDIA/CUDA acceleration when an NVIDIA device is
-present. If GPU qualification fails in automatic mode, it verifies the CPU
+present, choosing the GPU package family from the CUDA version the driver
+reports and printing the selected extra (for example `GPU package set:
+gpu-cu12`). If GPU qualification fails in automatic mode, it verifies the CPU
 path and reports **CPU fallback** rather than leaving a broken installation.
 
 The same installation also enables the command line. Open a *new* PowerShell
@@ -67,9 +69,9 @@ Python and platform combination.
 ## NVIDIA GPU installation
 
 The qualified Windows GPU option is CUDA 13. It requires a supported NVIDIA GPU
-and a sufficiently recent Windows NVIDIA driver, but it does not require the
-CUDA toolkit to be installed system-wide. CuPy and the runtime compiler and
-math libraries are installed as Python wheels:
+and an NVIDIA driver reporting CUDA 13.0 or later (driver 580 or newer), but it
+does not require the CUDA toolkit to be installed system-wide. CuPy and the
+runtime compiler and math libraries are installed as Python wheels:
 
 ```powershell
 py -3.12 -m venv "$env:USERPROFILE\CASCADE-GPU"
@@ -78,6 +80,13 @@ py -3.12 -m venv "$env:USERPROFILE\CASCADE-GPU"
 & "$env:USERPROFILE\CASCADE-GPU\Scripts\cascade.exe" doctor --require-gpu
 & "$env:USERPROFILE\CASCADE-GPU\Scripts\cascade.exe" self-test --require-gpu
 ```
+
+Run `nvidia-smi` and read **CUDA Version** in its header to choose the extra.
+CUDA 13 needs an sm_75 or newer GPU (Turing and later); for Maxwell, Pascal or
+Volta GPUs, or a driver reporting CUDA 12.x, use `gpu-cu12`; for 11.2 to 11.8, use
+`gpu-cu11` (CuPy 13 with the CUDA 11.8 component wheels). These two families
+install the same way but are not yet part of the Windows qualification. The
+[Linux guide](linux.md#nvidia-gpu-installation) lists all three families.
 
 Do not copy CUDA DLLs into the environment or add CUDA directories to the
 global `PATH`. CASCADE discovers the toolkit components declared by its GPU
@@ -145,8 +154,10 @@ Run `cascade doctor --require-gpu` first. Common failure categories are:
 
 - **No NVIDIA device:** confirm that Windows Device Manager and `nvidia-smi`
   can see the device, then update the NVIDIA driver if necessary.
-- **Driver/runtime mismatch:** update the NVIDIA driver; installing a separate
-  CUDA toolkit or copying DLLs does not repair an incompatible driver.
+- **Driver/runtime mismatch:** `cascade doctor` prints the driver's CUDA
+  version and the installed CuPy package. Update the NVIDIA driver, or switch
+  to the extra the doctor suggests; installing a separate CUDA toolkit or
+  copying DLLs does not repair an incompatible driver.
 - **Kernel compile or stale-cache error:** close Studio, move the specific
   `%LOCALAPPDATA%\cascade\Cache` directory aside, and rerun
   `cascade self-test --require-gpu`. CASCADE rebuilds disposable caches.

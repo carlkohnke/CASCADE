@@ -557,6 +557,87 @@ def test_gpu_preflight_hint_uninstalls_a_mismatched_cupy(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
+    "driver, installed, expected",
+    [
+        (12040, [("cupy-cuda13x", "14.2.0")], ["580 or later", "uninstall -y cupy-cuda13x",
+                                                "cascade-vascular[gpu-cu12]"]),
+        (11080, [("cupy-cuda12x", "14.2.0")], ["CUDA 11.8", "cascade-vascular[gpu-cu11]"]),
+        (11010, [("cupy-cuda11x", "13.6.0")], ["Update the NVIDIA driver"]),
+        (12040, [("cupy-cuda12x", "14.2.0"), ("cupy-cuda13x", "14.2.0")],
+         ["Several CuPy packages", "uninstall -y cupy-cuda12x cupy-cuda13x"]),
+        (13020, [("cupy-cuda13x", "14.2.0")], None),
+        (12040, [("cupy-cuda12x", "14.2.0")], None),
+        (13020, [("cupy-cuda11x", "13.6.0")], None),
+        (None, [("cupy-cuda13x", "14.2.0")], None),
+        (12040, [], None),
+    ],
+)
+def test_doctor_flags_cupy_variants_the_driver_cannot_run(
+    driver, installed, expected
+) -> None:
+    issue = environment.cuda_variant_issue(driver, tuple(installed))
+
+    if expected is None:
+        assert issue is None
+    else:
+        for text in expected:
+            assert text in issue
+
+
+def test_doctor_reports_driver_and_cupy_variant(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(environment, "_DEPENDENCIES", ("numpy",))
+    monkeypatch.setattr(environment, "configure_cuda_runtime", lambda: ())
+    monkeypatch.setattr(environment, "cuda_driver_version", lambda: 12040)
+    monkeypatch.setattr(
+        environment,
+        "cuda_devices",
+        lambda: (cuda_driver.CudaDevice(0, (7, 0), 3),),
+    )
+    monkeypatch.setattr(
+        environment, "foreign_component_distributions", lambda: ("nvidia-cufft",)
+    )
+    monkeypatch.setattr(
+        environment,
+        "installed_cupy_distributions",
+        lambda: (("cupy-cuda13x", "14.2.0"),),
+    )
+
+    report = environment.collect_diagnostics(probe_gpu=False)
+    assert report["cuda_driver_version"] == "12.4"
+    assert report["cupy_packages"] == [{"name": "cupy-cuda13x", "version": "14.2.0"}]
+    assert "gpu-cu12" in report["cuda_variant_issue"]
+
+    assert environment.main(["--no-gpu-probe"]) == 0
+    output = capsys.readouterr().out
+    assert "NVIDIA driver: CUDA 12.4" in output
+    assert "CuPy package: cupy-cuda13x 14.2.0" in output
+    assert "WARNING: cupy-cuda13x needs a CUDA 13 driver" in output
+    assert "CUDA device 0: sm_70, Exclusive_Process compute mode" in output
+    assert "WARNING: cupy-cuda13x cannot compile kernels for GPU 0 (sm_70)" in output
+    assert "pip uninstall -y nvidia-cufft" in output
+    assert report["cuda_devices"] == [
+        {"index": 0, "sm": "sm_70", "compute_mode": "Exclusive_Process"}
+    ]
+
+
+def test_run_provenance_records_driver_and_cuda_packages(monkeypatch) -> None:
+    from cascade.exporting import run
+
+    monkeypatch.setattr(run, "cuda_driver_version", lambda: 12040)
+    run._platform_metadata.cache_clear()
+    run._dependency_versions.cache_clear()
+    try:
+        assert run._platform_metadata()["cuda_driver_version"] == "12.4"
+        versions = run._dependency_versions()
+    finally:
+        run._platform_metadata.cache_clear()
+        run._dependency_versions.cache_clear()
+    for key in ("cupy_cuda11x_version", "cupy_cuda12x_version",
+                "cupy_cuda13x_version", "cuda_toolkit_version"):
+        assert key in versions
+
+
+@pytest.mark.parametrize(
     "version, compute, extra",
     [
         (13020, (8, 6), "gpu-cu13"),
@@ -780,6 +861,28 @@ def test_gpu_preflight_hint_accounts_for_gpu_architecture(
 
     for text in expected:
         assert text in hint
+
+
+@pytest.mark.parametrize(
+    "cupy, compute, expected",
+    [
+        ("cupy-cuda13x", (7, 0), ["GPU 0 (sm_70)", "sm_75 or newer",
+                                   "cascade-vascular[gpu-cu12]"]),
+        ("cupy-cuda12x", (7, 0), None),
+        ("cupy-cuda12x", (3, 7), ["sm_50 or newer", "cascade-vascular[gpu-cu11]"]),
+        ("cupy-cuda13x", (8, 6), None),
+    ],
+)
+def test_doctor_flags_gpus_the_cupy_family_cannot_target(cupy, compute, expected):
+    devices = (cuda_driver.CudaDevice(0, compute, 3),)
+
+    issue = environment.cuda_device_issue(13020, devices, ((cupy, "14.2.0"),))
+
+    if expected is None:
+        assert issue is None
+    else:
+        for text in expected:
+            assert text in issue
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Linux soname preloading")

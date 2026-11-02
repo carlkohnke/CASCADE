@@ -17,6 +17,14 @@ python -m ruff check --select E9,F63,F7,F82,F601,F811,E741 src setup_linux.py te
 python -m build
 ```
 
+GPU tests skip automatically when CuPy finds no CUDA device. On a machine with
+a GPU, `CUDA_VISIBLE_DEVICES="" python -m pytest -q` runs only the CPU checks,
+including the CUDA-variant tests that build synthetic CUDA 11, 12, and 13 wheel
+layouts. Validate a GPU package family in an environment created with
+`setup_linux.py --gpu cu11`, `cu12`, or `cu13` (see the
+[Linux guide](linux.md#nvidia-gpu-installation)), then run
+`cascade doctor --require-gpu` and `cascade self-test --require-gpu`.
+
 The editable installation means source changes are immediately visible in the
 environment. Rerun the setup helper after dependency or packaging changes.
 Use `--recreate` only when a clean environment is required; it removes the

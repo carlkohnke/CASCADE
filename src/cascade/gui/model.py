@@ -417,6 +417,13 @@ def validate_project(
     else:
         report.errors.append(f"Unknown boundary-condition mode: {bc_mode}")
 
+    closure = str(settings.get("oxygen", {}).get("lumen_wall_closure", "graetz"))
+    if closure.strip().lower() not in {"graetz", "wellmixed"}:
+        report.errors.append(
+            "Custom wall-exchange expressions are not supported yet; choose the "
+            "resolved intralumen (Graetz) or well-mixed lumen closure."
+        )
+
     domain = config.get("domain", {})
     if domain.get("type") not in {
         "cube",

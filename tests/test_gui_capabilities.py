@@ -171,3 +171,19 @@ def test_solver_only_changes_do_not_rebuild_network_preview(qapp):
         second
     )
     window.close()
+
+
+def test_custom_wall_exchange_closure_is_visible_but_not_selectable(qapp):
+    from cascade.gui.model import default_project, validate_project
+    from cascade.gui.pages.solver import SolverPage
+
+    page = SolverPage()
+    index = page.closure.findData("custom_kappa")
+    assert index >= 0
+    assert not page.closure.model().item(index).isEnabled()
+
+    config = default_project()
+    config["settings"]["oxygen"]["lumen_wall_closure"] = "custom_kappa"
+    report = validate_project(config)
+    assert not report.runnable
+    assert any("wall-exchange" in error for error in report.errors)

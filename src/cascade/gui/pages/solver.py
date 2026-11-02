@@ -98,6 +98,11 @@ class SolverPage(Page):
                 ("Custom wall exchange expression", "custom_kappa"),
             ]
         )
+        # No reproducible user-defined wall-exchange law exists yet, so the
+        # option stays visible but cannot be selected.
+        custom_closure = self.closure.model().item(self.closure.findData("custom_kappa"))
+        custom_closure.setEnabled(False)
+        custom_closure.setToolTip("Custom wall-exchange laws are not supported yet.")
         self.finite_radius = _combo(
             [
                 ("Both monopole and dipole terms", "both"),

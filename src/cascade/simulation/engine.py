@@ -31,6 +31,7 @@ from cascade.configuration.bridge import load_runtime_module
 from cascade.vessels.conditions import (
     _tree_terminal_segments,
     flow_for_tree,
+    flow_volume_scale,
     inlet_concentration_for_tree,
     sync_tree_parameters_for_run,
     terminal_flow_for_target,
@@ -520,9 +521,7 @@ def _inlet_flow_for_tree(
             if config.simulation.total_qin_ul_min is not None
             else float(config.simulation.qin_target_ul_min)
         )
-        total_cm3_s = (
-            total_ul_min * 1.0e-3 / 60.0 * (float(config.domain.side_length) ** 3)
-        )
+        total_cm3_s = total_ul_min * 1.0e-3 / 60.0 * flow_volume_scale(config)
     return allocate_inlet_flows(
         trees,
         source=source,

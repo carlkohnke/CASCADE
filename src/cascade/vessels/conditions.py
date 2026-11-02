@@ -192,13 +192,19 @@ def _set_runtime_root(ts, root: RootConfig, *, side_length: float) -> None:
     )
 
 
+def flow_volume_scale(config: RunConfig) -> float:
+    """Inlet-flow multiplier from ``scale_q_by_volume`` (side_length^3 or 1)."""
+    if not getattr(load_runtime_module(), "SCALE_Q_BY_VOLUME", True):
+        return 1.0
+    return float(config.domain.side_length) ** 3
+
+
 def _flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
     source = str(config.simulation.flow_source).strip().lower().replace("_", "-")
     condition = _inlet_condition_for_tree(config, tree_id)
     if source == "per-inlet" and condition is not None:
         qin_ul_min = float(condition["flow_ul_min"])
-        q_scale = float(config.domain.side_length) ** 3
-        return qin_ul_min * 1.0e-3 / 60.0 * q_scale
+        return qin_ul_min * 1.0e-3 / 60.0 * flow_volume_scale(config)
     qin_ul_min = (
         float(config.simulation.total_qin_ul_min)
         if source == "total-qin-split"
@@ -207,8 +213,7 @@ def _flow_for_tree(config: RunConfig, tree_id: int, n_trees: int) -> float:
     )
     if source in {"total-split", "total-qin-split"} and n_trees > 0:
         qin_ul_min = qin_ul_min / float(n_trees)
-    q_scale = float(config.domain.side_length) ** 3
-    return qin_ul_min * 1.0e-3 / 60.0 * q_scale
+    return qin_ul_min * 1.0e-3 / 60.0 * flow_volume_scale(config)
 
 
 def _terminal_flow_for_target(

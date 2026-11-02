@@ -21,6 +21,7 @@ from sklearn.neighbors import BallTree
 
 from cascade.commands.worker import exit_with_parent
 from cascade.configuration.schema import load_config
+from cascade.utils.console import configure_console_error_handling
 from cascade.utils.resources import resolve_domain_path
 from cascade.vessels.build import build_or_load_network
 from cascade.vessels.cache import save_network_if_requested
@@ -47,6 +48,7 @@ def _bounded_preview_target(
 
 
 def main(argv=None) -> int:
+    configure_console_error_handling()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request", required=True, help="Studio project JSON path.")
     parser.add_argument(

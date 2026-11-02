@@ -13,6 +13,7 @@ from typing import Iterable
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
+from cascade.utils.console import UTF8_CHILD_ENVIRONMENT
 from cascade.utils.processes import ChildProcessJob
 
 from .model import JobRecord, QueueStore
@@ -292,6 +293,9 @@ class JobRunner(QObject):
         process.setWorkingDirectory(str(working_directory))
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
+        # _read_output decodes UTF-8; make the worker write it under any locale.
+        for name, value in UTF8_CHILD_ENVIRONMENT.items():
+            env.insert(name, value)
         # The worker's adaptive case cleanup enforces a VRAM headroom bound.
         # Per-kernel pool trimming would discard reusable CUDA allocations and
         # make every queued case pay cold-allocation costs again.

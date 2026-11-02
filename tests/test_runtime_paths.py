@@ -37,7 +37,7 @@ def test_test_subprocesses_import_same_package(tmp_path: Path) -> None:
         [sys.executable, "-c", "import cascade; print(cascade.__file__)"],
         cwd=tmp_path,
         capture_output=True,
-        text=True,
+        encoding="utf-8", errors="replace",
         check=True,
     )
 

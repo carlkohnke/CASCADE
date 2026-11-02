@@ -22,7 +22,10 @@ import numpy as np
 from cascade import __version__
 from cascade.accelerators.backend import gpu_requested
 from cascade.configuration.schema import example_config, parse_config
-from cascade.utils.console import configure_console_error_handling
+from cascade.utils.console import (
+    configure_console_error_handling,
+    utf8_child_environment,
+)
 
 
 def _run_case(root: Path, *, require_gpu: bool) -> dict[str, Any]:
@@ -134,7 +137,13 @@ def _run_case(root: Path, *, require_gpu: bool) -> dict[str, Any]:
     ]
     started = perf_counter()
     completed = subprocess.run(
-        command, cwd=root, capture_output=True, text=True, check=False
+        command,
+        cwd=root,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env=utf8_child_environment(),
     )
     elapsed = perf_counter() - started
     command_log = root / "command.log"

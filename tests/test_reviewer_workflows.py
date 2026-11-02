@@ -211,7 +211,7 @@ def test_publication_demo_runs_from_an_unrelated_directory(tmp_path):
         ],
         cwd=tmp_path,
         capture_output=True,
-        text=True,
+        encoding="utf-8", errors="replace",
         timeout=180,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
@@ -259,7 +259,7 @@ def test_blood_batch_matches_independent_runs_after_physics_and_flow_changes(tmp
             [sys.executable, "-m", "cascade.commands.main", *args],
             cwd=tmp_path,
             capture_output=True,
-            text=True,
+            encoding="utf-8", errors="replace",
             timeout=180,
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr

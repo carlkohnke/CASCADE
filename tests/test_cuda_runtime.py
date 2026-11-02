@@ -992,6 +992,42 @@ def test_busy_gpu_auto_run_completes_on_cpu_without_touching_cupy(
     assert isinstance(state._cp, _UnusableCupy)
 
 
+def test_child_processes_write_and_parents_read_utf8_under_ascii_locale() -> None:
+    from cascade.utils.console import utf8_child_environment
+
+    # An ASCII locale with Python's UTF-8 fallbacks disabled, as in a bare
+    # container: the child would otherwise escape "…" and "µ".
+    hostile = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("LC_", "LANG", "PYTHONUTF8", "PYTHONIOENCODING"))
+    }
+    hostile.update({"LC_ALL": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"})
+    code = (
+        "from cascade.utils.console import configure_console_error_handling\n"
+        "configure_console_error_handling()\n"
+        # Escaped so the command line itself stays ASCII.
+        "print('Solving patches \\u2026 5 \\u00b5m')\n"
+    )
+
+    def run(environment):
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+            check=True,
+            timeout=60,
+        ).stdout
+
+    assert "\\u2026" in run(hostile)
+    assert run(utf8_child_environment(hostile)) == "Solving patches … 5 µm\n"
+    probe_environment = cuda_runtime.cuda_subprocess_environment()
+    assert probe_environment["PYTHONIOENCODING"] == "utf-8"
+    assert probe_environment["PYTHONUTF8"] == "1"
+
+
 def test_geometry_only_run_never_touches_cupy(monkeypatch, tmp_path: Path) -> None:
     import json
 

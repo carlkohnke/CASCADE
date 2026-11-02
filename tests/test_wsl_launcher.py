@@ -39,7 +39,7 @@ def checkout(tmp_path):
 def _launch(checkout):
     return subprocess.run(
         ["bash", str(checkout[1])], env=checkout[4],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, encoding="utf-8", errors="replace", timeout=10,
     )
 
 

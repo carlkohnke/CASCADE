@@ -649,7 +649,7 @@ def cancel_native_pickers() -> None:
 
 def _to_windows_path(path: str) -> str:
     result = subprocess.run(
-        ["wslpath", "-w", path], check=True, capture_output=True, text=True
+        ["wslpath", "-w", path], check=True, capture_output=True, encoding="utf-8"
     )
     return result.stdout.strip()
 
@@ -671,7 +671,7 @@ def _windows_temp_directory() -> str:
 
 def _to_wsl_path(path: str) -> str:
     result = subprocess.run(
-        ["wslpath", "-u", path], check=True, capture_output=True, text=True
+        ["wslpath", "-u", path], check=True, capture_output=True, encoding="utf-8"
     )
     return result.stdout.strip()
 

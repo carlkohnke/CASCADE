@@ -82,7 +82,7 @@ def _gpu_memory_mib(pids: set[int]) -> tuple[int, str]:
             "--format=csv,noheader,nounits",
         ],
         capture_output=True,
-        text=True,
+        encoding="utf-8", errors="replace",
         check=False,
         timeout=15,
     )
@@ -106,7 +106,7 @@ def _gpu_memory_mib(pids: set[int]) -> tuple[int, str]:
             "--format=csv,noheader,nounits",
         ],
         capture_output=True,
-        text=True,
+        encoding="utf-8", errors="replace",
         check=False,
         timeout=15,
     )
@@ -125,7 +125,7 @@ def _run_cli(cwd: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
         [sys.executable, "-m", "cascade.commands.main", *arguments],
         cwd=cwd,
         capture_output=True,
-        text=True,
+        encoding="utf-8", errors="replace",
         check=False,
         timeout=300,
     )

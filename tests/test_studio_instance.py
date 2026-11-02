@@ -45,7 +45,7 @@ def test_studio_instance_lock_is_process_wide(monkeypatch, tmp_path: Path) -> No
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        encoding="utf-8", errors="replace",
     )
     try:
         assert child.stdout is not None

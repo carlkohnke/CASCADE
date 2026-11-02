@@ -8,7 +8,7 @@ import textwrap
 def test_studio_smoke_constructs_every_page():
     result = subprocess.run(
         [sys.executable, "-m", "cascade.gui.smoke_test"],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, encoding="utf-8", errors="replace", timeout=60,
     )
     assert result.returncode == 0, result.stderr
     assert "8 pages constructed" in result.stdout
@@ -32,7 +32,7 @@ def test_studio_smoke_fails_on_qt_signal_callback_errors():
     """)
     result = subprocess.run(
         [sys.executable, "-c", script],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, encoding="utf-8", errors="replace", timeout=60,
     )
     assert result.returncode != 0
     assert "injected GUI callback failure" in result.stderr

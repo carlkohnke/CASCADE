@@ -827,7 +827,8 @@ def _git_metadata() -> dict[str, Any]:
             ["git", "rev-parse", "HEAD"],
             cwd=root,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
             timeout=5,
         ).stdout.strip()
@@ -836,7 +837,8 @@ def _git_metadata() -> dict[str, Any]:
                 ["git", "status", "--porcelain"],
                 cwd=root,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
                 timeout=5,
             ).stdout.strip()

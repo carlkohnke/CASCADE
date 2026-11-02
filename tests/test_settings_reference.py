@@ -178,7 +178,7 @@ def test_generated_runtime_settings_reference_is_current() -> None:
         [sys.executable, str(ROOT / "scripts" / "generate_settings_reference.py"), "--check"],
         cwd=ROOT,
         capture_output=True,
-        text=True,
+        encoding="utf-8", errors="replace",
         check=False,
     )
     assert result.returncode == 0, result.stderr

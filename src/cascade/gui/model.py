@@ -1206,7 +1206,7 @@ def open_folder(path: str | Path) -> None:
         subprocess.Popen(["open", str(target)])
     elif _is_wsl() and (explorer := _command_path("explorer.exe")):
         converted = subprocess.check_output(
-            ["wslpath", "-w", str(target)], text=True
+            ["wslpath", "-w", str(target)], encoding="utf-8"
         ).strip()
         subprocess.Popen([explorer, converted])
     else:
@@ -1223,7 +1223,7 @@ def open_path(path: str | Path) -> None:
         subprocess.Popen(["open", str(target)])
     elif _is_wsl() and (cmd := _command_path("cmd.exe")):
         converted = subprocess.check_output(
-            ["wslpath", "-w", str(target)], text=True
+            ["wslpath", "-w", str(target)], encoding="utf-8"
         ).strip()
         subprocess.Popen([cmd, "/c", "start", "", converted])
     else:
@@ -1279,7 +1279,8 @@ def _gpu_info() -> tuple[str, int]:
                     "--format=csv,noheader,nounits",
                 ],
                 stderr=subprocess.DEVNULL,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 # WSL may need several seconds to initialize the GPU bridge
                 # after launch. Two seconds produced a false negative here.
                 timeout=12,

@@ -16,7 +16,7 @@ def _run_cli(cwd: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
         [sys.executable, "-m", "cascade.commands.main", *arguments],
         cwd=cwd,
         capture_output=True,
-        text=True,
+        encoding="utf-8", errors="replace",
         check=False,
     )
     assert completed.returncode == 0, completed.stdout + "\n" + completed.stderr

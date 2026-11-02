@@ -151,7 +151,9 @@ def tetrahedralize(surface: pv.PolyData,
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,   # decode to strings
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
         )
         try:
             process_job = ChildProcessJob(proc.pid)

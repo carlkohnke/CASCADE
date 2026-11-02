@@ -99,6 +99,7 @@ from cascade.gui.widgets import (
     cancel_native_pickers,
     choose_native_path,
 )
+from cascade.utils.console import UTF8_CHILD_ENVIRONMENT
 from cascade.utils.processes import ChildProcessJob
 
 
@@ -917,6 +918,8 @@ class MainWindow(QMainWindow):
         process.setWorkingDirectory(str(preview_dir))
         env = QProcessEnvironment.systemEnvironment()
         env.insert(STUDIO_PARENT_PID_ENV, str(os.getpid()))
+        for name, value in UTF8_CHILD_ENVIRONMENT.items():
+            env.insert(name, value)
         process.setProcessEnvironment(env)
         process.started.connect(self._attach_preview_process)
         process.readyReadStandardOutput.connect(self._preview_seed_progress)

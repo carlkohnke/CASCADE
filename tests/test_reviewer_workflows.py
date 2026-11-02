@@ -313,3 +313,40 @@ def test_blood_batch_matches_independent_runs_after_physics_and_flow_changes(tmp
             actual["local_concentration"], expected["local_concentration"], rtol=1e-6
         )
         np.testing.assert_array_equal(actual["viability"], expected["viability"])
+
+
+@pytest.mark.parametrize("bc_mode", ["terminal_pressure", "pressure_pressure"])
+def test_pressure_boundary_modes_run_coupled_blood_transport(tmp_path, bc_mode):
+    source = Path(__file__).resolve().parents[1] / "examples" / "publication"
+    shutil.copy(source / "demo.tree.npz", tmp_path)
+    raw = json.loads((source / "demo.json").read_text())
+    raw["simulation"].update(
+        {"concentration_solver": "network_ext", "distance_sample_count": 128}
+    )
+    raw["settings"]["kirchhoff"]["bc_mode"] = bc_mode
+    raw["settings"]["hemodynamics"] = {
+        "root_pressure": 7080.0,
+        "terminal_pressure": 5999.0,
+        "scale_dp_by_volume": False,
+    }
+    raw["outputs"].update(
+        {"out_dir": "results", "write_paraview": False, "save_network": False}
+    )
+    settings = tmp_path / "case.json"
+    settings.write_text(json.dumps(raw))
+    completed = subprocess.run(
+        [sys.executable, "-m", "cascade.commands.main", "run", "--settings", str(settings)],
+        cwd=tmp_path,
+        capture_output=True,
+        encoding="utf-8", errors="replace",
+        timeout=180,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    with (tmp_path / "results" / "summary.csv").open(newline="") as handle:
+        summary = next(csv.DictReader(handle))
+    assert np.isfinite(float(summary["C_tiss_over_Cmax"]))
+    if bc_mode == "pressure_pressure":
+        assert float(summary["pressure_drop"]) == pytest.approx(1081.0)
+        assert float(summary["inlet_flow_ul_per_min"]) > 0.0
+    else:
+        assert float(summary["inlet_flow_ul_per_min"]) == pytest.approx(100.0)

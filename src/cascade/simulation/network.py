@@ -349,6 +349,23 @@ def run_tree_simulation(
                 target = float(tree.parameters.root_pressure) * _state.PA_TO_DYN_PER_CM2
                 delta = target - float(pressures[inlet_nodes[0]])
                 pressures = pressures + delta
+            if variable_hematocrit_flow:
+                # Oxygen transport requires hematocrit matched to the flows it
+                # receives, and this final solve supersedes the iteration flows.
+                flows = np.asarray(flows, dtype=float)
+                hd_final, ht_final = compute_tree_hematocrit(
+                    tree,
+                    hd_root=_state.HD_DISCHARGE,
+                    flows=flows,
+                    model=hematocrit_model,
+                )
+                _store_tree_hematocrit_cache(
+                    tree,
+                    hd_final,
+                    ht_final,
+                    model=hematocrit_model,
+                    flows=flows,
+                )
     t_kirchhoff = perf_counter() - t_kirchhoff
     if pressures.size and inlet_nodes:
         p_in = float(pressures[inlet_nodes[0]])

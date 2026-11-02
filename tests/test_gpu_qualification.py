@@ -18,10 +18,14 @@ from cascade.gui.runner import JobRunner
 from PySide6.QtCore import QProcess
 from PySide6.QtWidgets import QApplication
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("CASCADE_RUN_GPU_QUALIFICATION") != "1",
-    reason="set CASCADE_RUN_GPU_QUALIFICATION=1 on a dedicated CUDA runner",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        os.environ.get("CASCADE_RUN_GPU_QUALIFICATION") != "1",
+        reason="set CASCADE_RUN_GPU_QUALIFICATION=1 on a dedicated CUDA runner",
+    ),
+    # These tests run CASCADE in worker and CLI subprocesses.
+    pytest.mark.usefixtures("gpu_subprocess_guard"),
+]
 
 
 @pytest.fixture(scope="module")

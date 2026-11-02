@@ -7,15 +7,28 @@ executing this module directly is a minimal GPU-only diagnostic.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Any
 
+from cascade.accelerators.cuda_driver import (
+    cuda_devices,
+    cuda_driver_version,
+    extra_cuda_major,
+    family_min_compute_capability,
+    format_cuda_version,
+    gpu_extra_for_driver,
+    minimum_compute_capability,
+    process_has_cuda_context,
+)
 from cascade.accelerators.cuda_runtime import (
     configure_cuda_runtime,
     cuda_component_library_dirs,
     cuda_subprocess_environment,
+    installed_cupy_distributions,
     preload_cuda_component_libraries,
 )
 
@@ -57,6 +70,21 @@ class GpuProbeResult:
     ready: bool
     summary: str
     detail: str = ""
+    busy: bool = False
+
+
+_BUSY_MARKERS = (
+    "cudaErrorDevicesUnavailable",
+    "CUDA_ERROR_DEVICE_UNAVAILABLE",
+    "busy or unavailable",
+)
+_BUSY_EXPLANATION = (
+    "The GPU refused a new CUDA context. Clusters commonly run GPUs in "
+    "Exclusive_Process compute mode (see `nvidia-smi -q -d COMPUTE`), where only "
+    "one process may use a device at a time, so another process is holding it: "
+    "another job, Studio's worker, or an earlier CASCADE or Python process on "
+    "this node. Stop that process or request a separate GPU, then retry."
+)
 
 
 _GPU_PROBE_SUCCESS: GpuProbeResult | None = None
@@ -182,14 +210,68 @@ def _configured_graph_modes(config: Any) -> tuple[str, str]:
     return str(flow_mode).strip().lower(), str(transport_mode).strip().lower()
 
 
-def probe_gpu_runtime(*, timeout_s: float = 30.0) -> GpuProbeResult:
-    """Test CUDA in an isolated process so the caller keeps no GPU context."""
+def _probe_result(succeeded: bool, stdout: str, output: str) -> GpuProbeResult:
+    if succeeded:
+        marker = next(
+            (line for line in stdout.splitlines() if line.startswith(_PROBE_MARKER)),
+            _PROBE_MARKER,
+        )
+        fields = marker.split("|")
+        device = fields[1] if len(fields) > 1 else "CUDA device"
+        version = fields[2] if len(fields) > 2 else "CuPy ready"
+        return GpuProbeResult(True, f"{device} ({version})")
+
+    detail_lines = output.splitlines()
+    detail = "\n".join(detail_lines[-12:]) if detail_lines else "Unknown CuPy error"
+    if any(marker in output for marker in _BUSY_MARKERS):
+        return GpuProbeResult(
+            False,
+            "GPU is busy or unavailable",
+            f"{_BUSY_EXPLANATION}\n\n{detail}",
+            busy=True,
+        )
+    return GpuProbeResult(False, "CuPy cannot compile a CUDA test kernel", detail)
+
+
+def _probe_in_process() -> GpuProbeResult:
+    """Run the probe in this process, which then keeps its CUDA context."""
+    import traceback
+
+    stdout = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout):
+            exec(compile(_PROBE_CODE, "<cascade-gpu-probe>", "exec"), {})
+    except Exception:
+        output = stdout.getvalue().strip() + "\n" + traceback.format_exc()
+        return _probe_result(False, stdout.getvalue(), output.strip())
+    return _probe_result(True, stdout.getvalue(), stdout.getvalue())
+
+
+def _probe_must_run_in_process(will_use_gpu: bool) -> bool:
+    # A subprocess cannot open a GPU this process holds in Exclusive_Process
+    # mode, and one this process is about to use gains nothing from isolation.
+    if process_has_cuda_context():
+        return True
+    return will_use_gpu and any(device.exclusive_process for device in cuda_devices())
+
+
+def probe_gpu_runtime(
+    *, timeout_s: float = 30.0, will_use_gpu: bool = False
+) -> GpuProbeResult:
+    """Test CUDA, normally in an isolated process so the caller keeps no context.
+
+    The probe runs in this process instead when it already holds a CUDA context,
+    or when ``will_use_gpu`` and a device is in Exclusive_Process mode.
+    """
+    if _probe_must_run_in_process(will_use_gpu):
+        return _probe_in_process()
     probe_env = cuda_subprocess_environment()
     try:
         completed = subprocess.run(
             [sys.executable, "-c", _PROBE_CODE],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_s,
             check=False,
             env=probe_env,
@@ -206,23 +288,55 @@ def probe_gpu_runtime(*, timeout_s: float = 30.0) -> GpuProbeResult:
     output = "\n".join(
         part.strip() for part in (completed.stdout, completed.stderr) if part.strip()
     )
-    if completed.returncode == 0:
-        marker = next(
-            (
-                line
-                for line in completed.stdout.splitlines()
-                if line.startswith(_PROBE_MARKER)
-            ),
-            _PROBE_MARKER,
-        )
-        fields = marker.split("|")
-        device = fields[1] if len(fields) > 1 else "CUDA device"
-        version = fields[2] if len(fields) > 2 else "CuPy ready"
-        return GpuProbeResult(True, f"{device} ({version})")
+    return _probe_result(completed.returncode == 0, completed.stdout, output)
 
-    detail_lines = output.splitlines()
-    detail = "\n".join(detail_lines[-12:]) if detail_lines else "Unknown CuPy error"
-    return GpuProbeResult(False, "CuPy cannot compile a CUDA test kernel", detail)
+
+def _gpu_install_hint(
+    driver_version: int | None, compute_capability: tuple[int, int] | None = None
+) -> str:
+    install = f"  {sys.executable} -m pip install 'cascade-vascular[{{extra}}]'\n"
+    extra = gpu_extra_for_driver(driver_version, compute_capability)
+    if driver_version is not None and extra is None:
+        if gpu_extra_for_driver(driver_version) is not None:
+            sm = "sm_{}{}".format(*compute_capability)
+            return (
+                f"This GPU ({sm}) is older than every CUDA version CASCADE's GPU "
+                "packages support (CUDA 11.8 needs sm_35 or newer). Use "
+                "CPU-compatible solver settings or a newer GPU.\n"
+            )
+        return (
+            f"The installed NVIDIA driver supports only CUDA "
+            f"{format_cuda_version(driver_version)}, which CASCADE's GPU packages do "
+            "not support. Update the NVIDIA driver, then run:\n"
+            + install.format(extra="gpu-cu13")
+        )
+    extra = extra or "gpu-cu13"
+    # CuPy variants share one import name, so a different one must go first.
+    stale = [
+        name
+        for name, _version in installed_cupy_distributions()
+        if name != f"cupy-cuda{extra_cuda_major(extra)}x"
+    ]
+    commands = (
+        f"  {sys.executable} -m pip uninstall -y {' '.join(stale)}\n" if stale else ""
+    ) + install.format(extra=extra)
+    if extra == "gpu-cu13":
+        return "For this project's CUDA 13 environment, run:\n" + commands
+    major = extra_cuda_major(extra)
+    newer = family_min_compute_capability(major + 1)
+    if compute_capability is not None and tuple(compute_capability) < newer:
+        sm = "sm_{}{}".format(*compute_capability)
+        return (
+            f"This GPU ({sm}) is older than CUDA {major + 1} supports "
+            f"(sm_{newer[0]}{newer[1]} or newer), so install the CUDA {major} "
+            "packages:\n" + commands
+        )
+    return (
+        "The installed NVIDIA driver supports up to CUDA "
+        f"{format_cuda_version(driver_version)}, but the CUDA 13 packages need a "
+        "newer driver (580 or later). Either update the driver, or install the "
+        f"CUDA {major} packages instead:\n" + commands
+    )
 
 
 def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
@@ -233,22 +347,31 @@ def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
     if _GPU_PROBE_SUCCESS is not None:
         return _GPU_PROBE_SUCCESS
     configure_cuda_runtime()
-    result = probe_gpu_runtime()
+    result = probe_gpu_runtime(will_use_gpu=True)
     if result.ready:
         _GPU_PROBE_SUCCESS = result
         return result
     if not _gpu_required(config):
         _select_cpu_for_auto_modes(config)
+        reason = " (the GPU is busy)" if result.busy else ""
         print(
-            "GPU auto-detection was unavailable; using CPU-compatible solver paths.",
+            f"GPU auto-detection was unavailable{reason}; using CPU-compatible "
+            "solver paths.",
             flush=True,
         )
         return None
+    if result.busy:
+        raise RuntimeError(
+            "GPU preflight failed before vessel generation: the GPU is busy or "
+            f"unavailable.\n\n{result.detail}"
+        )
+    hint = _gpu_install_hint(
+        cuda_driver_version(), minimum_compute_capability(cuda_devices())
+    )
     raise RuntimeError(
         "GPU preflight failed before vessel generation. This simulation requests a "
         "CUDA backend, but CuPy could not run CASCADE's kernel/FFT preflight.\n\n"
-        "For this project's CUDA 13 environment, run:\n"
-        f"  {sys.executable} -m pip install 'cascade-vascular[gpu-cu13]'\n\n"
+        f"{hint}\n"
         "Then relaunch CASCADE Studio. Alternatively, choose CPU-compatible solver "
         "settings in Advanced solver settings.\n\n"
         f"Technical detail:\n{result.detail}"
@@ -258,6 +381,7 @@ def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
 __all__ = [
     "GpuProbeResult",
     "cuda_component_library_dirs",
+    "cuda_driver_version",
     "gpu_requested",
     "preload_cuda_component_libraries",
     "probe_gpu_runtime",

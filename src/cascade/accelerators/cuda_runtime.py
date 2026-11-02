@@ -30,6 +30,38 @@ _COMPONENT_DISTRIBUTIONS = (
     "nvidia-cusparse",
     "nvidia-nvjitlink",
 )
+# CUDA 13 component wheels are unsuffixed and install below nvidia/cu13; CUDA
+# 11 and 12 wheels carry a -cu11/-cu12 suffix and one directory per component.
+_COMPONENT_SUFFIXES = {13: "", 12: "-cu12", 11: "-cu11"}
+_CUPY_DISTRIBUTIONS = ("cupy-cuda13x", "cupy-cuda12x", "cupy-cuda11x", "cupy")
+# CuPy 14 finds component wheels through cuda-pathfinder. CuPy 13, the last
+# release for CUDA 11, links them by soname, so they must already be loaded.
+# Pathfinder also prefers nvidia/cu13 over the CUDA 12 directories, so leftover
+# CUDA 13 wheels would hand cupy-cuda12x a CUDA 13 NVRTC that rejects sm_70;
+# loading this family's libraries first makes pathfinder reuse them.
+_LINUX_PRELOAD = ("libnvJitLink.so*", "libcufft.so*")
+_FAMILY_LINUX_PRELOAD = (
+    "libnvJitLink.so*",
+    "libnvrtc.so*",
+    "libcudart.so*",
+    "libcublasLt.so*",
+    "libcublas.so*",
+    "libcufft.so*",
+    "libcurand.so*",
+    "libcusparse.so*",
+    "libcusolver.so*",
+)
+_FAMILY_WINDOWS_PRELOAD = (
+    "nvJitLink_*.dll",
+    "nvrtc64_*.dll",
+    "cudart64_*.dll",
+    "cublasLt64_*.dll",
+    "cublas64_*.dll",
+    "cufft64_*.dll",
+    "curand64_*.dll",
+    "cusparse64_*.dll",
+    "cusolver64_*.dll",
+)
 _DLL_DIRECTORY_HANDLES: list[Any] = []
 _DLL_DIRECTORY_PATHS: set[str] = set()
 _PRELOADED_LIBRARIES: list[Any] = []
@@ -58,15 +90,16 @@ def configure_cupy_compiler_paths(cupy_module: Any) -> bool:
     if getattr(current, "_cascade_windows_path_wrapper", False):
         return True
 
+    # CuPy 13 passes arch, cache_dir, extra_source and backend positionally.
     @functools.wraps(current)
-    def compile_with_windows_paths(source, options=(), **kwargs):
+    def compile_with_windows_paths(source, options=(), *args, **kwargs):
         safe_options = tuple(
             "-I" + _windows_short_path(option[2:])
             if option.startswith("-I") and not option.isascii()
             else option
             for option in options
         )
-        return current(source, safe_options, **kwargs)
+        return current(source, safe_options, *args, **kwargs)
 
     compile_with_windows_paths._cascade_windows_path_wrapper = True
     compiler._compile_module_with_cache = compile_with_windows_paths
@@ -80,12 +113,90 @@ def _is_component_library(path: Path) -> bool:
     return ".so" in name
 
 
-def _component_distributions():
-    for distribution_name in _COMPONENT_DISTRIBUTIONS:
+def installed_cupy_distributions() -> tuple[tuple[str, str], ...]:
+    """Return ``(name, version)`` for each installed CuPy distribution."""
+    found = []
+    for name in _CUPY_DISTRIBUTIONS:
         try:
-            yield metadata.distribution(distribution_name)
+            found.append((name, metadata.version(name)))
         except metadata.PackageNotFoundError:
             continue
+    return tuple(found)
+
+
+def cupy_cuda_major(name: str) -> int | None:
+    """Return the CUDA major version of a ``cupy-cudaNNx`` distribution name."""
+    match = re.fullmatch(r"cupy-cuda(\d+)x", name)
+    return int(match.group(1)) if match else None
+
+
+def _installed_cupy() -> tuple[int | None, int | None]:
+    """Return the installed CuPy's CUDA major and CuPy major version."""
+    installed = installed_cupy_distributions()
+    if len(installed) != 1:
+        return None, None
+    name, version = installed[0]
+    match = re.match(r"\d+", version)
+    return cupy_cuda_major(name), int(match.group()) if match else None
+
+
+def _component_distributions():
+    # Use only the CUDA family matching CuPy, so stale wheels from a previous
+    # variant cannot shadow the libraries this CuPy was built against.
+    cuda_major, _cupy_major = _installed_cupy()
+    if cuda_major in _COMPONENT_SUFFIXES:
+        suffixes = (_COMPONENT_SUFFIXES[cuda_major],)
+    else:
+        suffixes = tuple(_COMPONENT_SUFFIXES.values())
+    for suffix in suffixes:
+        for distribution_name in _COMPONENT_DISTRIBUTIONS:
+            try:
+                yield metadata.distribution(distribution_name + suffix)
+            except metadata.PackageNotFoundError:
+                continue
+
+
+def foreign_component_distributions() -> tuple[str, ...]:
+    """Return CUDA component wheels of a family other than the installed CuPy's."""
+    cuda_major, _cupy_major = _installed_cupy()
+    if cuda_major not in _COMPONENT_SUFFIXES:
+        return ()
+    found = []
+    for family, suffix in _COMPONENT_SUFFIXES.items():
+        if family == cuda_major:
+            continue
+        for distribution_name in _COMPONENT_DISTRIBUTIONS:
+            try:
+                metadata.distribution(distribution_name + suffix)
+            except metadata.PackageNotFoundError:
+                continue
+            found.append(distribution_name + suffix)
+    return tuple(found)
+
+
+def _library_files(directories, patterns):
+    """Yield the first library matching each pattern, in pattern order."""
+    for library_pattern in patterns:
+        library_path = next(
+            (
+                candidate
+                for directory in directories
+                for candidate in sorted(directory.glob(library_pattern))
+                if candidate.is_file()
+            ),
+            None,
+        )
+        if library_path is not None:
+            yield library_path
+
+
+def _load_library(path: Path, **kwargs) -> None:
+    try:
+        _PRELOADED_LIBRARIES.append(ctypes.CDLL(str(path), **kwargs))
+    except OSError as exc:
+        raise RuntimeError(
+            f"Could not load CUDA component library {path}: {exc}"
+        ) from exc
 
 
 def cuda_component_library_dirs() -> tuple[Path, ...]:
@@ -144,11 +255,13 @@ def _system_cuda_roots() -> tuple[Path, ...]:
             return tuple(sorted(root.glob("v*"), key=_cuda_version_key, reverse=True))
         except OSError:
             return ()
-    return (
-        Path("/usr/local/cuda"),
-        Path("/usr/local/cuda-13"),
-        Path("/usr/local/cuda-12"),
-    )
+    try:
+        versioned = sorted(
+            Path("/usr/local").glob("cuda-*"), key=_cuda_version_key, reverse=True
+        )
+    except OSError:
+        versioned = []
+    return (Path("/usr/local/cuda"), *versioned)
 
 
 def _cuda_version_key(path: Path) -> tuple[int, ...]:
@@ -166,6 +279,10 @@ def discover_cuda_path() -> Path | None:
         candidates.append(file_root)
     candidates.append(Path(sys.prefix) / "targets" / "x86_64-linux")
     candidates.extend(_component_cuda_roots())
+    # Cluster environment modules commonly export only CUDA_HOME.
+    cuda_home = os.environ.get("CUDA_HOME")
+    if cuda_home:
+        candidates.append(Path(cuda_home).expanduser())
     candidates.extend(_system_cuda_roots())
 
     for candidate in candidates:
@@ -177,6 +294,9 @@ def discover_cuda_path() -> Path | None:
 def preload_cuda_component_libraries() -> tuple[str, ...]:
     """Make component-wheel CUDA libraries visible to the current process."""
     directories = cuda_component_library_dirs()
+    _cuda_major, cupy_major = _installed_cupy()
+    legacy = cupy_major is not None and cupy_major < 14
+    pin_family = legacy or bool(foreign_component_distributions())
     if os.name == "nt":
         add_directory = getattr(os, "add_dll_directory", None)
         if add_directory is not None:
@@ -186,32 +306,18 @@ def preload_cuda_component_libraries() -> tuple[str, ...]:
                     continue
                 _DLL_DIRECTORY_HANDLES.append(add_directory(str(directory)))
                 _DLL_DIRECTORY_PATHS.add(key)
+        if pin_family:
+            for library_path in _library_files(directories, _FAMILY_WINDOWS_PRELOAD):
+                _load_library(library_path)
         return tuple(str(path) for path in directories)
 
     if not sys.platform.startswith("linux"):
         return tuple(str(path) for path in directories)
 
     # nvJitLink must be globally visible before cuFFT on CUDA 13 Linux wheels.
-    for library_pattern in ("libnvJitLink.so*", "libcufft.so*"):
-        library_path = next(
-            (
-                candidate
-                for directory in directories
-                for candidate in sorted(directory.glob(library_pattern))
-                if candidate.is_file()
-            ),
-            None,
-        )
-        if library_path is None:
-            continue
-        try:
-            _PRELOADED_LIBRARIES.append(
-                ctypes.CDLL(str(library_path), mode=ctypes.RTLD_GLOBAL)
-            )
-        except OSError as exc:
-            raise RuntimeError(
-                f"Could not load CUDA component library {library_path}: {exc}"
-            ) from exc
+    patterns = _FAMILY_LINUX_PRELOAD if pin_family else _LINUX_PRELOAD
+    for library_path in _library_files(directories, patterns):
+        _load_library(library_path, mode=ctypes.RTLD_GLOBAL)
     return tuple(str(path) for path in directories)
 
 
@@ -228,6 +334,8 @@ def cuda_subprocess_environment() -> dict[str, str]:
     """Return an environment suitable for an isolated CUDA probe process."""
     configure_cuda_runtime()
     probe_env = os.environ.copy()
+    # The probe prints the device name; keep its output UTF-8 under any locale.
+    probe_env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"})
     directories = cuda_component_library_dirs()
     if directories:
         variable = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
@@ -243,6 +351,9 @@ __all__ = [
     "cuda_component_library_dirs",
     "cuda_path_file",
     "cuda_subprocess_environment",
+    "cupy_cuda_major",
     "discover_cuda_path",
+    "foreign_component_distributions",
+    "installed_cupy_distributions",
     "preload_cuda_component_libraries",
 ]

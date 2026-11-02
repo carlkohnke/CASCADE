@@ -38,6 +38,39 @@ configuration. These demo checks did not exercise CUDA or interactive Studio.
 
 Dependency versions: [Linux/WSL CPU lock](../requirements/locks/py312-linux-x86_64-publication-cpu.txt).
 
+## Stanford Sherlock cluster (Slurm GPU nodes)
+
+| Component | Tested version |
+| --- | --- |
+| Host OS | CentOS 7 (glibc 2.17), Linux 3.10 |
+| Runtime | Apptainer sandbox: Debian 12 (glibc 2.36), Python 3.12.15 |
+| GPUs | Tesla V100-PCIE-32GB and V100S-PCIE-32GB (sm_70) |
+| GPU compute mode | Exclusive_Process |
+| NVIDIA driver | 550.163.01 (CUDA 12.4) |
+| CUDA 12 / CuPy | `gpu-cu12`: CuPy 14.2.0 (`cupy-cuda12x[ctk]`) with `cuda-toolkit[nvjitlink]==12.4.*` |
+| CUDA 11 / CuPy | `gpu-cu11`: CuPy 13.6.0 (`cupy-cuda11x`) with the CUDA 11.8 toolkit wheels |
+
+With both the CUDA 12 and CUDA 11 environments, the full test suite, the
+large-index GPU tests (`CASCADE_LARGE_GPU_TESTS=1`), the GPU qualification
+tests (`CASCADE_RUN_GPU_QUALIFICATION=1`), `cascade doctor`, and
+`cascade self-test --require-gpu` passed on 26 October 2026. Tested source
+revision: `ae13d5c`.
+
+Notes for clusters like this one:
+
+- The host glibc is too old for current NumPy, SciPy and CuPy wheels, so
+  CASCADE ran inside a Debian 12 Apptainer sandbox started with `--nv`.
+- Driver 550 supports CUDA 12.4, and Volta GPUs (sm_70) are not supported
+  by CUDA 13, so `gpu-cu13` cannot run here; `setup_linux.py --gpu auto` and
+  `cascade doctor` select and recommend `gpu-cu12`.
+- In Exclusive_Process mode only one process can hold the GPU. CASCADE runs
+  its GPU preflight in-process when needed and falls back to CPU for automatic
+  modes when another process holds the GPU.
+- Seeded vessel growth produced slightly different networks on Intel
+  (Skylake) and AMD (Rome) nodes, which changed tissue-oxygen summaries by
+  about 0.2% for the same settings. Compare results across runs on the same
+  CPU type.
+
 ## Hardware requirements
 
 The CPU demo needs no non-standard hardware. GPU acceleration requires an

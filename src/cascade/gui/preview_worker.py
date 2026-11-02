@@ -19,6 +19,7 @@ import pyvista as pv
 from scipy.spatial import cKDTree
 from sklearn.neighbors import BallTree
 
+from cascade.commands.worker import exit_with_parent
 from cascade.configuration.schema import load_config
 from cascade.utils.resources import resolve_domain_path
 from cascade.vessels.build import build_or_load_network
@@ -52,6 +53,7 @@ def main(argv=None) -> int:
         "--output", required=True, help="Directory for preview geometry and metadata."
     )
     args = parser.parse_args(argv)
+    exit_with_parent()
     request = Path(args.request).resolve()
     output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)

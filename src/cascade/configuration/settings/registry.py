@@ -106,6 +106,19 @@ SETTINGS_SECTIONS: dict[str, SettingSection] = {
     ),
 }
 
+# Fixed physical conversions; overriding one would silently rescale results.
+UNIT_CONVERSION_CONSTANTS = frozenset(
+    {
+        "CM_TO_M",
+        "CM2_TO_M2",
+        "CM3_TO_M3",
+        "CM_TO_UM",
+        "PA_TO_DYN_PER_CM2",
+        "DYN_PER_CM2_TO_PA",
+        "O2_ML_PER_DL_TO_MOL_PER_M3_STP",
+    }
+)
+
 SECTION_ALIASES = {
     "flow": "hemodynamics",
     "pressure": "hemodynamics",
@@ -250,6 +263,10 @@ def _resolve_any_setting(key: str, runtime: Any) -> str:
         except ValueError:
             continue
     upper = key.upper()
+    if upper in UNIT_CONVERSION_CONSTANTS:
+        raise ValueError(
+            f"settings.runtime.{key} is a fixed unit conversion and cannot be overridden."
+        )
     if hasattr(runtime, upper):
         return upper
     raise ValueError(

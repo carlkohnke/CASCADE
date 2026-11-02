@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 from copy import deepcopy
@@ -18,6 +19,7 @@ from typing import Any
 from PySide6.QtCore import (
     QEvent,
     QProcess,
+    QProcessEnvironment,
     QSize,
     Qt,
     QTimer,
@@ -53,6 +55,7 @@ from cascade.gui.model import (
     hardware_info,
     load_project,
     merge_project,
+    prune_studio_caches,
     save_project,
     validate_project,
 )
@@ -85,7 +88,7 @@ from cascade.gui.preview import (
     CasePreview,
     FlowBackdrop,
 )
-from cascade.gui.runner import JobRunner
+from cascade.gui.runner import STUDIO_PARENT_PID_ENV, JobRunner
 from cascade.gui.theme import Tokens
 from cascade.gui.ui_helpers import (
     QMessageBox,
@@ -230,6 +233,11 @@ class MainWindow(QMainWindow):
         self._last_queued_signature: str | None = None
         self.hardware = hardware_info()
         self.runner = JobRunner(self.project_dir, self)
+        self.preview_worker_command: list[str] = [
+            sys.executable,
+            "-m",
+            "cascade.gui.preview_worker",
+        ]
         self._preview_process: QProcess | None = None
         self._preview_process_job: ChildProcessJob | None = None
         self._preview_seed_signature = ""
@@ -256,6 +264,7 @@ class MainWindow(QMainWindow):
         self._load_pages()
         self._initializing = False
         self._refresh_status()
+        self._prune_project_caches()
         # Pay Python/scientific import startup while the user is configuring
         # the project.  JobRunner retires the worker after an idle interval.
         QTimer.singleShot(1000, self._warmup_runner_if_visible)
@@ -467,6 +476,9 @@ class MainWindow(QMainWindow):
         self.preview.selection_changed.connect(analysis.set_selection)
         self.runner.running_changed.connect(self._preview_running_changed)
         self.runner.jobs_changed.connect(self._update_solver_status)
+        self.runner.preparation_failed.connect(
+            lambda message: self.statusBar().showMessage(message, 8000)
+        )
         queue.add_requested.connect(self._enqueue)
         self.pages[2].source.currentIndexChanged.connect(self._network_source_changed)
         self.pages[2].topology.currentIndexChanged.connect(
@@ -868,6 +880,11 @@ class MainWindow(QMainWindow):
                     self._preview_seed_response = response
                     self._preview_failed_signature = ""
                     self._preview_failure_message = ""
+                    # Cache pruning keeps the most recently used seeds.
+                    try:
+                        os.utime(response_path)
+                    except OSError:
+                        pass
                     self._refresh_preview()
                     return
             except Exception:
@@ -898,11 +915,19 @@ class MainWindow(QMainWindow):
         process = QProcess(self)
         process.setProcessChannelMode(QProcess.MergedChannels)
         process.setWorkingDirectory(str(preview_dir))
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert(STUDIO_PARENT_PID_ENV, str(os.getpid()))
+        process.setProcessEnvironment(env)
         process.started.connect(self._attach_preview_process)
         process.readyReadStandardOutput.connect(self._preview_seed_progress)
         process.finished.connect(
             lambda code, status, sig=signature, folder=preview_dir: (
                 self._preview_seed_finished(code, sig, folder)
+            )
+        )
+        process.errorOccurred.connect(
+            lambda error, owner=process, sig=signature, folder=preview_dir: (
+                self._preview_seed_error(error, owner, sig, folder)
             )
         )
         self._preview_process = process
@@ -928,10 +953,9 @@ class MainWindow(QMainWindow):
             )
         )
         process.start(
-            sys.executable,
+            self.preview_worker_command[0],
             [
-                "-m",
-                "cascade.gui.preview_worker",
+                *self.preview_worker_command[1:],
                 "--request",
                 str(request),
                 "--output",
@@ -948,6 +972,16 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             self._preview_process_job = None
             self._preview_failure_message = f"Preview process isolation failed: {exc}"
+
+    def _preview_seed_error(self, error, process, signature, preview_dir) -> None:
+        # Qt emits no finished signal after a failed launch; finish it here so
+        # later previews are not blocked by a process that never ran.
+        if error != QProcess.FailedToStart or process is not self._preview_process:
+            return
+        self._preview_output_buffer += (
+            f"\nCould not start the preview worker: {process.errorString()}\n"
+        )
+        self._preview_seed_finished(-1, signature, preview_dir)
 
     def _cancel_preview_seed(self) -> None:
         process = self._preview_process
@@ -1091,7 +1125,27 @@ class MainWindow(QMainWindow):
         settings_path = preload_dir / f"{digest[:24]}.json"
         if not settings_path.exists():
             settings_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+        else:
+            # Cache pruning keeps the most recently used snapshots.
+            try:
+                os.utime(settings_path)
+            except OSError:
+                pass
         self.runner.prepare(settings_path, f"live-{digest[:24]}")
+
+    def _prune_project_caches(self) -> None:
+        """Bound preview seeds and preload snapshots kept for this project."""
+        previews = self.project_dir / ".cascade_gui" / "previews"
+        protected = {
+            previews / signature[:16]
+            for signature in (
+                self._preview_seed_signature,
+                self._preview_pending_signature,
+            )
+            if signature
+        }
+        protected.update(Path(path) for path in self.runner.preparation_paths())
+        prune_studio_caches(self.project_dir, protected=protected)
 
     @staticmethod
     def _preview_failure_summary(output: str) -> str:
@@ -1245,6 +1299,7 @@ class MainWindow(QMainWindow):
         self._project_dirty = False
         self._last_queued_signature = None
         self.runner.replace_project(self.project_dir)
+        self._prune_project_caches()
         self._load_pages()
         self.nav.setCurrentRow(0)
         self._refresh_status()
@@ -1278,6 +1333,7 @@ class MainWindow(QMainWindow):
                     )
             self.config = load_project(self.project_path)
             self.runner.replace_project(self.project_dir)
+            self._prune_project_caches()
             self._restore_last_queued_signature()
             self._load_pages()
             self._project_dirty = False
@@ -1316,6 +1372,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(self, "Cannot move project", str(exc))
             return False
+        self._prune_project_caches()
         self.save()
         return self.project_path.is_file()
 

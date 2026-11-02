@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -17,6 +18,9 @@ from cascade.utils.processes import ChildProcessJob
 from .model import JobRecord, QueueStore
 from .sweep_csv import rebuild_combined_sweep_csv
 
+# Workers compare this with their parent so a crashed Studio cannot orphan them.
+STUDIO_PARENT_PID_ENV = "CASCADE_STUDIO_PARENT_PID"
+
 
 class JobRunner(QObject):
     """Sequential QProcess scheduler that keeps simulation memory out of the GUI."""
@@ -26,11 +30,18 @@ class JobRunner(QObject):
     log_line = Signal(str, str)
     running_changed = Signal(bool)
     all_finished = Signal()
+    preparation_failed = Signal(str)
 
     def __init__(self, project_dir: str | Path, parent: QObject | None = None):
         super().__init__(parent)
         self.store = QueueStore(project_dir)
         self.jobs = self.store.load()
+        self.worker_command: list[str] = [
+            sys.executable,
+            "-m",
+            "cascade.commands.main",
+            "worker",
+        ]
         self.process: QProcess | None = None
         self._process_job: ChildProcessJob | None = None
         self._process_job_error = ""
@@ -43,6 +54,8 @@ class JobRunner(QObject):
         self._pending_prepare: tuple[str, str] | None = None
         self._preparing_id: str | None = None
         self._preparing_job_id: str | None = None
+        self._preparing_settings: str | None = None
+        self._preparation_output: deque[str] = deque(maxlen=40)
         self._state_dirty = False
         self._state_timer = QTimer(self)
         self._state_timer.setSingleShot(True)
@@ -81,6 +94,13 @@ class JobRunner(QObject):
         self._idle_timer.stop()
         self._ensure_worker()
         self._dispatch_preparation()
+
+    def preparation_paths(self) -> set[str]:
+        """Settings files that a pending or active preparation still reads."""
+        paths = {self._preparing_settings} if self._preparing_settings else set()
+        if self._pending_prepare is not None:
+            paths.add(self._pending_prepare[1])
+        return paths
 
     def replace_project(self, project_dir: str | Path) -> None:
         if self.running:
@@ -256,8 +276,11 @@ class JobRunner(QObject):
             self._dispatch_current()
 
     def _ensure_worker(self) -> None:
-        if self.process is not None and self.process.state() != QProcess.NotRunning:
-            return
+        if self.process is not None:
+            if self.process.state() != QProcess.NotRunning:
+                return
+            # Never let a stale handle's late signals act on its replacement.
+            self._discard_worker()
         process = QProcess(self)
         if os.name != "nt" and hasattr(process, "setUnixProcessParameters"):
             unix_parameters = QProcess.UnixProcessParameters()
@@ -273,6 +296,7 @@ class JobRunner(QObject):
         # Per-kernel pool trimming would discard reusable CUDA allocations and
         # make every queued case pay cold-allocation costs again.
         env.insert("SVV_CEXT_GPU_POOL_TRIM", "false")
+        env.insert(STUDIO_PARENT_PID_ENV, str(os.getpid()))
         process.setProcessEnvironment(env)
         process.readyReadStandardOutput.connect(self._read_output)
         process.started.connect(self._attach_worker_process)
@@ -283,10 +307,7 @@ class JobRunner(QObject):
         self._worker_buffer = ""
         if self.current is not None:
             self._persist_job_update(self.current.id)
-        process.start(
-            sys.executable,
-            ["-m", "cascade.commands.main", "worker"],
-        )
+        process.start(self.worker_command[0], self.worker_command[1:])
 
     def _attach_worker_process(self) -> None:
         process = self.process
@@ -324,6 +345,8 @@ class JobRunner(QObject):
         self.process.write((json.dumps(request) + "\n").encode("utf-8"))
         self._preparing_id = request_id
         self._preparing_job_id = job_id
+        self._preparing_settings = settings_path
+        self._preparation_output.clear()
 
     def _dispatch_current(self) -> None:
         if (
@@ -395,6 +418,9 @@ class JobRunner(QObject):
                 self._handle_worker_result(line[len("CASCADE_WORKER_RESULT ") :])
                 continue
             if self.current is None:
+                if self._preparing_id is not None and line.strip():
+                    # Kept only to explain a failed background preparation.
+                    self._preparation_output.append(line)
                 continue
             log_lines.append(line)
             self._update_stage(line)
@@ -410,14 +436,28 @@ class JobRunner(QObject):
     def _handle_worker_result(self, payload: str) -> None:
         try:
             result = json.loads(payload)
+            if not isinstance(result, dict):
+                raise TypeError("expected a JSON object")
+            result_id = str(result.get("id", ""))
+            exit_code = int(result.get("exit_code", 1))
         except Exception as exc:
-            if self.current is not None:
-                self.current.error = f"Invalid worker response: {exc}"
+            self._worker_protocol_error(f"Invalid worker response: {exc}")
             return
-        result_id = str(result.get("id", ""))
         if result_id == self._preparing_id:
+            prepared_job_id = self._preparing_job_id
             self._preparing_id = None
             self._preparing_job_id = None
+            self._preparing_settings = None
+            if exit_code != 0:
+                self._report_preparation_failure(
+                    prepared_job_id,
+                    str(result.get("error", "")) or f"worker exit code {exit_code}",
+                )
+                # A failed preparation may leave partly applied solver state.
+                self._discard_worker()
+                if self.current is not None or self._pending_prepare is not None:
+                    self._ensure_worker()
+                return
             self._dispatch_current()
             if self.current is None:
                 self._dispatch_preparation()
@@ -426,10 +466,26 @@ class JobRunner(QObject):
             return
         if self.current is None or result_id != self.current.id:
             return
-        self._complete_current(
-            int(result.get("exit_code", 1)),
-            str(result.get("error", "")) or None,
-        )
+        self._complete_current(exit_code, str(result.get("error", "")) or None)
+
+    def _worker_protocol_error(self, message: str) -> None:
+        """Fail the active request when the worker response cannot be trusted."""
+        prepared_job_id = self._preparing_job_id if self._preparing_id else None
+        self._discard_worker()
+        if self.current is not None:
+            self.log_line.emit(self.current.id, message)
+            self._complete_current(1, message)
+        elif prepared_job_id is not None:
+            self._report_preparation_failure(prepared_job_id, message)
+        else:
+            self.log_line.emit("", message)
+
+    def _report_preparation_failure(self, job_id: str | None, error: str) -> None:
+        message = f"Background preparation failed: {error}"
+        lines = [*self._preparation_output, message]
+        self._preparation_output.clear()
+        self.log_line.emit(str(job_id or ""), "\n".join(lines))
+        self.preparation_failed.emit(message)
 
     def _update_stage(self, line: str) -> None:
         if not self.current:
@@ -492,6 +548,10 @@ class JobRunner(QObject):
                     )
         if job is not None and job.status == "Completed":
             self.store.archive_results([job])
+        elif job is not None and self.process is not None:
+            # A failed or interrupted case may leave CUDA or module state
+            # corrupted; the next case starts in a fresh worker.
+            self._discard_worker()
         self.current = None
         self._job_dispatched = False
         self._schedule_combined_sweep_csvs([job] if job is not None else None)
@@ -508,6 +568,7 @@ class JobRunner(QObject):
         self._worker_buffer = ""
         self._preparing_id = None
         self._preparing_job_id = None
+        self._preparing_settings = None
         self._idle_timer.stop()
         self._release_process_job()
         if process is not None:
@@ -524,9 +585,48 @@ class JobRunner(QObject):
         self._flush_combined_sweep_csvs()
 
     def _process_error(self, error: QProcess.ProcessError) -> None:
+        process = self.process
+        if error == QProcess.FailedToStart and process is not None:
+            # Qt emits no finished signal after a failed launch.  Release the
+            # worker here so the active row fails and the queue can continue.
+            message = f"Could not start the simulation worker: {process.errorString()}"
+            self._discard_worker()
+            if self.current is not None:
+                self.log_line.emit(self.current.id, message)
+                self._complete_current(1, message)
+            else:
+                self.log_line.emit("", message)
+            return
         if self.current:
             self.current.error = f"Could not run simulation worker: {error.name}"
             self.log_line.emit(self.current.id, self.current.error)
+
+    def _discard_worker(self) -> None:
+        """Stop the current worker without delivering its remaining signals."""
+        process, self.process = self.process, None
+        self._worker_ready = False
+        self._worker_buffer = ""
+        self._preparing_id = None
+        self._preparing_job_id = None
+        self._preparing_settings = None
+        self._idle_timer.stop()
+        if process is not None:
+            for signal in (
+                process.readyReadStandardOutput,
+                process.started,
+                process.finished,
+                process.errorOccurred,
+            ):
+                try:
+                    signal.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+            if process.state() != QProcess.NotRunning:
+                self._terminate_process_tree(process)
+                process.waitForFinished(1500)
+        self._release_process_job()
+        if process is not None:
+            process.deleteLater()
 
     def _kill_if_running(self) -> None:
         if self.process and self.process.state() != QProcess.NotRunning:

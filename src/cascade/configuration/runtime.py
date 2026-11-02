@@ -14,6 +14,35 @@ from cascade.configuration.settings import (
     default_settings,
 )
 
+# Runtime module id -> (module, import-time values of its uppercase constants).
+_CONSTANT_SNAPSHOTS: dict[int, tuple[Any, dict[str, Any]]] = {}
+
+
+def _copy_constant(value: Any) -> Any:
+    try:
+        return deepcopy(value)
+    except Exception:
+        return value
+
+
+def snapshot_runtime_constants(runtime: Any) -> None:
+    """Record the runtime's uppercase constants once, before any run overrides them."""
+    if id(runtime) in _CONSTANT_SNAPSHOTS:
+        return
+    values = {
+        name: _copy_constant(getattr(runtime, name))
+        for name in list(vars(runtime))
+        if name.isupper() and not name.startswith("_")
+    }
+    _CONSTANT_SNAPSHOTS[id(runtime)] = (runtime, values)
+
+
+def restore_runtime_constants(runtime: Any) -> None:
+    """Return every snapshotted constant, including ``settings.runtime`` overrides."""
+    snapshot_runtime_constants(runtime)
+    for name, value in _CONSTANT_SNAPSHOTS[id(runtime)][1].items():
+        setattr(runtime, name, _copy_constant(value))
+
 
 @dataclass(frozen=True)
 class RuntimeConfiguration:
@@ -51,6 +80,9 @@ class RuntimeConfiguration:
         """Apply typed settings to the shared TissueSim runtime state."""
         # GUI workers and batch jobs share this state across runs. Restore even
         # nullable defaults before applying this run's typed and explicit values.
+        # ``settings.runtime`` may override any constant, not only registered
+        # settings, so the first-run snapshot is restored as well.
+        restore_runtime_constants(runtime)
         for values in default_settings().values():
             for name, value in values.items():
                 setattr(runtime, name, deepcopy(value))
@@ -67,4 +99,8 @@ class RuntimeConfiguration:
         return apply_settings(runtime, self.sections)
 
 
-__all__ = ["RuntimeConfiguration"]
+__all__ = [
+    "RuntimeConfiguration",
+    "restore_runtime_constants",
+    "snapshot_runtime_constants",
+]

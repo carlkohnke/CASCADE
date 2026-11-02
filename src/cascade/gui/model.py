@@ -34,6 +34,7 @@ MMHG_TO_PA = 133.322387415
 ALPHA_MMHG = 0.001408
 QUEUE_FILENAME = "queue.json"
 PROJECT_FILENAME = ".cascade-project.json"
+STUDIO_CACHE_KEEP = 20
 
 
 @dataclass
@@ -1000,6 +1001,47 @@ class QueueStore:
                 "jobs": [job.to_dict() for job in remaining],
             },
         )
+
+
+def prune_studio_caches(
+    project_dir: str | Path,
+    *,
+    keep: int = STUDIO_CACHE_KEEP,
+    protected: Iterable[str | Path] = (),
+) -> int:
+    """Keep only the newest preview seeds and preload snapshots of a project."""
+    root = Path(project_dir).expanduser().resolve() / ".cascade_gui"
+    kept = {Path(path).expanduser().resolve() for path in protected if path}
+    removed = 0
+
+    def modified(path: Path) -> float:
+        # A reused preview refreshes its response, not its directory.
+        times = [path.stat().st_mtime]
+        response = path / "response.json"
+        if path.is_dir() and response.is_file():
+            times.append(response.stat().st_mtime)
+        return max(times)
+
+    for entries in (
+        [path for path in (root / "previews").glob("*") if path.is_dir()],
+        [path for path in (root / "preloads").glob("*.json") if path.is_file()],
+    ):
+        try:
+            ordered = sorted(entries, key=modified, reverse=True)
+        except OSError:
+            continue
+        for path in ordered[max(int(keep), 0) :]:
+            if path.resolve() in kept:
+                continue
+            try:
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+                removed += 1
+            except OSError:
+                continue
+    return removed
 
 
 def pressure_to_pa(value: float, unit: str) -> float:

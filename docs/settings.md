@@ -246,7 +246,9 @@ accepted and copied into `tissuesim`: `finite_radius_o2_terms`,
 `graetz_max_fp_iters`, `nearest_tissue_vessels`, `window_factor`,
 `hematocrit_model`, `hematocrit_flow_iterations`, `kirchhoff_bc_mode`,
 `kirchhoff_solver`, and `solver_timing_details`. Prefer their named runtime
-sections in new files.
+sections in new files. Named `settings.*` values are applied after these
+simulation-level overrides, so a file that gives one option different values in
+both places is rejected.
 
 `settings.hemodynamics.qin_target` is a deprecated alias of
 `simulation.qin_target_ul_min`. A file that sets only the alias uses its value

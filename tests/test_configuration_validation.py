@@ -277,3 +277,32 @@ def test_sweep_rejects_flows_that_conflict_with_deprecated_alias(tmp_path):
     with pytest.raises(ValueError, match="conflicts with the sweep inlet flow"):
         run_sweep(path)
 
+
+@pytest.mark.parametrize(
+    "simulation",
+    [
+        {"kirchhoff_bc_mode": "pressure_pressure"},
+        {"tissuesim": {"kirchhoff_bc_mode": "pressure_pressure"}},
+    ],
+)
+def test_simulation_override_shadowed_by_named_setting_is_rejected(simulation):
+    raw = {
+        "simulation": simulation,
+        "settings": {"kirchhoff": {"bc_mode": "legacy_equal_terminal_flow"}},
+    }
+    with pytest.raises(ValueError, match="settings.kirchhoff.bc_mode"):
+        parse_config(raw)
+
+
+def test_matching_simulation_override_and_named_setting_are_accepted():
+    from cascade.configuration.runtime import RuntimeConfiguration
+    from cascade.runtime import tissuesim
+
+    config = parse_config(
+        {
+            "simulation": {"kirchhoff_bc_mode": "pressure-pressure"},
+            "settings": {"kirchhoff": {"bc_mode": "pressure_pressure"}},
+        }
+    )
+    RuntimeConfiguration.from_run_config(config).apply_compatibility_state(tissuesim)
+    assert tissuesim.KIRCHHOFF_BC_MODE == "pressure_pressure"

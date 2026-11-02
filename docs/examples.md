@@ -48,13 +48,13 @@ to add to a case or require the referenced input files.
 ## Pressure-driven flow
 
 Use the pressure-pressure Kirchhoff mode and prescribe inlet and outlet
-pressures in pascals:
+pressures in pascals. In a starter file from `cascade init-settings`, replace
+the existing `settings.kirchhoff.bc_mode` value:
 
 ```json
 {
   "simulation": {
-    "fluid": "blood",
-    "kirchhoff_bc_mode": "pressure_pressure"
+    "fluid": "blood"
   },
   "settings": {
     "hemodynamics": {
@@ -62,7 +62,7 @@ pressures in pascals:
       "terminal_pressure": 5999.0,
       "scale_dp_by_volume": false
     },
-    "kirchhoff": {"solver": "tree"}
+    "kirchhoff": {"solver": "tree", "bc_mode": "pressure_pressure"}
   }
 }
 ```

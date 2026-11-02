@@ -155,6 +155,7 @@ def parse_config(raw: dict[str, Any]) -> RunConfig:
         raw.get("settings", raw.get("runtime_settings", {}))
     )
     _reconcile_inlet_flow_alias(raw.get("simulation"), simulation, runtime_settings)
+    _reject_shadowed_simulation_overrides(simulation, runtime_settings)
     _validate(domain, network, growth, simulation, outputs)
     return RunConfig(
         domain=domain,
@@ -878,6 +879,42 @@ def _reconcile_inlet_flow_alias(
             "simulation.qin_target_ul_min; remove it and set only "
             "simulation.qin_target_ul_min."
         )
+
+
+def _comparable_setting(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower().replace("-", "_")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return value
+
+
+def _reject_shadowed_simulation_overrides(
+    simulation: SimulationConfig, runtime_settings: dict[str, dict[str, Any]]
+) -> None:
+    """Reject legacy ``simulation`` solver keys that ``settings.*`` would override.
+
+    Flat keys such as ``simulation.kirchhoff_bc_mode`` and ``simulation.tissuesim``
+    entries are applied before the named ``settings`` sections, so a different
+    value in a named section would silently replace them.
+    """
+    named: dict[str, tuple[str, Any]] = {}
+    for section, values in runtime_settings.items():
+        for key, value in values.items():
+            constant = setting_constant(section, key)
+            if value is not None and constant is not None:
+                named[constant] = (f"settings.{section}.{key}", value)
+    for key, value in simulation.tissuesim.items():
+        constant = setting_constant("runtime", key)
+        if value is None or constant not in named:
+            continue
+        path, named_value = named[constant]
+        if _comparable_setting(value) != _comparable_setting(named_value):
+            raise ValueError(
+                f"The simulation-level override {key}={value!r} conflicts with "
+                f"{path}={named_value!r}, which would take precedence. Set this "
+                "option in one place only."
+            )
 
 
 def _parse_fluid(value: Any, name: str, *, allow_both: bool) -> str:

@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from cascade.accelerators.backend import require_gpu_runtime
 from cascade.configuration.parsing import inlet_flow_aliases
 from cascade.configuration.schema import RunConfig, parse_config
 from cascade.concentration.tissue.cache import (
@@ -134,6 +135,7 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
             path, base_raw, target=targets[0], fluid=fluids[0], qin=qin_values[0]
         )
         ts = load_runtime_module()
+        require_gpu_runtime(build_config)
         apply_runtime_settings(ts, build_config)
 
         explicit_input = bool(build_config.network.input_path)
@@ -189,6 +191,7 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                 fluid=fluids[0],
                 qin=qin_values[0],
             )
+            require_gpu_runtime(grow_config)
             apply_runtime_settings(ts, grow_config)
             grow_config.simulation.distance_sample_count = int(
                 max(distance_counts) if distance_counts else 0
@@ -309,6 +312,7 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
                                 path, run_raw, target=target, fluid=fluid, qin=qin
                             )
                             config.simulation.distance_sample_count = int(sample_count)
+                            require_gpu_runtime(config)
                             apply_runtime_settings(ts, config)
 
                             # Point-dependent CPU caches remain scoped to this

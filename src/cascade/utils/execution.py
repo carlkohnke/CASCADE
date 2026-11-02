@@ -15,6 +15,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, TypeVar
 
+from cascade.accelerators.cuda_driver import process_has_cuda_context
 from cascade.runtime.paths import state_directory
 
 
@@ -147,7 +148,9 @@ def release_completed_case_memory(
         gc.collect(2 if full_collection else 0)
         collected = True
         cp = getattr(runtime_module, "_cp", None)
-        if cp is not None:
+        # Pool accounting would create a CUDA context in a CPU-only run, and in
+        # Exclusive_Process mode that context would lock other processes out.
+        if cp is not None and process_has_cuda_context():
             try:
                 cp.cuda.Stream.null.synchronize()
             except Exception:

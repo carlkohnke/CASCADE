@@ -822,3 +822,156 @@ def test_gpu_subprocess_guard_skips_when_this_process_holds_an_exclusive_gpu(
 
     with pytest.raises(pytest.skip.Exception, match="Exclusive_Process"):
         request.getfixturevalue("gpu_subprocess_guard")
+
+
+class _UnusableCupy:
+    """CuPy on a GPU another process holds exclusively: devices can be counted,
+    but anything that would create a CUDA context fails."""
+
+    def __init__(self, path: str = "cupy") -> None:
+        self._path = path
+
+    def __getattr__(self, name):
+        path = f"{self._path}.{name}"
+        if path in {"cupy.cuda", "cupy.cuda.runtime"}:
+            return _UnusableCupy(path)
+        if path == "cupy.cuda.runtime.getDeviceCount":
+            return lambda: 1
+        raise RuntimeError(f"cudaErrorDevicesUnavailable: {path} used")
+
+
+def test_busy_gpu_auto_run_completes_on_cpu_without_touching_cupy(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    import json
+
+    from cascade.commands.main import main
+    from cascade.configuration import solver_state as state
+
+    monkeypatch.setenv("CASCADE_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(state, "_cp", _UnusableCupy())
+    monkeypatch.setattr(backend, "_WITHHELD_CUPY", None)
+    monkeypatch.setattr(backend, "_GPU_PROBE_SUCCESS", None)
+    busy = backend.GpuProbeResult(False, "GPU is busy", "Exclusive_Process", True)
+    monkeypatch.setattr(backend, "probe_gpu_runtime", lambda **_: busy)
+    # Every acceleration stage is left on "auto".
+    settings = {
+        "domain": {"type": "cube", "side_length": 1.0, "random_seed": 42},
+        "network": {
+            "mode": "simple",
+            "simple": {"mode": "onechannel", "radius_cm": 0.02, "flow_ul_min": 2.0},
+        },
+        "growth": {"enabled": False},
+        "simulation": {
+            "fluid": "blood",
+            "qin_target_ul_min": 2.0,
+            "concentration_solver": "network_ext",
+            "distance_sample_count": 8,
+        },
+        "outputs": {
+            "out_dir": str(tmp_path / "run"),
+            "write_paraview": False,
+            "save_network": False,
+        },
+    }
+    path = tmp_path / "case.json"
+    path.write_text(json.dumps(settings), encoding="utf-8")
+
+    status = main(["run", "--settings", str(path)])
+
+    captured = capsys.readouterr()
+    assert status == 0, captured.out + captured.err
+    assert "(the GPU is busy); using CPU-compatible solver paths" in captured.out
+    assert (tmp_path / "run" / "summary.csv").is_file()
+    assert backend.gpu_disabled_for_run()
+    # The next run's preflight hands CuPy back to the solvers.
+    backend.restore_gpu_for_run()
+    assert isinstance(state._cp, _UnusableCupy)
+
+
+def test_geometry_only_run_never_touches_cupy(monkeypatch, tmp_path: Path) -> None:
+    import json
+
+    from cascade.commands.main import main
+    from cascade.configuration import solver_state as state
+
+    monkeypatch.setenv("CASCADE_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(state, "_cp", _UnusableCupy())
+    monkeypatch.setattr(backend, "_WITHHELD_CUPY", None)
+    monkeypatch.setattr(backend, "_GPU_PROBE_SUCCESS", None)
+
+    def _no_probe(**_):
+        raise AssertionError("geometry-only runs must not probe the GPU")
+
+    monkeypatch.setattr(backend, "probe_gpu_runtime", _no_probe)
+    settings = {
+        "domain": {
+            "type": "sphere",
+            "side_length": 1.0,
+            "radius": 0.5,
+            "theta_resolution": 12,
+            "phi_resolution": 12,
+            "random_seed": 42,
+        },
+        "network": {
+            "mode": "simple",
+            "simple": {"mode": "onechannel", "radius_cm": 0.02, "flow_ul_min": 2.0},
+        },
+        "growth": {"enabled": False},
+        "simulation": {"geometry_only": True, "distance_sample_count": 0},
+        "outputs": {"out_dir": str(tmp_path / "run"), "save_network": False},
+    }
+    path = tmp_path / "case.json"
+    path.write_text(json.dumps(settings), encoding="utf-8")
+
+    assert main(["run", "--settings", str(path)]) == 0
+    assert backend.gpu_disabled_for_run()
+    backend.restore_gpu_for_run()
+
+
+def test_busy_gpu_sweep_completes_on_cpu_without_touching_cupy(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    import json
+
+    from cascade.commands.main import main
+    from cascade.configuration import solver_state as state
+
+    monkeypatch.setenv("CASCADE_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(state, "_cp", _UnusableCupy())
+    monkeypatch.setattr(backend, "_WITHHELD_CUPY", None)
+    monkeypatch.setattr(backend, "_GPU_PROBE_SUCCESS", None)
+    busy = backend.GpuProbeResult(False, "GPU is busy", "Exclusive_Process", True)
+    monkeypatch.setattr(backend, "probe_gpu_runtime", lambda **_: busy)
+    settings = {
+        "domain": {"type": "cube", "side_length": 1.0, "random_seed": 42},
+        "network": {
+            "mode": "simple",
+            "simple": {"mode": "onechannel", "radius_cm": 0.02, "flow_ul_min": 2.0},
+        },
+        "growth": {"enabled": False},
+        "simulation": {
+            "fluid": "water",
+            "distance_sample_count": 0,
+            "skip_tissue_oxygen": True,
+        },
+        "outputs": {"out_dir": str(tmp_path / "work"), "save_network": False},
+        "sweep": {
+            "target_terminal_counts": [1],
+            "fluids": ["water"],
+            "qin_target_ul_min_values": [1.0, 2.0],
+            "distance_sample_counts": [0],
+            "output_csv": str(tmp_path / "sweep.csv"),
+            "work_dir": str(tmp_path / "work"),
+            "save_final_network": False,
+        },
+    }
+    path = tmp_path / "sweep.json"
+    path.write_text(json.dumps(settings), encoding="utf-8")
+
+    status = main(["sweep", "--settings", str(path)])
+
+    captured = capsys.readouterr()
+    assert status == 0, captured.out + captured.err
+    assert (tmp_path / "sweep.csv").is_file()
+    backend.restore_gpu_for_run()

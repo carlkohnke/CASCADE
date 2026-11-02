@@ -88,6 +88,36 @@ _BUSY_EXPLANATION = (
 
 
 _GPU_PROBE_SUCCESS: GpuProbeResult | None = None
+# CuPy withheld from the solvers after an automatic CPU fallback. Every GPU
+# path, including auto-mode resolvers and device queries, treats a missing
+# ``solver_state._cp`` as "no GPU", so nothing can open a CUDA context.
+_WITHHELD_CUPY: Any = None
+
+
+def disable_gpu_for_run() -> None:
+    """Hide CuPy from every solver until the next run's preflight."""
+    global _WITHHELD_CUPY
+    from cascade.configuration import solver_state as state
+
+    if state._cp is not None:
+        _WITHHELD_CUPY = state._cp
+        state._cp = None
+
+
+def restore_gpu_for_run() -> None:
+    """Undo :func:`disable_gpu_for_run` before a new run is checked."""
+    global _WITHHELD_CUPY
+    if _WITHHELD_CUPY is None:
+        return
+    from cascade.configuration import solver_state as state
+
+    state._cp = _WITHHELD_CUPY
+    _WITHHELD_CUPY = None
+
+
+def gpu_disabled_for_run() -> bool:
+    """Return whether this run fell back to CPU after its GPU preflight."""
+    return _WITHHELD_CUPY is not None
 
 
 def _configured_gpu_modes(config: Any) -> tuple[str, str, str]:
@@ -342,7 +372,11 @@ def _gpu_install_hint(
 def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
     """Validate required CUDA paths and let automatic modes fall back to CPU."""
     global _GPU_PROBE_SUCCESS
+    restore_gpu_for_run()
     if not gpu_requested(config):
+        # No configured stage needs CUDA, so keep automatic helpers from
+        # opening a context (which fails when another process holds the GPU).
+        disable_gpu_for_run()
         return None
     if _GPU_PROBE_SUCCESS is not None:
         return _GPU_PROBE_SUCCESS
@@ -353,6 +387,7 @@ def require_gpu_runtime(config: Any) -> GpuProbeResult | None:
         return result
     if not _gpu_required(config):
         _select_cpu_for_auto_modes(config)
+        disable_gpu_for_run()
         reason = " (the GPU is busy)" if result.busy else ""
         print(
             f"GPU auto-detection was unavailable{reason}; using CPU-compatible "
@@ -382,10 +417,13 @@ __all__ = [
     "GpuProbeResult",
     "cuda_component_library_dirs",
     "cuda_driver_version",
+    "disable_gpu_for_run",
+    "gpu_disabled_for_run",
     "gpu_requested",
     "preload_cuda_component_libraries",
     "probe_gpu_runtime",
     "require_gpu_runtime",
+    "restore_gpu_for_run",
 ]
 
 

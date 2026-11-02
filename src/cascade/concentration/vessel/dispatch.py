@@ -18,6 +18,7 @@ from cascade.concentration.external_field.topdown_solver import (
 from cascade.concentration.external_field.treecode_solver import (
     _solve_channel_concentrations_topdown_ext_treecode,
 )
+from cascade.concentration.solve_report import reports_concentration_solve
 from cascade.configuration import solver_state as _state
 from cascade.flow.topology import _build_node_indices
 
@@ -46,6 +47,7 @@ def _resolve_concentration_solver(value: str | None) -> str:
     )
 
 
+@reports_concentration_solve
 def _solve_channel_concentrations(
     tree: _state.Tree,
     flows: np.ndarray,

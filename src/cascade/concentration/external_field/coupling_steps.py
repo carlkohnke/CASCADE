@@ -10,6 +10,12 @@ from time import perf_counter
 
 import numpy as np
 
+from cascade.concentration.solve_report import (
+    NETWORK_TRANSPORT_TOL,
+    network_iteration_limit,
+    record_gpu_fallback,
+    record_network_transport,
+)
 from cascade.concentration.vessel.graetz import _graetz_get_basis_table
 from cascade.concentration.vessel.greens import (
     _interfacial_transfer_coefficient,
@@ -25,6 +31,7 @@ from cascade.concentration.vessel.oxygen_transport import (
 )
 from cascade.configuration import solver_state as _state
 from cascade.configuration.solver_state import _lumen_diffusivity_cm2_s_for_fluid
+from cascade.flow.graph_schedule import graph_schedule
 
 from .diagnostics import _validate_cext_gpu_batch
 from .direct import (
@@ -34,6 +41,7 @@ from .direct import (
     _context_uses_cext_gpu_direct,
 )
 from .frozen import (
+    _solve_network_dag_ext_frozen_numba,
     _solve_network_ext_frozen_numba,
     _solve_topdown_ext_frozen_gpu,
     _solve_topdown_ext_frozen_graetz_gpu,
@@ -130,6 +138,7 @@ def _run_network_ext_frozen_step(
                 if 0 <= inlet < nnode:
                     inlet_mask[inlet] = 1
             topology_cache = {
+                "schedule": graph_schedule(up, down, q) if nseg else None,
                 "incoming_offsets": incoming_offsets,
                 "incoming_edges": incoming_edges,
                 "sum_out": sum_out,
@@ -143,29 +152,70 @@ def _run_network_ext_frozen_step(
             topology_cache["sum_out"] = np.bincount(up, weights=q, minlength=nnode)
             topology_cache["sum_in"] = np.bincount(down, weights=q, minlength=nnode)
             topology_cache["q_host"] = q.copy()
-        cached_cin = np.asarray(ext_state.get("cin_seg", ()), dtype=np.float64)
-        cin, cout, civ, iterations = _solve_network_ext_frozen_numba(
-            np.asarray(up, dtype=np.int64),
-            np.asarray(q, dtype=np.float64),
-            topology_cache["incoming_offsets"],
-            topology_cache["incoming_edges"],
-            topology_cache["sum_out"],
-            topology_cache["sum_in"],
-            topology_cache["inlet_mask"],
-            cached_cin,
-            np.asarray(radii_si, dtype=np.float64),
-            np.asarray(lengths_si, dtype=np.float64),
-            np.asarray(gl_t, dtype=np.float64),
-            np.asarray(c_ext_gl, dtype=np.float64),
-            diffusivity_si,
-            vmax,
-            km,
-            inlet_value,
-            np.asarray(chb, dtype=np.float64),
-            1 if fluid_mode == "blood" else 0,
-            float(_state.OMEGA),
-            1 if conserve_total else 0,
-            np.asarray(node_capacity, dtype=np.float64),
+        schedule = topology_cache["schedule"]
+        if schedule is not None:
+            nodes, node_offsets, scheduled_edges, edge_offsets = schedule
+            cin, cout, civ = _solve_network_dag_ext_frozen_numba(
+                np.asarray(nodes, dtype=np.int64),
+                np.asarray(node_offsets, dtype=np.int64),
+                np.asarray(scheduled_edges, dtype=np.int64),
+                np.asarray(edge_offsets, dtype=np.int64),
+                np.asarray(up, dtype=np.int64),
+                np.asarray(q, dtype=np.float64),
+                topology_cache["incoming_offsets"],
+                topology_cache["incoming_edges"],
+                topology_cache["sum_out"],
+                topology_cache["sum_in"],
+                topology_cache["inlet_mask"],
+                np.asarray(radii_si, dtype=np.float64),
+                np.asarray(lengths_si, dtype=np.float64),
+                np.asarray(gl_t, dtype=np.float64),
+                np.asarray(c_ext_gl, dtype=np.float64),
+                diffusivity_si,
+                vmax,
+                km,
+                inlet_value,
+                np.asarray(chb, dtype=np.float64),
+                1 if fluid_mode == "blood" else 0,
+                1 if conserve_total else 0,
+                np.asarray(node_capacity, dtype=np.float64),
+            )
+            iterations, max_delta, limit = 1, 0.0, 1
+        else:
+            # Each call iterates to tolerance, so a warm start cannot carry an
+            # unconverged state into the next outer iteration.
+            cached_cin = np.asarray(ext_state.get("cin_seg", ()), dtype=np.float64)
+            limit = network_iteration_limit(nnode)
+            cin, cout, civ, iterations, max_delta = _solve_network_ext_frozen_numba(
+                np.asarray(up, dtype=np.int64),
+                np.asarray(q, dtype=np.float64),
+                topology_cache["incoming_offsets"],
+                topology_cache["incoming_edges"],
+                topology_cache["sum_out"],
+                topology_cache["sum_in"],
+                topology_cache["inlet_mask"],
+                cached_cin,
+                np.asarray(radii_si, dtype=np.float64),
+                np.asarray(lengths_si, dtype=np.float64),
+                np.asarray(gl_t, dtype=np.float64),
+                np.asarray(c_ext_gl, dtype=np.float64),
+                diffusivity_si,
+                vmax,
+                km,
+                inlet_value,
+                np.asarray(chb, dtype=np.float64),
+                1 if fluid_mode == "blood" else 0,
+                float(_state.OMEGA),
+                1 if conserve_total else 0,
+                np.asarray(node_capacity, dtype=np.float64),
+                int(limit),
+                float(NETWORK_TRANSPORT_TOL),
+            )
+        converged = record_network_transport(
+            backend="CPU",
+            iterations=int(iterations),
+            max_delta=float(max_delta),
+            limit=int(limit),
         )
         elapsed = perf_counter() - t_total
         _state._LAST_CEXT_FROZEN_STEP_TIMINGS = {
@@ -177,6 +227,10 @@ def _run_network_ext_frozen_step(
             "transfer_s": 0.0,
             "total_s": float(elapsed),
             "network_iterations": int(iterations),
+            "network_max_delta": float(max_delta),
+            "network_converged": bool(converged),
+            "network_iteration_limit": int(limit),
+            "network_schedule": "dag" if schedule is not None else "cyclic-fixed-point",
         }
         ext_state["c_iv_gl"] = civ
         ext_state["c_bulk_gl"] = civ
@@ -269,12 +323,22 @@ def _run_network_ext_frozen_step(
 
     def propagate(
         node_conc: np.ndarray,
+        edge_ids: np.ndarray | None = None,
+        out: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        cin = np.maximum(node_conc[up], _state.VESS_CONC_FLOOR).astype(np.float32)
-        cout = np.asarray(cin, dtype=np.float32).copy()
-        civ = np.repeat(cin[:, None], int(gl_t.size), axis=1).astype(np.float32)
-        cwall = civ.copy()
-        for edge_idx in range(nseg):
+        if out is None:
+            cin = np.maximum(node_conc[up], _state.VESS_CONC_FLOOR).astype(np.float32)
+            cout = np.asarray(cin, dtype=np.float32).copy()
+            civ = np.repeat(cin[:, None], int(gl_t.size), axis=1).astype(np.float32)
+            cwall = civ.copy()
+        else:
+            # Update only ``edge_ids`` in place, as the level sweep requires.
+            cin, cout, civ, cwall = out
+            cin[edge_ids] = np.maximum(node_conc[up[edge_ids]], _state.VESS_CONC_FLOOR)
+            cout[edge_ids] = cin[edge_ids]
+            civ[edge_ids] = cin[edge_ids, None]
+            cwall[edge_ids] = cin[edge_ids, None]
+        for edge_idx in range(nseg) if edge_ids is None else edge_ids:
             if not valid[edge_idx]:
                 continue
             c_running = float(cin[edge_idx])
@@ -359,55 +423,84 @@ def _run_network_ext_frozen_step(
             )
         return cin, cout, civ, cwall
 
-    node_conc = np.full((nnode,), inlet_value, dtype=float)
-    cached_cin = np.asarray(ext_state.get("cin_seg", ()), dtype=float).reshape(-1)
-    if cached_cin.size == nseg:
-        for edge_idx in range(nseg):
-            if valid[edge_idx] and int(up[edge_idx]) not in inlet_nodes:
-                node_conc[int(up[edge_idx])] = max(
-                    float(cached_cin[edge_idx]), _state.VESS_CONC_FLOOR
+    def mix(node: int, cout: np.ndarray, guess: float) -> float:
+        if node in inlet_nodes or not incoming[node]:
+            return guess
+        denominator = sum_out[node] if sum_out[node] > 1e-30 else sum_in[node]
+        if denominator <= 1e-30:
+            return guess
+        value = (
+            sum(q[edge] * float(cout[edge]) for edge in incoming[node]) / denominator
+        )
+        if conserve_total:
+            content = (
+                sum(
+                    q[edge] * float(oxygen_content(cout[edge], chb[edge]))
+                    for edge in incoming[node]
                 )
-    for inlet in inlet_nodes:
-        if 0 <= inlet < nnode:
-            node_conc[inlet] = inlet_value
+                / denominator
+            )
+            value = concentration_from_content(
+                content,
+                node_capacity[node],
+                float(_state.ALPHA_MMHG),
+                value,
+            )
+        return value
 
-    iterations = 0
-    for iteration_number in range(1, 101):
-        iterations = iteration_number
-        _, cout, _, _ = propagate(node_conc)
-        updated = node_conc.copy()
-        for node in range(nnode):
-            if node in inlet_nodes or not incoming[node]:
-                continue
-            denominator = sum_out[node] if sum_out[node] > 1e-30 else sum_in[node]
-            if denominator > 1e-30:
-                updated[node] = (
-                    sum(q[edge] * float(cout[edge]) for edge in incoming[node])
-                    / denominator
-                )
-                if conserve_total:
-                    content = (
-                        sum(
-                            q[edge] * float(oxygen_content(cout[edge], chb[edge]))
-                            for edge in incoming[node]
-                        )
-                        / denominator
+    node_conc = np.full((nnode,), inlet_value, dtype=float)
+    schedule = graph_schedule(up, down, q) if nseg else None
+    if schedule is not None:
+        # Acyclic graphs are solved exactly by one topological level sweep.
+        nodes, node_offsets, scheduled_edges, edge_offsets = schedule
+        civ = np.empty((nseg, int(gl_t.size)), dtype=np.float32)
+        out = (np.empty(nseg, np.float32), np.empty(nseg, np.float32), civ, civ.copy())
+        for level in range(len(node_offsets) - 1):
+            for node in nodes[node_offsets[level] : node_offsets[level + 1]]:
+                node_conc[node] = mix(int(node), out[1], node_conc[node])
+            propagate(
+                node_conc,
+                scheduled_edges[edge_offsets[level] : edge_offsets[level + 1]],
+                out,
+            )
+        cin, cout, civ, cwall = out
+        iterations, max_delta, limit = 1, 0.0, 1
+    else:
+        cached_cin = np.asarray(ext_state.get("cin_seg", ()), dtype=float).reshape(-1)
+        if cached_cin.size == nseg:
+            for edge_idx in range(nseg):
+                if valid[edge_idx] and int(up[edge_idx]) not in inlet_nodes:
+                    node_conc[int(up[edge_idx])] = max(
+                        float(cached_cin[edge_idx]), _state.VESS_CONC_FLOOR
                     )
-                    updated[node] = concentration_from_content(
-                        content,
-                        node_capacity[node],
-                        float(_state.ALPHA_MMHG),
-                        updated[node],
-                    )
-        delta = float(np.max(np.abs(updated - node_conc))) if nnode else 0.0
-        node_conc += float(_state.OMEGA) * (updated - node_conc)
         for inlet in inlet_nodes:
             if 0 <= inlet < nnode:
                 node_conc[inlet] = inlet_value
-        if delta < 1e-6:
-            break
 
-    cin, cout, civ, cwall = propagate(node_conc)
+        # Iterate each call to tolerance so a warm start cannot hide a stall.
+        limit = network_iteration_limit(nnode)
+        iterations = 0
+        max_delta = float("inf") if nnode else 0.0
+        while iterations < limit and max_delta >= NETWORK_TRANSPORT_TOL:
+            iterations += 1
+            _, cout, _, _ = propagate(node_conc)
+            updated = np.array(
+                [mix(node, cout, node_conc[node]) for node in range(nnode)],
+                dtype=float,
+            )
+            max_delta = float(np.max(np.abs(updated - node_conc))) if nnode else 0.0
+            node_conc += float(_state.OMEGA) * (updated - node_conc)
+            for inlet in inlet_nodes:
+                if 0 <= inlet < nnode:
+                    node_conc[inlet] = inlet_value
+
+        cin, cout, civ, cwall = propagate(node_conc)
+    converged = record_network_transport(
+        backend="CPU",
+        iterations=int(iterations),
+        max_delta=float(max_delta),
+        limit=int(limit),
+    )
     elapsed = perf_counter() - t_total
     _state._LAST_CEXT_FROZEN_STEP_TIMINGS = {
         "backend": "cpu-network",
@@ -418,6 +511,10 @@ def _run_network_ext_frozen_step(
         "transfer_s": 0.0,
         "total_s": float(elapsed),
         "network_iterations": int(iterations),
+        "network_max_delta": float(max_delta),
+        "network_converged": bool(converged),
+        "network_iteration_limit": int(limit),
+        "network_schedule": "dag" if schedule is not None else "cyclic-fixed-point",
     }
     ext_state["c_iv_gl"] = civ
     ext_state["c_bulk_gl"] = civ
@@ -460,6 +557,8 @@ def _run_topdown_ext_frozen_step(
     t_step_total = perf_counter()
     frozen_transfer = 0.0
     backend_local = str(frozen_backend)
+    gpu_error: Exception | None = None
+    fallback_reason = ""
     closure_mode = str(_state.LUMEN_WALL_CLOSURE or "wellmixed").strip().lower()
     if closure_mode not in ("wellmixed", "graetz"):
         raise ValueError("--lumen-wall-closure must be 'wellmixed' or 'graetz'.")
@@ -511,14 +610,18 @@ def _run_topdown_ext_frozen_step(
                 if str(key).startswith("graetz_"):
                     _state._LAST_CEXT_FROZEN_STEP_TIMINGS[str(key)] = value
             return cin_seg, cout_seg, c_iv_gl, backend_local, frozen_transfer
-        except Exception:
+        except Exception as exc:
             if str(_state.CEXT_FROZEN_ACCEL_MODE).lower() == "gpu":
                 raise
+            gpu_error = exc
+            fallback_reason = record_gpu_fallback("frozen top-down transport", exc)
             backend_local = "cpu"
     if closure_mode == "graetz":
+        detail = f" The GPU attempt failed: {fallback_reason}" if gpu_error else ""
         raise RuntimeError(
             "Graetz lumen closure currently requires the GPU frozen top-down backend."
-        )
+            + detail
+        ) from gpu_error
     t_cpu = perf_counter()
     if _state._HAVE_NUMBA and _state.CONC_USE_NUMBA:
         cin_seg, cout_seg, c_iv_gl = _solve_topdown_ext_frozen_numba(
@@ -562,6 +665,7 @@ def _run_topdown_ext_frozen_step(
         "download_s": 0.0,
         "transfer_s": 0.0,
         "total_s": float(perf_counter() - t_step_total),
+        "gpu_fallback": fallback_reason,
     }
     ext_state["c_iv_gl"] = np.asarray(c_iv_gl, dtype=np.float32)
     ext_state["c_bulk_gl"] = np.asarray(c_iv_gl, dtype=np.float32)
@@ -605,9 +709,10 @@ def _compute_cext_image_step(
                     np.float32, copy=False
                 )
                 return c_ext_new, backend_local, kernel_total, transfer_total
-            except Exception:
+            except Exception as exc:
                 if str(_state.CEXT_ACCEL_MODE).lower() == "gpu":
                     raise
+                record_gpu_fallback("external-field direct evaluation", exc)
                 backend_local = "cpu"
                 context["candidate_query_mode"] = (
                     "kdtree" if context.get("candidate_kdtree") is not None else "grid"
@@ -689,12 +794,14 @@ def _compute_cext_image_step(
                 ):
                     if str(_state.CEXT_ACCEL_MODE).lower() == "gpu":
                         raise
+                    record_gpu_fallback("external-field batch evaluation", exc)
                     backend_local = "cpu"
                     gpu_failed = True
                     break
                 if int(np.asarray(batch["target_seg_ids"]).size) <= 1:
                     if str(_state.CEXT_ACCEL_MODE).lower() == "gpu":
                         raise
+                    record_gpu_fallback("external-field batch evaluation", exc)
                     backend_local = "cpu"
                     gpu_failed = True
                     break

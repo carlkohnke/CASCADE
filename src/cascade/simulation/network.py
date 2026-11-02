@@ -708,6 +708,15 @@ def run_tree_simulation(
             concentration_timing_details.get("t_cext_final_source_state_s", 0.0) or 0.0
         ),
         "t_cext_backend": str(concentration_timing_details.get("backend", "none")),
+        "cext_gpu_fallbacks": str(
+            concentration_timing_details.get("cext_gpu_fallbacks", "")
+        ),
+        "cext_network_iterations_max": int(
+            concentration_timing_details.get("cext_network_iterations_max", 0) or 0
+        ),
+        "cext_network_converged": bool(
+            concentration_timing_details.get("cext_network_converged", True)
+        ),
         "cext_init_mode": str(
             concentration_timing_details.get("cext_init_mode", "zero")
         ),

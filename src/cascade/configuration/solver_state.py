@@ -185,6 +185,8 @@ _LAST_TISSUE_TIMINGS: dict[str, float | str] = {}
 _LAST_CONCENTRATION_TIMINGS: dict[str, float | str | int | list[float]] = {}
 _LAST_CEXT_SOURCE_STATE: dict | None = None
 _LAST_CEXT_FROZEN_STEP_TIMINGS: dict[str, float | str] = {}
+# Per-solve network-convergence and GPU-fallback record; see concentration.solve_report.
+_CONCENTRATION_SOLVE_REPORT: dict | None = None
 CEXT_TRACE_ITERATIONS: set[int] | None = None
 CEXT_TRACE_CALLBACK = None
 CEXT_TRACE_TISSUE_ENABLED = False

@@ -12,6 +12,10 @@ from time import perf_counter
 
 import numpy as np
 
+from cascade.concentration.solve_report import (
+    concentration_solve_report,
+    solve_report_details,
+)
 from cascade.configuration.settings.oxygen import DEFAULTS as _OXYGEN_DEFAULTS
 from cascade.vessels.collections import VascularNetworkSet
 from .preparation import (
@@ -505,9 +509,12 @@ def solve_multinetwork_external_field(
     mode = str(mode).strip().lower()
     if mode != "shared-global":
         raise ValueError(f"Unknown multi-network external-field mode: {mode!r}")
-    return _solve_multinetwork_shared_global(
-        cext_ts, ts, networks, inlet_flows, fluid=fluid
-    )
+    with concentration_solve_report() as report:
+        solutions, cext_meta = _solve_multinetwork_shared_global(
+            cext_ts, ts, networks, inlet_flows, fluid=fluid
+        )
+    cext_meta.update(solve_report_details(report))
+    return solutions, cext_meta
 
 
 def compact_external_field_state(sol: dict) -> dict:

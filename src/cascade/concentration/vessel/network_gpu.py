@@ -14,6 +14,11 @@ import numpy as np
 
 from cascade.accelerators.cuda import load_cuda_source
 from cascade.accelerators.graph_capture import capture_graph
+from cascade.concentration.solve_report import (
+    NETWORK_TRANSPORT_TOL,
+    network_iteration_limit,
+    record_network_transport,
+)
 from cascade.configuration import solver_state as state
 from cascade.flow.graph_schedule import graph_schedule
 
@@ -613,9 +618,13 @@ def solve_network_ext_gpu(
             sweep()
         else:
             graph["sweep_graph"].launch()
-        iterations, max_delta = 1, 0.0
+        iterations, max_delta, limit = 1, 0.0, 1
     else:
-        for iterations in range(1, 101):
+        # Iterate to tolerance; the bound only stops non-contracting cycles.
+        limit = network_iteration_limit(nnode)
+        max_delta = float("inf") if nnode else 0.0
+        while iterations < limit and max_delta >= NETWORK_TRANSPORT_TOL:
+            iterations += 1
             propagate()
             _mix(
                 graph,
@@ -630,11 +639,12 @@ def solve_network_ext_gpu(
             )
             max_delta = float(cp.max(delta).item()) if nnode else 0.0
             current, updated = updated, current
-            if max_delta < 1e-6:
-                break
         propagate()
     cp.cuda.Stream.null.synchronize()
     kernel_time = perf_counter() - kernel_started
+    converged = record_network_transport(
+        backend="GPU", iterations=iterations, max_delta=max_delta, limit=limit
+    )
     download_started = perf_counter()
     cin_cpu, cout_cpu, bulk_cpu = cp.asnumpy(cin), cp.asnumpy(cout), cp.asnumpy(bulk)
     wall_cpu = cp.asnumpy(wall) if basis is not None else bulk_cpu
@@ -662,7 +672,8 @@ def solve_network_ext_gpu(
         "total_s": perf_counter() - started,
         "network_iterations": iterations,
         "network_max_delta": max_delta,
-        "network_converged": max_delta < 1e-6,
+        "network_converged": converged,
+        "network_iteration_limit": limit,
         "network_schedule": "dag" if schedule is not None else "cyclic-fixed-point",
         "network_levels": len(schedule[1]) - 1 if schedule is not None else 0,
         "network_captured_sweep": schedule is not None

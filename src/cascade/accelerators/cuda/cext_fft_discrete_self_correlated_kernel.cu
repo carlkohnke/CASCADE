@@ -57,7 +57,7 @@ extern "C" __global__ void cext_fft_discrete_self_correlated_kernel(
     int target[3][3], nt[3];
     float tw[3][3];
     for (int axis = 0; axis < 3; ++axis) {
-        float g = (gl_points_si[(target_seg * gl_order + target_node) * 3 + axis] - origin[axis]) / spacing - 0.5f;
+        float g = (gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + axis] - origin[axis]) / spacing - 0.5f;
         if (assignment_mode == 0) g = fminf(grid_n - 1.0f, fmaxf(0.0f, g));
         cext_axis_assignment(g, grid_n, assignment_mode, target[axis], tw[axis], &nt[axis]);
         if (assignment_mode == 0 && target[axis][0] >= grid_n - 1) {
@@ -81,10 +81,11 @@ extern "C" __global__ void cext_fft_discrete_self_correlated_kernel(
         for (int axis = 0; axis < 3; ++axis) {
             int source[3], ns;
             float sw[3];
-            float g = (gl_points_si[source_flat * 3 + axis] - origin[axis]) / spacing - 0.5f;
+            float g = (gl_points_si[(long long)source_flat * 3 + axis] - origin[axis]) / spacing - 0.5f;
             cext_axis_assignment(g, grid_n, source_assignment_mode, source, sw, &ns);
             count[axis] = cext_axis_correlation(target[axis], tw[axis], nt[axis], source, sw, ns, grid_n, delta[axis], cw[axis]);
         }
+        const float* green = green_grids + (long long)bin * grid_cells;
         float response = 0.0f;
         for (int x = 0; x < count[0]; ++x) {
             if (cw[0][x] == 0.0f) continue;
@@ -94,7 +95,7 @@ extern "C" __global__ void cext_fft_discrete_self_correlated_kernel(
                 int row = (delta[0][x] * grid_n + delta[1][y]) * grid_n;
                 for (int z = 0; z < count[2]; ++z) {
                     if (cw[2][z] == 0.0f) continue;
-                    response += xy * cw[2][z] * green_grids[bin * grid_cells + row + delta[2][z]];
+                    response += xy * cw[2][z] * green[row + delta[2][z]];
                 }
             }
         }

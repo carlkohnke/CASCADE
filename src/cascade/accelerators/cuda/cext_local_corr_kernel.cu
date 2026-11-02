@@ -33,9 +33,9 @@ extern "C" __global__ void cext_local_corr_kernel(
     int target_node = flat - target_idx * gl_order;
     int target_seg = target_seg_ids[target_idx];
 
-    float tx = gl_points_si[(target_seg * gl_order + target_node) * 3 + 0];
-    float ty = gl_points_si[(target_seg * gl_order + target_node) * 3 + 1];
-    float tz = gl_points_si[(target_seg * gl_order + target_node) * 3 + 2];
+    float tx = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 0];
+    float ty = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 1];
+    float tz = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 2];
     float target_radius = radii_si[target_seg];
 
     int cx = (int)floorf((tx - grid_origin_x) / grid_spacing);
@@ -70,7 +70,7 @@ extern "C" __global__ void cext_local_corr_kernel(
                     if (active_source_mask[source_seg] == 0) continue;
                     int excluded = 0;
                     for (int ei = 0; ei < excl_n; ++ei) {
-                        if (exclude_idx[target_seg * exclude_width + ei] == source_seg) {
+                        if (exclude_idx[(long long)target_seg * exclude_width + ei] == source_seg) {
                             excluded = 1;
                             break;
                         }
@@ -80,9 +80,9 @@ extern "C" __global__ void cext_local_corr_kernel(
                     float seg_cap = seg_cap_gl[source_seg];
                     float source_lambda = lambda_iv_gl[source_node_id];
                     if (source_lambda < 1.0e-30f) source_lambda = 1.0e-30f;
-                    float sx = gl_points_si[source_node_id * 3 + 0];
-                    float sy = gl_points_si[source_node_id * 3 + 1];
-                    float sz = gl_points_si[source_node_id * 3 + 2];
+                    float sx = gl_points_si[(long long)source_node_id * 3 + 0];
+                    float sy = gl_points_si[(long long)source_node_id * 3 + 1];
+                    float sz = gl_points_si[(long long)source_node_id * 3 + 2];
                     float dx = sx - tx;
                     float dy = sy - ty;
                     float dz = sz - tz;

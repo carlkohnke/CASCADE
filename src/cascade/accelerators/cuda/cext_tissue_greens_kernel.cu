@@ -25,23 +25,23 @@ extern "C" __global__ void cext_tissue_greens_kernel(
         return;
     }
 
-    float px = points_si[row * 3 + 0];
-    float py = points_si[row * 3 + 1];
-    float pz = points_si[row * 3 + 2];
+    float px = points_si[(long long)row * 3 + 0];
+    float py = points_si[(long long)row * 3 + 1];
+    float pz = points_si[(long long)row * 3 + 2];
     float total = 0.0f;
     float cap_max = 0.0f;
 
     for (int local_i = 0; local_i < keep_k; ++local_i) {
-        int seg_i = nearest_idx[row * keep_k + local_i];
+        int seg_i = nearest_idx[(long long)row * keep_k + local_i];
         if (seg_i < 0) continue;
         int contributed = 0;
         for (int g = 0; g < gl_order; ++g) {
             int node_idx = seg_i * gl_order + g;
             float lam = lambda_iv_gl[node_idx];
             if (!(lam > 0.0f) || !isfinite(lam)) continue;
-            float sx = gl_points_si[node_idx * 3 + 0];
-            float sy = gl_points_si[node_idx * 3 + 1];
-            float sz = gl_points_si[node_idx * 3 + 2];
+            float sx = gl_points_si[(long long)node_idx * 3 + 0];
+            float sy = gl_points_si[(long long)node_idx * 3 + 1];
+            float sz = gl_points_si[(long long)node_idx * 3 + 2];
             float dx = px - sx;
             float dy = py - sy;
             float dz = pz - sz;

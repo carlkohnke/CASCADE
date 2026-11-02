@@ -14,6 +14,7 @@ import numpy as np
 
 from cascade.configuration import solver_state as _state
 from cascade.accelerators.cuda import load_cuda_source
+from cascade.accelerators.index_limits import check_kernel_indices
 
 from .direct import _ensure_cext_gpu_geometry_static, _ensure_cext_gpu_static
 from .hybrid_geometry import (
@@ -28,6 +29,31 @@ from .hybrid_geometry import (
     _resolve_cext_hybrid_bg_solver_mode,
     _sync_cext_hybrid_bg_runtime_state,
 )
+
+
+def _check_deposit_indices(
+    kernel: str,
+    static: dict,
+    n_nodes: int,
+    n_bins: int,
+    blocks: int,
+    threads: int,
+    *,
+    moment_count: int = 1,
+) -> None:
+    """Check the sizes the FFT deposit kernels index with before launching."""
+    grid_cells = int(static["grid_cells"])
+    check_kernel_indices(
+        kernel,
+        int32={"grid cells": grid_cells, "source nodes": n_nodes},
+        int64={
+            "moments x lambda bins x grid cells": (moment_count, n_bins, grid_cells),
+            "source nodes x stencil": (n_nodes, int(static["stencil_n"])),
+            "source nodes x 3": (n_nodes, 3),
+        },
+        blocks=blocks,
+        threads=threads,
+    )
 
 
 def _cext_hybrid_deposit_sources_gpu(
@@ -74,6 +100,9 @@ def _cext_hybrid_deposit_sources_gpu(
         return out_mass, 0.0
     threads = 256
     blocks = (n_nodes + threads - 1) // threads
+    _check_deposit_indices(
+        "cext_hybrid_deposit_kernel", static, n_nodes, n_bins, blocks, threads
+    )
     if bool(static.get("runtime_stencil", False)):
         kernel = _get_cext_hybrid_deposit_runtime_stencil_kernel()
         kernel(
@@ -302,6 +331,12 @@ def _compute_cext_local_only_fast_self_gpu(
         ).shape[0]
     )
     source_blocks = (n_nodes + source_threads - 1) // source_threads
+    check_kernel_indices(
+        "cext_local_cell_max_lambda_kernel",
+        int32={"source nodes": n_nodes, "segments x GL order": (nseg, gl_order)},
+        blocks=source_blocks,
+        threads=source_threads,
+    )
     max_kernel = _get_cext_local_cell_max_lambda_kernel()
     max_kernel(
         (source_blocks,),
@@ -323,6 +358,17 @@ def _compute_cext_local_only_fast_self_gpu(
     origin = np.asarray(hybrid["origin"], dtype=np.float32)
     threads = 128
     blocks = (nseg * gl_order + threads - 1) // threads
+    check_kernel_indices(
+        "cext_fast_local_only_self_kernel",
+        int32={
+            "grid cells": grid_cells,
+            "segments x GL order": (nseg, gl_order),
+            "segments x 3": (nseg, 3),
+        },
+        int64={"segments x GL order x 3": (nseg, gl_order, 3)},
+        blocks=blocks,
+        threads=threads,
+    )
     kernel = _get_cext_fast_local_only_self_kernel()
     t_kernel = perf_counter()
     kernel(
@@ -556,6 +602,21 @@ def _compute_cext_local_corr_gpu(
     origin = np.asarray(hybrid["origin"], dtype=np.float32)
     threads = 128
     blocks = (target_count * gl_order + threads - 1) // threads
+    exclude_width = int(np.asarray(context["exclude_idx"]).shape[1])
+    check_kernel_indices(
+        "cext_local_corr_kernel",
+        int32={
+            "grid cells": int(hybrid["grid_n"]) ** 3,
+            "targets x GL order": (target_count, gl_order),
+            "segments x GL order": (nseg, gl_order),
+        },
+        int64={
+            "segments x GL order x 3": (nseg, gl_order, 3),
+            "segments x exclusion width": (nseg, exclude_width),
+        },
+        blocks=blocks,
+        threads=threads,
+    )
     t_kernel = perf_counter()
     kernel(
         (blocks,),
@@ -580,7 +641,7 @@ def _compute_cext_local_corr_gpu(
             np.int32(int(hybrid_static["local_rad_cells"])),
             np.float32(float(hybrid["near_radius_si"])),
             np.int32(gl_order),
-            np.int32(int(np.asarray(context["exclude_idx"]).shape[1])),
+            np.int32(exclude_width),
             np.int32(target_count),
             np.float32(float(context["diffusivity_si"])),
             c_ext_total_g.ravel(),
@@ -647,6 +708,9 @@ def _cext_fft_deposit_moment_grid_gpu(
         return scratch
     threads = 256
     blocks = (n_nodes + threads - 1) // threads
+    _check_deposit_indices(
+        "cext_fft_moment_deposit_kernel", static, n_nodes, n_bins, blocks, threads
+    )
     if bool(static.get("runtime_stencil", False)):
         kernel = _get_cext_fft_moment_deposit_runtime_stencil_kernel()
         kernel(
@@ -730,6 +794,14 @@ def _cext_fft_deposit_computed_moment_grid_gpu(
         raise RuntimeError("runtime moment deposition requires runtime stencil mode")
     threads = 256
     blocks = (n_nodes + threads - 1) // threads
+    _check_deposit_indices(
+        "cext_fft_moment_deposit_computed_runtime_stencil_kernel",
+        static,
+        n_nodes,
+        n_bins,
+        blocks,
+        threads,
+    )
     kernel = _get_cext_fft_moment_deposit_computed_runtime_stencil_kernel()
     kernel(
         (blocks,),
@@ -800,6 +872,15 @@ def _cext_fft_deposit_moment_batch_gpu(
         return scratch
     threads = 256
     blocks = (n_nodes + threads - 1) // threads
+    _check_deposit_indices(
+        "cext_fft_moment_deposit_batch_kernel",
+        static,
+        n_nodes,
+        n_bins,
+        blocks,
+        threads,
+        moment_count=local_count,
+    )
     kernel(
         (blocks,),
         (threads,),

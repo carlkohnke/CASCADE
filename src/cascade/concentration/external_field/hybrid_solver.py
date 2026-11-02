@@ -10,6 +10,7 @@ from time import perf_counter
 
 import numpy as np
 
+from cascade.accelerators.index_limits import check_kernel_indices
 from cascade.configuration import solver_state as _state
 from .direct import _ensure_cext_gpu_geometry_static
 from .hybrid_corrections import (
@@ -91,6 +92,24 @@ def _sample_cext_hybrid_bg_gpu(
     out_bg = state["bg_sample_g"][:target_count]
     threads = 128
     blocks = (target_count * gl_order + threads - 1) // threads
+    grid_n = int(hybrid["grid_n"])
+    check_kernel_indices(
+        "cext_hybrid_bg_kernel",
+        int32={
+            "grid cells": grid_n**3,
+            "targets x GL order": (target_count, gl_order),
+            "segments x GL order": (nseg, gl_order),
+        },
+        int64={
+            "lambda bins x grid cells": (
+                int(static["lambda_bin_centers"].size),
+                grid_n**3,
+            ),
+            "segments x GL order x 3": (nseg, gl_order, 3),
+        },
+        blocks=blocks,
+        threads=threads,
+    )
     t_kernel = perf_counter()
     kernel(
         (blocks,),

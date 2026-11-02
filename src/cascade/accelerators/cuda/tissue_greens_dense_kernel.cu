@@ -59,9 +59,9 @@ extern "C" __global__ void tissue_greens_dense_kernel(
     int row = blockDim.x * blockIdx.x + threadIdx.x;
     if (row >= n_points) return;
 
-    float px = points_si[row * 3 + 0];
-    float py = points_si[row * 3 + 1];
-    float pz = points_si[row * 3 + 2];
+    float px = points_si[(long long)row * 3 + 0];
+    float py = points_si[(long long)row * 3 + 1];
+    float pz = points_si[(long long)row * 3 + 2];
     float cap_max = 1.0e-6f;
     float total = 0.0f;
     int inside_any = 0;

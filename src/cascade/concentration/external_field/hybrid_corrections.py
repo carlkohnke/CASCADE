@@ -12,6 +12,7 @@ from time import perf_counter
 import numpy as np
 
 from cascade.accelerators.cuda import load_cuda_source
+from cascade.accelerators.index_limits import check_kernel_indices
 from cascade.configuration import solver_state as _state
 
 from .direct import _ensure_cext_gpu_geometry_static
@@ -531,6 +532,26 @@ def _cext_fft_discrete_same_segment_contribution_gpu(
     else:
         assignment_mode = 0
 
+    def check_self_indices(kernel_name: str, blocks: int, threads: int) -> None:
+        grid_cells = int(static["grid_cells"])
+        n_bins = max(int(np.asarray(edges).size - 1), 1)
+        check_kernel_indices(
+            kernel_name,
+            int32={
+                "grid cells": grid_cells,
+                "targets x GL order": (target_count, gl_order),
+                "segments x GL order": (nseg, gl_order),
+                "segments x 3": (nseg, 3),
+            },
+            int64={
+                "lambda bins x grid cells": (n_bins, grid_cells),
+                "segments x GL order x 3": (nseg, gl_order, 3),
+                "source nodes x stencil": (nseg, gl_order, int(static["stencil_n"])),
+            },
+            blocks=blocks,
+            threads=threads,
+        )
+
     def accumulate(source_weight_g, response_g) -> None:
         if _SELF_CORRELATION_ENABLE and bool(static.get("runtime_stencil", False)):
             accumulate_runtime_moment(source_weight_g, response_g, 0)
@@ -539,6 +560,9 @@ def _cext_fft_discrete_same_segment_contribution_gpu(
         threads = 128
         blocks = (total + threads - 1) // threads
         if bool(static.get("runtime_stencil", False)):
+            check_self_indices(
+                "cext_fft_discrete_self_runtime_stencil_kernel", blocks, threads
+            )
             kernel = _get_cext_fft_discrete_self_runtime_stencil_kernel()
             kernel(
                 (blocks,),
@@ -568,6 +592,7 @@ def _cext_fft_discrete_same_segment_contribution_gpu(
                 ),
             )
         else:
+            check_self_indices("cext_fft_discrete_self_kernel", blocks, threads)
             kernel = _get_cext_fft_discrete_self_kernel()
             kernel(
                 (blocks,),
@@ -607,6 +632,13 @@ def _cext_fft_discrete_same_segment_contribution_gpu(
         total = int(target_count * gl_order)
         threads = 128
         blocks = (total + threads - 1) // threads
+        check_self_indices(
+            "cext_fft_discrete_self_correlated_kernel"
+            if _SELF_CORRELATION_ENABLE
+            else "cext_fft_discrete_self_runtime_moment_kernel",
+            blocks,
+            threads,
+        )
         kernel = (
             _get_self_correlation_kernel()
             if _SELF_CORRELATION_ENABLE
@@ -759,6 +791,9 @@ def _cext_fft_discrete_same_segment_contribution_gpu(
                 total = int(target_count * gl_order)
                 threads = 128
                 blocks = (total + threads - 1) // threads
+                check_self_indices(
+                    "cext_fft_discrete_self_fused_o2_kernel", blocks, threads
+                )
                 kernel(
                     (blocks,),
                     (threads,),

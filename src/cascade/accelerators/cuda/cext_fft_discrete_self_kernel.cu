@@ -31,9 +31,9 @@ extern "C" __global__ void cext_fft_discrete_self_kernel(
     int target_seg = target_seg_ids[target_idx];
     if (active_source_mask[target_seg] == 0) return;
 
-    float tx = gl_points_si[(target_seg * gl_order + target_node) * 3 + 0];
-    float ty = gl_points_si[(target_seg * gl_order + target_node) * 3 + 1];
-    float tz = gl_points_si[(target_seg * gl_order + target_node) * 3 + 2];
+    float tx = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 0];
+    float ty = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 1];
+    float tz = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 2];
 
     float gx = (tx - origin_x) / spacing - 0.5f;
     float gy = (ty - origin_y) / spacing - 0.5f;
@@ -96,8 +96,8 @@ extern "C" __global__ void cext_fft_discrete_self_kernel(
                 break;
             }
         }
-        int green_base = bin_idx * grid_cells;
-        int stencil_base = source_flat * source_stencil_n;
+        long long green_base = (long long)bin_idx * grid_cells;
+        long long stencil_base = (long long)source_flat * source_stencil_n;
         for (int source_slot = 0; source_slot < source_stencil_n; ++source_slot) {
             int source_cell = source_stencil_flat_idx[stencil_base + source_slot];
             if (source_cell < 0) continue;
@@ -123,7 +123,7 @@ extern "C" __global__ void cext_fft_discrete_self_kernel(
                         int dz = tk[az] - sz;
                         if (dz < 0) dz += grid_n;
                         float target_weight = wxy * wk[az];
-                        int green_idx = green_base + ((dx * grid_n + dy) * grid_n + dz);
+                        long long green_idx = green_base + ((dx * grid_n + dy) * grid_n + dz);
                         acc += deposited * target_weight * green_grids[green_idx];
                     }
                 }

@@ -47,9 +47,9 @@ extern "C" __global__ void cext_fft_discrete_self_runtime_moment_kernel(
     else if (moment_idx == 6) coeff = uy * uz;
     else if (moment_idx != 0) return;
     if (!isfinite(coeff) || coeff == 0.0f) return;
-    float tx = gl_points_si[(target_seg * gl_order + target_node) * 3 + 0];
-    float ty = gl_points_si[(target_seg * gl_order + target_node) * 3 + 1];
-    float tz = gl_points_si[(target_seg * gl_order + target_node) * 3 + 2];
+    float tx = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 0];
+    float ty = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 1];
+    float tz = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 2];
     float gx = (tx - origin_x) / spacing - 0.5f;
     float gy = (ty - origin_y) / spacing - 0.5f;
     float gz = (tz - origin_z) / spacing - 0.5f;
@@ -93,10 +93,10 @@ extern "C" __global__ void cext_fft_discrete_self_runtime_moment_kernel(
             if (lam > lambda_bin_edges[edge_idx]) bin_idx = edge_idx;
             else break;
         }
-        int green_base = bin_idx * grid_cells;
-        float sgx = (gl_points_si[3*source_flat + 0] - origin_x) / spacing - 0.5f;
-        float sgy = (gl_points_si[3*source_flat + 1] - origin_y) / spacing - 0.5f;
-        float sgz = (gl_points_si[3*source_flat + 2] - origin_z) / spacing - 0.5f;
+        long long green_base = (long long)bin_idx * grid_cells;
+        float sgx = (gl_points_si[3LL * source_flat + 0] - origin_x) / spacing - 0.5f;
+        float sgy = (gl_points_si[3LL * source_flat + 1] - origin_y) / spacing - 0.5f;
+        float sgz = (gl_points_si[3LL * source_flat + 2] - origin_z) / spacing - 0.5f;
         int si[3], sj[3], sk[3];
         float swi[3], swj[3], swk[3];
         int snx, sny, snz;
@@ -128,7 +128,7 @@ extern "C" __global__ void cext_fft_discrete_self_runtime_moment_kernel(
                                 if (tk[az] < 0 || tk[az] >= grid_n || !(wk[az] != 0.0f) || !isfinite(wk[az])) continue;
                                 int dz = tk[az] - sz;
                                 if (dz < 0) dz += grid_n;
-                                int green_idx = green_base + ((dx * grid_n + dy) * grid_n + dz);
+                                long long green_idx = green_base + ((dx * grid_n + dy) * grid_n + dz);
                                 acc += deposited * wxy * wk[az] * green_grids[green_idx];
                             }
                         }

@@ -30,16 +30,17 @@ extern "C" __global__ void cext_hybrid_deposit_runtime_stencil_kernel(
         if (lam > lambda_bin_edges[edge_idx]) bin_idx = edge_idx;
         else break;
     }
-    float gx = (gl_points_flat[3*node_idx + 0] - origin_x) / spacing - 0.5f;
-    float gy = (gl_points_flat[3*node_idx + 1] - origin_y) / spacing - 0.5f;
-    float gz = (gl_points_flat[3*node_idx + 2] - origin_z) / spacing - 0.5f;
+    long long point_base = 3LL * node_idx;
+    float gx = (gl_points_flat[point_base + 0] - origin_x) / spacing - 0.5f;
+    float gy = (gl_points_flat[point_base + 1] - origin_y) / spacing - 0.5f;
+    float gz = (gl_points_flat[point_base + 2] - origin_z) / spacing - 0.5f;
     int ix[3], iy[3], iz[3];
     float wx[3], wy[3], wz[3];
     int nx, ny, nz;
     cext_axis_assignment(gx, grid_n, assignment_mode, ix, wx, &nx);
     cext_axis_assignment(gy, grid_n, assignment_mode, iy, wy, &ny);
     cext_axis_assignment(gz, grid_n, assignment_mode, iz, wz, &nz);
-    int base = bin_idx * grid_cells;
+    long long base = (long long)bin_idx * grid_cells;
     for (int ax = 0; ax < nx; ++ax) {
         if (ix[ax] < 0 || ix[ax] >= grid_n || !(wx[ax] != 0.0f) || !isfinite(wx[ax])) continue;
         for (int ay = 0; ay < ny; ++ay) {

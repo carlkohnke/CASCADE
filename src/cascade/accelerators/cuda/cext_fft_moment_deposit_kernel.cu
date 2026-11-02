@@ -29,8 +29,8 @@ extern "C" __global__ void cext_fft_moment_deposit_kernel(
             break;
         }
     }
-    int base = bin_idx * grid_cells;
-    int stencil_base = node_idx * stencil_n;
+    long long base = (long long)bin_idx * grid_cells;
+    long long stencil_base = (long long)node_idx * stencil_n;
     for (int slot = 0; slot < stencil_n; ++slot) {
         int flat = stencil_flat_idx[stencil_base + slot];
         if (flat < 0) continue;

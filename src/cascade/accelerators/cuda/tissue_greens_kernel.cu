@@ -58,14 +58,14 @@ extern "C" __global__ void tissue_greens_kernel(
         return;
     }
 
-    float px = points_si[row * 3 + 0];
-    float py = points_si[row * 3 + 1];
-    float pz = points_si[row * 3 + 2];
+    float px = points_si[(long long)row * 3 + 0];
+    float py = points_si[(long long)row * 3 + 1];
+    float pz = points_si[(long long)row * 3 + 2];
     float cap_max = 1.0e-6f;
     float total = 0.0f;
 
     for (int local_i = 0; local_i < keep_k; ++local_i) {
-        int flat = row * keep_k + local_i;
+        long long flat = (long long)row * keep_k + local_i;
         int seg_i = nearest_idx[flat];
         if (seg_i < 0) continue;
         float L = seg_len[seg_i];

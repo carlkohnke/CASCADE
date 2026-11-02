@@ -47,9 +47,9 @@ extern "C" __global__ void cext_kernel(
     int batch_idx = flat / gl_order;
     int target_node = flat - batch_idx * gl_order;
     int target_seg = target_seg_ids[batch_idx];
-    float tx = gl_points_si[(target_seg * gl_order + target_node) * 3 + 0];
-    float ty = gl_points_si[(target_seg * gl_order + target_node) * 3 + 1];
-    float tz = gl_points_si[(target_seg * gl_order + target_node) * 3 + 2];
+    float tx = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 0];
+    float ty = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 1];
+    float tz = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 2];
     float target_lambda = lambda_iv_gl[target_seg * gl_order + target_node];
     if (target_lambda < 1.0e-30f) target_lambda = 1.0e-30f;
     float target_radius = radii_si[target_seg];
@@ -66,7 +66,7 @@ extern "C" __global__ void cext_kernel(
         int source_seg = col_idx[pos];
         int excluded = 0;
         for (int ei = 0; ei < excl_n; ++ei) {
-            if (exclude_idx[target_seg * exclude_width + ei] == source_seg) {
+            if (exclude_idx[(long long)target_seg * exclude_width + ei] == source_seg) {
                 excluded = 1;
                 break;
             }
@@ -90,9 +90,9 @@ extern "C" __global__ void cext_kernel(
         for (int source_node = 0; source_node < gl_order; ++source_node) {
             float source_lambda = lambda_iv_gl[source_seg * gl_order + source_node];
             if (source_lambda < 1.0e-30f) source_lambda = 1.0e-30f;
-            float sx = gl_points_si[(source_seg * gl_order + source_node) * 3 + 0];
-            float sy = gl_points_si[(source_seg * gl_order + source_node) * 3 + 1];
-            float sz = gl_points_si[(source_seg * gl_order + source_node) * 3 + 2];
+            float sx = gl_points_si[((long long)source_seg * gl_order + source_node) * 3 + 0];
+            float sy = gl_points_si[((long long)source_seg * gl_order + source_node) * 3 + 1];
+            float sz = gl_points_si[((long long)source_seg * gl_order + source_node) * 3 + 2];
             float dx = tx - sx;
             float dy = ty - sy;
             float dz = tz - sz;

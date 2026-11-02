@@ -81,3 +81,6 @@ cascade = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "large_gpu: multi-GB CUDA regression runs; set CASCADE_LARGE_GPU_TESTS=1 to enable",
+]

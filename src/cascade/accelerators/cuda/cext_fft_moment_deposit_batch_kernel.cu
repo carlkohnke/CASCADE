@@ -47,7 +47,7 @@ extern "C" __global__ void cext_fft_moment_deposit_batch_kernel(
             break;
         }
     }
-    int stencil_base = node_idx * stencil_n;
+    long long stencil_base = (long long)node_idx * stencil_n;
     for (int slot = 0; slot < stencil_n; ++slot) {
         int flat = stencil_flat_idx[stencil_base + slot];
         if (flat < 0) continue;
@@ -56,7 +56,7 @@ extern "C" __global__ void cext_fft_moment_deposit_batch_kernel(
         for (int local_idx = 0; local_idx < moment_count; ++local_idx) {
             int moment_idx = moment_start + local_idx;
             if (moment_idx < 0 || moment_idx >= 7) continue;
-            int out_base = (local_idx * n_bins + bin_idx) * grid_cells;
+            long long out_base = ((long long)local_idx * n_bins + bin_idx) * grid_cells;
             atomicAdd(&out_mass[out_base + flat], w0 * coeffs[moment_idx] * sw);
         }
     }

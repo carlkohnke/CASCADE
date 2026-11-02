@@ -11,6 +11,7 @@ from time import perf_counter
 
 import numpy as np
 
+from cascade.accelerators.index_limits import check_kernel_indices
 from cascade.configuration import solver_state as _state
 
 
@@ -240,6 +241,22 @@ def _compute_cext_batch_gpu_into(
     gl_order = int(np.asarray(context["gl_points_si"]).shape[1])
     threads = 128
     blocks = (int(target_ids_g.size) * gl_order + threads - 1) // threads
+    nseg = int(np.asarray(context["gl_points_si"]).shape[0])
+    check_kernel_indices(
+        "cext_kernel",
+        int32={
+            "candidate pairs": int(col_idx_g.size),
+            "targets x GL order": (int(target_ids_g.size), gl_order),
+            "segments x GL order": (nseg, gl_order),
+            "segments x 3": (nseg, 3),
+        },
+        int64={
+            "segments x GL order x 3": (nseg, gl_order, 3),
+            "segments x exclusion width": (nseg, int(context["exclude_idx"].shape[1])),
+        },
+        blocks=blocks,
+        threads=threads,
+    )
     kernel(
         (blocks,),
         (threads,),
@@ -363,6 +380,25 @@ def _compute_cext_direct_gpu(
     )
     threads = 128
     blocks = (target_count * gl_order + threads - 1) // threads
+    check_kernel_indices(
+        "cext_direct_kernel",
+        int32={
+            "cells": (int(cell_dims[0]), int(cell_dims[1]), int(cell_dims[2])),
+            "cell entries": int(cell_seg_ids_g.size),
+            "targets x GL order": (target_count, gl_order),
+            "segments x GL order": (nseg, gl_order),
+            "segments x 3": (nseg, 3),
+        },
+        int64={
+            "segments x GL order x 3": (nseg, gl_order, 3),
+            "segments x exclusion width": (
+                nseg,
+                int(np.asarray(context["exclude_idx"]).shape[1]),
+            ),
+        },
+        blocks=blocks,
+        threads=threads,
+    )
     t_kernel = perf_counter()
     kernel(
         (blocks,),

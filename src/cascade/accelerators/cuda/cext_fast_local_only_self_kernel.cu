@@ -32,7 +32,7 @@ extern "C" __global__ void cext_fast_local_only_self_kernel(
     if (idx >= total) return;
     int target_seg = idx / gl_order;
     int target_gl = idx - target_seg * gl_order;
-    int pidx = target_seg * gl_order + target_gl;
+    long long pidx = (long long)target_seg * gl_order + target_gl;
     float px = gl_points[3*pidx + 0];
     float py = gl_points[3*pidx + 1];
     float pz = gl_points[3*pidx + 2];
@@ -81,9 +81,9 @@ extern "C" __global__ void cext_fast_local_only_self_kernel(
                     float lam = lambda_iv_gl[source_seg * gl_order + source_gl];
                     if (!(lam > 0.0f) || !isfinite(lam)) continue;
                     float source_cutoff = lambda_window * lam;
-                    float sx = gl_points[3*source_node + 0];
-                    float sy = gl_points[3*source_node + 1];
-                    float sz = gl_points[3*source_node + 2];
+                    float sx = gl_points[3LL * source_node + 0];
+                    float sy = gl_points[3LL * source_node + 1];
+                    float sz = gl_points[3LL * source_node + 2];
                     float rx = px - sx;
                     float ry = py - sy;
                     float rz = pz - sz;

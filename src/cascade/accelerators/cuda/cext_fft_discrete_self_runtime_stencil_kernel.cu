@@ -29,9 +29,9 @@ extern "C" __global__ void cext_fft_discrete_self_runtime_stencil_kernel(
     int target_seg = target_seg_ids[target_idx];
     if (active_source_mask[target_seg] == 0) return;
 
-    float tx = gl_points_si[(target_seg * gl_order + target_node) * 3 + 0];
-    float ty = gl_points_si[(target_seg * gl_order + target_node) * 3 + 1];
-    float tz = gl_points_si[(target_seg * gl_order + target_node) * 3 + 2];
+    float tx = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 0];
+    float ty = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 1];
+    float tz = gl_points_si[((long long)target_seg * gl_order + target_node) * 3 + 2];
     float gx = (tx - origin_x) / spacing - 0.5f;
     float gy = (ty - origin_y) / spacing - 0.5f;
     float gz = (tz - origin_z) / spacing - 0.5f;
@@ -76,10 +76,10 @@ extern "C" __global__ void cext_fft_discrete_self_runtime_stencil_kernel(
             if (lam > lambda_bin_edges[edge_idx]) bin_idx = edge_idx;
             else break;
         }
-        int green_base = bin_idx * grid_cells;
-        float sgx = (gl_points_si[3*source_flat + 0] - origin_x) / spacing - 0.5f;
-        float sgy = (gl_points_si[3*source_flat + 1] - origin_y) / spacing - 0.5f;
-        float sgz = (gl_points_si[3*source_flat + 2] - origin_z) / spacing - 0.5f;
+        long long green_base = (long long)bin_idx * grid_cells;
+        float sgx = (gl_points_si[3LL * source_flat + 0] - origin_x) / spacing - 0.5f;
+        float sgy = (gl_points_si[3LL * source_flat + 1] - origin_y) / spacing - 0.5f;
+        float sgz = (gl_points_si[3LL * source_flat + 2] - origin_z) / spacing - 0.5f;
         int si[3], sj[3], sk[3];
         float swi[3], swj[3], swk[3];
         int snx, sny, snz;
@@ -112,7 +112,7 @@ extern "C" __global__ void cext_fft_discrete_self_runtime_stencil_kernel(
                                 int dz = tk[az] - sz;
                                 if (dz < 0) dz += grid_n;
                                 float target_weight = wxy * wk[az];
-                                int green_idx = green_base + ((dx * grid_n + dy) * grid_n + dz);
+                                long long green_idx = green_base + ((dx * grid_n + dy) * grid_n + dz);
                                 acc += deposited * target_weight * green_grids[green_idx];
                             }
                         }

@@ -77,8 +77,10 @@ extern "C" __global__ void cg_direction(int n, const double* z, double* p,
 }
 extern "C" __global__ void csr_mv_warp(int n, const int* row, const int* col,
     const double* val, const double* x, double* y) {
-    int i=(blockIdx.x*blockDim.x+threadIdx.x)/32, lane=threadIdx.x%32;
-    if(i>=n) return;
+    // 32 threads per row: the thread index exceeds 2^31 above 2^26 rows.
+    long long t=(long long)blockIdx.x*blockDim.x+threadIdx.x;
+    if(t/32>=n) return;
+    int i=(int)(t/32), lane=threadIdx.x%32;
     double sum=0.;
     for(int j=row[i]+lane;j<row[i+1];j+=32) sum+=val[j]*x[col[j]];
     for(int offset=16;offset;offset/=2) sum+=__shfl_down_sync(0xffffffff,sum,offset);

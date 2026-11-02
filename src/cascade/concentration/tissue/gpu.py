@@ -14,6 +14,7 @@ from time import perf_counter
 import numpy as np
 
 from cascade.accelerators.cuda import load_cuda_source
+from cascade.accelerators.index_limits import check_kernel_indices
 from cascade.concentration.properties import get_concentration_inlet
 from cascade.concentration.quadrature import _get_gl_nodes_weights
 from cascade.concentration.vessel.greens import _k_ratio
@@ -216,6 +217,18 @@ def _compute_tissue_samples_greens_gpu(
             out_g = _state._cp.zeros((chunk.shape[0],), dtype=_state._cp.float32)
             threads = 128
             blocks = (int(chunk.shape[0]) + threads - 1) // threads
+            check_kernel_indices(
+                "tissue_greens_dense_kernel"
+                if use_dense_fused
+                else "tissue_greens_kernel",
+                int32={"points": int(chunk.shape[0]), "segments x 3": (nseg, 3)},
+                int64={
+                    "points x 3": (int(chunk.shape[0]), 3),
+                    "points x candidates": (int(chunk.shape[0]), keep_k),
+                },
+                blocks=blocks,
+                threads=threads,
+            )
             if use_dense_fused:
                 dense_kernel(
                     (blocks,),
@@ -919,6 +932,23 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
                         _CEXT_TISSUE_GROUP_WIDTH if use_warp else 1
                     )
                     blocks = (work + threads - 1) // threads
+                    cell_grid_n = int(cell["grid_n"])
+                    check_kernel_indices(
+                        "cext_tissue_cell_greens_kernel",
+                        int32={
+                            "points": int(chunk.shape[0]),
+                            "cell grid cells": cell_grid_n**3,
+                            "source nodes": int(cell["cell_node_ids_g"].size),
+                            "segments x 3": (int(seg_len_g.size), 3),
+                        },
+                        int64={
+                            "points x 3": (int(chunk.shape[0]), 3),
+                            "source nodes x 3": (int(cell["cell_node_ids_g"].size), 3),
+                        },
+                        blocks=blocks,
+                        # The grouped variant uses a 64-bit thread index.
+                        threads=None if use_warp else threads,
+                    )
                     origin = np.asarray(cell["origin"], dtype=np.float32)
                     kernel_cell(
                         (blocks,),
@@ -1103,6 +1133,21 @@ def _compute_tissue_samples_greens_from_cext_state_gpu(
             out_g = _state._cp.zeros((chunk.shape[0],), dtype=_state._cp.float32)
             threads = 128
             blocks = (int(chunk.shape[0]) + threads - 1) // threads
+            check_kernel_indices(
+                "cext_tissue_greens_kernel",
+                int32={
+                    "points": int(chunk.shape[0]),
+                    "segments x GL order": (int(seg_cap_g.size), gl_order),
+                    "segments x 3": (int(seg_cap_g.size), 3),
+                },
+                int64={
+                    "points x 3": (int(chunk.shape[0]), 3),
+                    "points x candidates": (int(chunk.shape[0]), keep_k),
+                    "segments x GL order x 3": (int(seg_cap_g.size), gl_order, 3),
+                },
+                blocks=blocks,
+                threads=threads,
+            )
             kernel(
                 (blocks,),
                 (threads,),

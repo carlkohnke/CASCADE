@@ -11,6 +11,7 @@ from collections import defaultdict
 import numpy as np
 
 from cascade.accelerators.cuda import load_cuda_source
+from cascade.accelerators.index_limits import check_kernel_indices
 from cascade.concentration.quadrature import _get_gl_nodes_weights
 from cascade.concentration.vessel.greens import (
     _cext_green_lambda_from_fields,
@@ -408,6 +409,12 @@ def _build_cext_iteration_cache_gpu(
     runtime_state["c_ext_gl"].set(np.asarray(ext_state["c_ext_gl"], dtype=np.float32))
     threads = 256
     blocks = (total + threads - 1) // threads
+    check_kernel_indices(
+        "cext_iteration_cache_kernel",
+        int32={"segments x GL order": (nseg, gl_order)},
+        blocks=blocks,
+        threads=threads,
+    )
     kernel = _get_cext_iteration_cache_kernel()
     kernel(
         (blocks,),

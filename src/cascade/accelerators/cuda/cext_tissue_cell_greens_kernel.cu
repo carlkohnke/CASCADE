@@ -38,16 +38,20 @@ extern "C" __global__ void CEXT_TISSUE_KERNEL(
     unsigned char* keep_mask,
     float* out
 ) {
-    int row = blockDim.x * blockIdx.x + threadIdx.x;
 #ifdef CEXT_TISSUE_WARP
-    int lane = row & (CEXT_TISSUE_WIDTH - 1);
-    row /= CEXT_TISSUE_WIDTH;
+    // Grouped threads span points * width, which can exceed 2^31.
+    long long thread_idx = (long long)blockDim.x * blockIdx.x + threadIdx.x;
+    int lane = (int)(thread_idx & (CEXT_TISSUE_WIDTH - 1));
+    if (thread_idx / CEXT_TISSUE_WIDTH >= n_points) return;
+    int row = (int)(thread_idx / CEXT_TISSUE_WIDTH);
+#else
+    int row = blockDim.x * blockIdx.x + threadIdx.x;
 #endif
     if (row >= n_points) return;
 
-    float px = points_si[row * 3 + 0];
-    float py = points_si[row * 3 + 1];
-    float pz = points_si[row * 3 + 2];
+    float px = points_si[(long long)row * 3 + 0];
+    float py = points_si[(long long)row * 3 + 1];
+    float pz = points_si[(long long)row * 3 + 2];
 
     int cx = (int)floorf((px - origin_x) / spacing);
     int cy = (int)floorf((py - origin_y) / spacing);
@@ -136,9 +140,9 @@ extern "C" __global__ void CEXT_TISSUE_KERNEL(
 
                         float lam = lambda_iv_gl[node_idx];
                         if (!(lam > 0.0f) || !isfinite(lam)) continue;
-                        float sx = gl_points_si[node_idx * 3 + 0];
-                        float sy = gl_points_si[node_idx * 3 + 1];
-                        float sz = gl_points_si[node_idx * 3 + 2];
+                        float sx = gl_points_si[(long long)node_idx * 3 + 0];
+                        float sy = gl_points_si[(long long)node_idx * 3 + 1];
+                        float sz = gl_points_si[(long long)node_idx * 3 + 2];
                         float dx = px - sx;
                         float dy = py - sy;
                         float dz = pz - sz;

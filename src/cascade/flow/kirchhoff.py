@@ -99,6 +99,15 @@ def solve_kirchhoff_tree(
         num_nodes = int(max(int(prox_ids.max()), int(dist_ids.max())) + 1)
     if num_nodes <= 0:
         raise ValueError("No nodes provided for Kirchhoff solve.")
+    # A graph with at least as many edges as nodes contains a cycle. The tree
+    # traversal would assign zero flow to every loop-closing segment.
+    if num_edges > int(num_nodes) - 1:
+        raise ValueError(
+            "The tree Kirchhoff solver requires a loop-free network; got "
+            f"{num_edges} segments for {int(num_nodes)} nodes (a tree has "
+            f"{int(num_nodes) - 1}). Use solver='auto' or a sparse solver for "
+            "looped networks."
+        )
 
     inlet_arr = np.asarray(list(inlet_nodes), dtype=np.int64).reshape(-1)
     if inlet_arr.size != 1:

@@ -8,7 +8,7 @@ performance settings at their defaults.
 ## Importance labels
 
 | Label | Meaning |
-
+| --- | --- |
 | **Essential scientific** | Changes the physical problem, geometry, material model, or interpretation of the result. Record these values with study results. |
 | **Common workflow** | Commonly changed input, output, or sampling behavior. |
 | **Advanced scientific/numerical** | Changes a specialist model or numerical method. Change only with a reason and validation. |
@@ -21,7 +21,7 @@ These are the first settings to review. Their exact relevance depends on the
 selected network and solver.
 
 | Setting | Applies to | Why it matters |
-
+| --- | --- | --- |
 | `domain.type` and domain dimensions | Domain | Define the tissue shape and physical size in centimetres. |
 | `network.mode` | Network | Selects a generated tree, forest, or deterministic/simple network. |
 | `network.input_path` | Network | Selects the saved vascular network used by the study. |
@@ -65,7 +65,7 @@ Example placement:
 ## Where settings go
 
 | Object | Controls |
-
+| --- | --- |
 | `domain` | Tissue geometry and domain cache. |
 | `network` | Network source, roots, terminal targets, and connectivity validation. |
 | `network.simple` | Deterministic channels, lattices, and custom CSV/NPZ networks. |
@@ -88,7 +88,7 @@ format metadata. `runtime_settings` is an accepted historic alias for
 ## Domain settings
 
 | Setting | Importance | Default | Meaning |
-
+| --- | --- | --- | --- |
 | `domain.type` | Essential scientific | `"cube"` | `cube`, `box`, `sphere`, `cylinder`, or a path-backed mesh domain. |
 | `domain.side_length` | Essential scientific | `1.0` | Cube side length, or fallback length for unspecified box axes, in cm. |
 | `domain.x_length` | Essential scientific | `null` | Box x length in cm. |
@@ -114,7 +114,7 @@ for `dimensions`, `box_x_cm`/`box_y_cm`/`box_z_cm` for the three lengths,
 ## Network settings
 
 | Setting | Importance | Default | Meaning |
-
+| --- | --- | --- | --- |
 | `network.mode` | Essential scientific | `"tree"` | `tree`, `forest`, or `simple`. |
 | `network.input_path` | Essential scientific | `null` | Saved tree/forest NPZ path. Omit to generate a network. |
 | `network.target_terminal_count` | Essential scientific | `100` | Growth count `N` for one generated tree. SVV starts with one root segment and performs `N` bifurcation additions, yielding `N + 1` terminal leaves and `2N + 1` total segments. |
@@ -141,7 +141,7 @@ for `simple`.
 These settings apply only when `network.mode` is `simple`.
 
 | Setting | Importance | Default | Meaning |
-
+| --- | --- | --- | --- |
 | `network.simple.mode` | Essential scientific | `"onechannel"` | Channel, snake, lattice, or `custom` network type. |
 | `network.simple.axis` | Essential scientific | `"x"` | Main channel axis. |
 | `network.simple.radius_cm` | Essential scientific | `0.015` | Default vessel radius in cm. |
@@ -153,7 +153,7 @@ These settings apply only when `network.mode` is `simple`.
 | `network.simple.path` | Essential scientific | `null` | Required CSV/NPZ path when `mode` is `custom`. |
 | `network.simple.inlet_nodes` | Essential scientific | inferred | Custom-network inlet node IDs. |
 | `network.simple.outlet_nodes` | Essential scientific | inferred | Custom-network outlet node IDs. |
-| `network.simple.lattice_type` | Essential scientific | mode | Lattice topology; see the custom geometry guide. |
+| `network.simple.lattice_type` | Essential scientific | mode | Lattice topology: `cubic` (alias `simple_cubic`), `diamond` (aliases `tetrahedral`, `diamond_cubic`), `bcc`, or `octet`. |
 | `network.simple.cells` | Essential scientific | `4` | Number of lattice cells along x in cell-count sizing mode. |
 | `network.simple.sizing_mode` | Essential scientific | `"cells"` | Use cell count or cell spacing to size the lattice. |
 | `network.simple.cell_spacing_cm` | Essential scientific | derived | Requested lattice spacing in cm when spacing mode is selected. |
@@ -181,7 +181,7 @@ keys above.
 ## Growth settings
 
 | Setting | Importance | Default | Meaning |
-
+| --- | --- | --- | --- |
 | `growth.enabled` | Essential scientific | `true` | Grow a generated or extendable network. |
 | `growth.assignment` | Essential scientific | `"bulk"` | Growth assignment policy, including nearest-tree allocation. |
 | `growth.bulk_growth_mode` | Essential scientific | context dependent | Bulk growth behavior for the selected assignment. |
@@ -216,7 +216,7 @@ Accepted aliases: `growth_assignment`, `nearest_batch_points`,
 ## Simulation settings
 
 | Setting | Importance | Default | Meaning |
-
+| --- | --- | --- | --- |
 | `simulation.fluid` | Essential scientific | `"blood"` | `blood`, `water`, `cell media`, `custom`, or `both`. |
 | `simulation.build_fluid` | Essential scientific | selected fluid | Fluid used while building geometry when `fluid` is `both`. |
 | `simulation.qin_target_ul_min` | Essential scientific | `100.0` | Per-tree/inlet target flow, depending on `flow_source`. This is the single inlet-flow setting; the runtime `QIN_TARGET` is derived from it. |
@@ -263,7 +263,7 @@ it opens an older project.
 Every `simulation.inlet_conditions[]` object requires all four values.
 
 | Setting | Importance | Meaning |
-
+| --- | --- | --- |
 | `flow_ul_min` | Essential scientific | Inlet flow in µL/min. |
 | `inlet_pressure_pa` | Essential scientific | Inlet pressure in Pa. |
 | `outlet_pressure_pa` | Essential scientific | Outlet/reference pressure in Pa. |
@@ -272,7 +272,7 @@ Every `simulation.inlet_conditions[]` object requires all four values.
 ### Occlusion
 
 | Setting | Importance | Default | Meaning |
-
+| --- | --- | --- | --- |
 | `simulation.occlusion.global_segment_id` | Essential scientific | required | Global segment ID to occlude. |
 | `simulation.occlusion.fraction_blocked` | Essential scientific | `0.0` | Blocked fraction from 0 to 1; zero disables the occlusion. |
 | `simulation.occlusion.include_downstream_when_complete` | Essential scientific | `true` | Include downstream segments when the target is fully blocked. |
@@ -283,7 +283,7 @@ The historic keys `infarction_global_segment_id` and
 ### External-field coupling
 
 | Setting | Importance | Default | Meaning |
-
+| --- | --- | --- | --- |
 | `simulation.external_field.enabled` | Advanced scientific/numerical | `false` | Enable vessel-to-vessel external-field coupling. |
 | `simulation.external_field.scope` | Advanced scientific/numerical | `"per-network"` | `per-network` or `shared`; shared requires the supported hybrid solver. |
 | `simulation.external_field.mode` | Advanced scientific/numerical | `"shared-global"` | Coupling implementation; currently only `shared-global` is supported. |
@@ -293,7 +293,7 @@ The historic keys `infarction_global_segment_id` and
 These apply when `simulation.sample_mode` is `grid`.
 
 | Setting | Importance | Default | Meaning |
-
+| --- | --- | --- | --- |
 | `simulation.tissue_grid.nx` | Common workflow | `200` | Grid points along x. |
 | `simulation.tissue_grid.ny` | Common workflow | `200` | Grid points along y. |
 | `simulation.tissue_grid.nz` | Common workflow | `200` | Grid points along z. |
@@ -309,7 +309,7 @@ These apply when `simulation.sample_mode` is `grid`.
 ## Output settings
 
 | Setting | Importance | Default | Meaning |
-
+| --- | --- | --- | --- |
 | `outputs.out_dir` | Common workflow | `"cascade_run"` | Output directory. |
 | `outputs.prefix` | Common workflow | automatic | Filename prefix. |
 | `outputs.write_paraview` | Common workflow | `true` | Master switch for ParaView-family outputs. |
@@ -335,7 +335,7 @@ These settings are used by `cascade sweep`. A scalar is accepted where a
 single-item list is meaningful.
 
 | Setting | Importance | Default | Meaning |
-
+| --- | --- | --- | --- |
 | `sweep.target_terminal_counts` | Essential scientific | network target | Growth counts to run, using the `2N + 1` segment convention. |
 | `sweep.fluids` | Essential scientific | simulation fluid | Fluids to run; `both` expands to water and blood. |
 | `sweep.side_lengths` | Essential scientific | domain side length | Cube side lengths in cm. |

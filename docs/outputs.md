@@ -14,6 +14,9 @@ PyVista.
 - `domain_mesh.vtu`: tetrahedral domain mesh.
 - `manifest.json`: settings, input hashes, software versions, environment,
   timings, and output paths.
+- `<prefix>.tree.npz`, `<prefix>.forest`, or `<prefix>.simple.npz`: the
+  network, when `outputs.save_network` is enabled, with a
+  `.cascade.json` metadata sidecar used for fast inspection.
 
 Detailed CSV and VTK outputs can be disabled when only the run summary is
 needed.

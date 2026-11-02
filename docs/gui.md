@@ -4,7 +4,7 @@ CASCADE Studio is the native graphical interface for CASCADE.
 
 ## Install and launch
 
-For a released wheel on native Windows, install the `gui` extra and use the
+For a wheel installed on native Windows, install the `gui` extra and use the
 wheel-generated launchers:
 
 ```powershell
@@ -26,10 +26,10 @@ python3.12 setup_linux.py --gui --gpu cu13
 ```
 
 New projects default to `~/CASCADE Projects/Untitled`. Set
-`CASCADE_PROJECT_DIR` to choose another location. The repository launcher also
-uses a sibling `CASCADE-workbench/projects/CASCADE_Project` directory when that
-workbench exists, keeping generated projects and GUI state out of the source
-tree.
+`CASCADE_PROJECT_DIR` to choose another location. When a sibling
+`CASCADE-workbench` directory exists, the WSL repository launcher keeps its
+configuration and GUI state in that workbench's `config` and `state/gui`
+directories, out of the source tree; it does not change the project location.
 
 Use the CUDA option that matches the machine (`cu11`, `cu12`, `cu13`, or omit
 `--gpu` for CPU-only work). After setup, `cascade-gui` is equivalent. WSL users

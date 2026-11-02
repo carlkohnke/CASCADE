@@ -237,3 +237,16 @@ def test_every_strictly_accepted_core_key_is_named() -> None:
         )
     )
     assert not missing
+
+
+def test_settings_reference_tables_render_as_markdown_tables() -> None:
+    lines = REFERENCE.read_text(encoding="utf-8").splitlines()
+    malformed = []
+    for index, line in enumerate(lines):
+        starts_table = line.startswith("|") and (index == 0 or not lines[index - 1].startswith("|"))
+        if not starts_table:
+            continue
+        following = lines[index + 1] if index + 1 < len(lines) else ""
+        if not re.fullmatch(r"\|(\s*:?-{3,}:?\s*\|)+", following.strip()):
+            malformed.append(f"line {index + 1}: {line}")
+    assert not malformed

@@ -63,12 +63,12 @@ The command should exit successfully and create these files:
 | `vessels.vtp` | Vessel geometry and solved fields |
 | `oxygen_points.vtp` | Sampled tissue oxygen field |
 | `domain_boundary.vtp`, `domain_mesh.vtu` | Cube boundary and tetrahedral domain mesh |
-| `publication_demo.tree.npz` | Exported vascular network |
+| `publication_demo.tree.npz` | Exported vascular network, with a `.cascade.json` metadata sidecar |
 
 CSV files can be opened in a spreadsheet or Python. VTP/VTU files can be opened
 in ParaView or PyVista; ParaView is not required to run the demo. In
 `summary.csv`, expect exactly 201 total segments and
-inlet flow of approximately 100 microlitres/minute. Truncated numeric reference values for
+inlet flow of approximately 100 microlitres/minute. Rounded numeric reference values for
 the CPU backend are listed below, rechecked on 7 October 2026 after the
 blood oxygen-transport corrections.
 GPU results may differ slightly due to floating-point precision.

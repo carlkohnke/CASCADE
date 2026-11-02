@@ -13,6 +13,7 @@ from time import perf_counter
 import numpy as np
 
 from cascade.accelerators.cuda import load_cuda_source
+from cascade.accelerators.graph_capture import capture_graph
 from cascade.configuration import solver_state as state
 from cascade.flow.graph_schedule import graph_schedule
 
@@ -286,7 +287,7 @@ def solve_network_greens_gpu(
     return cin, cout, nodes_cpu, history
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=8)
 def _kernel(name, options=()):
     if state._cp is None:
         raise RuntimeError("CuPy is unavailable")
@@ -600,14 +601,18 @@ def solve_network_ext_gpu(
         if graph.get("capture_key") != capture_key:
             edge_kernel.compile()
             _kernel("network_junction_kernel").compile()
-            cp.cuda.get_current_stream().synchronize()
-            stream = cp.cuda.Stream(non_blocking=True)
-            with stream:
-                stream.begin_capture()
-                sweep()
-                graph["sweep_graph"] = stream.end_capture()
+            graph["sweep_graph"] = capture_graph(sweep)
             graph["capture_key"] = capture_key
-        graph["sweep_graph"].launch()
+            # Replays dereference these beyond the arrays this dict already holds.
+            graph["sweep_retained"] = (
+                edge_kernel,
+                _kernel("network_junction_kernel"),
+                basis,
+            )
+        if graph["sweep_graph"] is None:
+            sweep()
+        else:
+            graph["sweep_graph"].launch()
         iterations, max_delta = 1, 0.0
     else:
         for iterations in range(1, 101):
@@ -660,6 +665,7 @@ def solve_network_ext_gpu(
         "network_converged": max_delta < 1e-6,
         "network_schedule": "dag" if schedule is not None else "cyclic-fixed-point",
         "network_levels": len(schedule[1]) - 1 if schedule is not None else 0,
-        "network_captured_sweep": schedule is not None,
+        "network_captured_sweep": schedule is not None
+        and graph["sweep_graph"] is not None,
     }
     return cin_cpu, cout_cpu, bulk_cpu, "gpu-network", upload_time + download_time

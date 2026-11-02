@@ -8,18 +8,22 @@ use cupyx sparse multiplication when available, with a CPU refresh fallback.
 
 from __future__ import annotations
 
-from functools import lru_cache
+from functools import cache, lru_cache
 from hashlib import blake2b
 from time import perf_counter
 
 import numpy as np
 import scipy.sparse as sp
 
+from cascade.accelerators.graph_capture import capture_graph
 from cascade.configuration import solver_state as state
 
 LAST_GPU_FLOW_TIMINGS = {}
 _PRESSURE_CACHE = {}
 _ASSEMBLY_CACHE = {}
+# Fixed partial-sum count keeps Krylov dot products deterministic and lets
+# their scratch live in the solver workspace rather than the memory pool.
+_DOT_BLOCKS = 512
 
 _CSR_SOURCE = r"""
 extern "C" __global__ void csr_mv(int n, const int* row, const int* col,
@@ -80,6 +84,33 @@ extern "C" __global__ void csr_mv_warp(int n, const int* row, const int* col,
     for(int offset=16;offset;offset/=2) sum+=__shfl_down_sync(0xffffffff,sum,offset);
     if(lane==0) y[i]=sum;
 }
+extern "C" __global__ void cg_dot_partial(int n, const double* a,
+    const double* b, double* partial) {
+    __shared__ double cache[256];
+    double sum=0.;
+    for(int i=blockIdx.x*blockDim.x+threadIdx.x;i<n;i+=blockDim.x*gridDim.x)
+        sum+=a[i]*b[i];
+    cache[threadIdx.x]=sum;
+    __syncthreads();
+    for(int offset=blockDim.x/2;offset;offset/=2) {
+        if(threadIdx.x<offset) cache[threadIdx.x]+=cache[threadIdx.x+offset];
+        __syncthreads();
+    }
+    if(threadIdx.x==0) partial[blockIdx.x]=cache[0];
+}
+extern "C" __global__ void cg_dot_total(int n, const double* partial,
+    double* out) {
+    __shared__ double cache[256];
+    double sum=0.;
+    for(int i=threadIdx.x;i<n;i+=blockDim.x) sum+=partial[i];
+    cache[threadIdx.x]=sum;
+    __syncthreads();
+    for(int offset=blockDim.x/2;offset;offset/=2) {
+        if(threadIdx.x<offset) cache[threadIdx.x]+=cache[threadIdx.x+offset];
+        __syncthreads();
+    }
+    if(threadIdx.x==0) out[0]=cache[0];
+}
 """
 
 
@@ -88,7 +119,8 @@ def _csr_kernel():
     return state._cp.RawKernel(_CSR_SOURCE, "csr_mv")
 
 
-@lru_cache(maxsize=16)
+# Unbounded: the name set is fixed, and captured graphs reference these kernels.
+@cache
 def _cycle_kernel(name):
     if name.endswith("_f32"):
         return state._cp.RawKernel(
@@ -222,12 +254,12 @@ class GPUAMGSolver:
         self.previous_solution = None
         size = matrix.shape[0]
         self.krylov = {
-            name: cp.empty(size, cp.float64)
-            for name in ("x", "r", "p", "ap", "dot", "z")
+            name: cp.empty(size, cp.float64) for name in ("x", "r", "p", "ap", "z")
         }
         self.krylov.update(
             {name: cp.empty((), cp.float64) for name in ("rz", "newrz", "pap")}
         )
+        self.krylov["partial"] = cp.empty(_DOT_BLOCKS, cp.float64)
 
     def _smoothing_weight(self, matrix):
         """Upper bounds for the eigenvalues of the diagonally scaled SPD matrix."""
@@ -496,22 +528,32 @@ class GPUAMGSolver:
         if self.cycle_graph is None:
             # Compile all kernels before capture, on the calling stream.
             self._fused_cycle(0, rhs)
-            cp.cuda.get_current_stream().synchronize()
-            stream = cp.cuda.Stream(non_blocking=True)
-            with stream:
-                stream.begin_capture()
-                self._fused_cycle(0, rhs)
-                self.cycle_graph = stream.end_capture()
+            graph = capture_graph(lambda: self._fused_cycle(0, rhs))
+            # False records a refused capture until the next matrix update.
+            self.cycle_graph = False if graph is None else graph
+        if self.cycle_graph is False:
+            return self._fused_cycle(0, rhs)
         self.cycle_graph.launch()
         return self.levels[0]["tmp"] if len(self.levels) > 1 else self.levels[0]["x"]
+
+    def _dot(self, a, b, out):
+        """FP64 dot product into ``out`` using only solver-held scratch.
+
+        Unlike cupy.sum, no temporary device memory is requested, so captured
+        graphs never replay pointers into memory-pool blocks they do not own.
+        """
+        partial = self.krylov["partial"]
+        n = len(a)
+        blocks = min(len(partial), max((n + 255) // 256, 1))
+        _cycle_kernel("cg_dot_partial")((blocks,), (256,), (np.int32(n), a, b, partial))
+        _cycle_kernel("cg_dot_total")((1,), (256,), (np.int32(blocks), partial, out))
 
     def _krylov_step(self):
         cp, w = state._cp, self.krylov
         n = len(w["x"])
         launch = ((n + 127) // 128,), (128,)
         self.matvec(self.fine_matrix, w["p"], w["ap"])
-        cp.multiply(w["p"], w["ap"], out=w["dot"])
-        cp.sum(w["dot"], out=w["pap"])
+        self._dot(w["p"], w["ap"], w["pap"])
         _cycle_kernel("cg_update")(
             *launch, (np.int32(n), w["x"], w["r"], w["p"], w["ap"], w["rz"], w["pap"])
         )
@@ -519,8 +561,7 @@ class GPUAMGSolver:
         if z.dtype != cp.float64:
             cp.copyto(w["z"], z)
             z = w["z"]
-        cp.multiply(w["r"], z, out=w["dot"])
-        cp.sum(w["dot"], out=w["newrz"])
+        self._dot(w["r"], z, w["newrz"])
         _cycle_kernel("cg_direction")(
             *launch, (np.int32(n), z, w["p"], w["rz"], w["newrz"])
         )
@@ -535,14 +576,17 @@ class GPUAMGSolver:
             self._krylov_step()
             for name, value in saved.items():
                 cp.copyto(self.krylov[name], value)
-            cp.cuda.get_current_stream().synchronize()
-            stream = cp.cuda.Stream(non_blocking=True)
-            with stream:
-                stream.begin_capture()
-                for _ in range(8):
-                    self._krylov_step()
-                self.krylov_graph = stream.end_capture()
+            graph = capture_graph(self._krylov_steps)
+            # False records a refused capture until the next matrix update.
+            self.krylov_graph = False if graph is None else graph
+        if self.krylov_graph is False:
+            self._krylov_steps()
+            return
         self.krylov_graph.launch()
+
+    def _krylov_steps(self):
+        for _ in range(8):
+            self._krylov_step()
 
     def solve(self, rhs, *, tolerance=1e-10, max_iterations=1000, return_device=False):
         cp = state._cp
@@ -584,8 +628,7 @@ class GPUAMGSolver:
             cp.copyto(w["r"], r)
             z = self._fused_cycle(0, w["r"])
             cp.copyto(w["p"], z)
-            cp.multiply(w["r"], z, out=w["dot"])
-            cp.sum(w["dot"], out=w["rz"])
+            self._dot(w["r"], w["p"], w["rz"])
             residual = float("inf")
             iteration = 0
             while iteration < max_iterations:

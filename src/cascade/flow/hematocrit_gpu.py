@@ -52,7 +52,7 @@ def segment_viscosity_gpu(radii, hd, mu_base, *, pries=False, return_device=Fals
         a = 4.0 / (1.0 + cp.exp(-0.593 * (d - 6.74)))
         term = 110.0 * cp.exp(-1.424 * d) + 3.0 - 3.45 * cp.exp(-0.035 * d)
         den = cp.exp(0.45 * a) - 1.0
-        factor = cp.where(den != 0.0, (cp.exp(h) - 1.0) / den, 0.0)
+        factor = cp.where(den != 0.0, (cp.exp(h * a) - 1.0) / den, 0.0)
         mu = mu_base * (1.0 + factor * term)
     return mu if return_device else cp.asnumpy(mu)
 

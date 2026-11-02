@@ -31,7 +31,7 @@ def eta_rel_pries(d_um: np.ndarray, hd: np.ndarray) -> np.ndarray:
     hd = np.asarray(hd, dtype=float)
     A = 4.0 / (1.0 + np.exp(-0.593 * (d - 6.74)))
     term = 110.0 * np.exp(-1.424 * d) + 3.0 - 3.45 * np.exp(-0.035 * d)
-    num = np.exp(hd) - 1.0
+    num = np.exp(hd * A) - 1.0
     den = np.exp(0.45 * A) - 1.0
     factor = np.divide(num, den, out=np.zeros_like(num), where=den != 0.0)
     return 1.0 + factor * term

@@ -22,6 +22,7 @@ from .models import (
     RunConfig,
     SimulationConfig,
 )
+from .settings import setting_constant
 
 
 def _reject_unknown(data: dict[str, Any], allowed: set[str], section: str) -> None:
@@ -153,6 +154,7 @@ def parse_config(raw: dict[str, Any]) -> RunConfig:
     runtime_settings = _parse_runtime_settings(
         raw.get("settings", raw.get("runtime_settings", {}))
     )
+    _reconcile_inlet_flow_alias(raw.get("simulation"), simulation, runtime_settings)
     _validate(domain, network, growth, simulation, outputs)
     return RunConfig(
         domain=domain,
@@ -162,6 +164,14 @@ def parse_config(raw: dict[str, Any]) -> RunConfig:
         outputs=outputs,
         runtime_settings=runtime_settings,
         raw=dict(raw),
+    )
+
+
+def inlet_flow_aliases(raw: dict[str, Any]) -> list[tuple[str, float]]:
+    """Return explicit deprecated ``simulation.qin_target_ul_min`` aliases in raw JSON."""
+    return _inlet_flow_alias_entries(
+        dict(raw.get("simulation") or {}),
+        _parse_runtime_settings(raw.get("settings", raw.get("runtime_settings", {}))),
     )
 
 
@@ -812,6 +822,62 @@ def _parse_runtime_settings(raw: Any) -> dict[str, dict[str, Any]]:
                 parsed_values[key] = "uniform_tube"
         parsed[str(section)] = parsed_values
     return parsed
+
+
+def _inlet_flow_alias_entries(
+    raw_simulation: dict[str, Any], runtime_settings: dict[str, dict[str, Any]]
+) -> list[tuple[str, float]]:
+    """Return explicit deprecated ``QIN_TARGET`` entries as (path, value) pairs."""
+    entries: list[tuple[str, Any]] = []
+    for section, values in runtime_settings.items():
+        for key, value in values.items():
+            if value is not None and setting_constant(section, key) == "QIN_TARGET":
+                entries.append((f"settings.{section}.{key}", value))
+    # Legacy direct overrides are applied through settings.runtime.
+    owner = "tissuesim" if "tissuesim" in raw_simulation else "overrides"
+    for key, value in dict(raw_simulation.get(owner) or {}).items():
+        if value is not None and setting_constant("runtime", key) == "QIN_TARGET":
+            entries.append((f"simulation.{owner}.{key}", value))
+    return [(path, _as_float(value, name=path)) for path, value in entries]
+
+
+def _reconcile_inlet_flow_alias(
+    raw_simulation: Any,
+    simulation: SimulationConfig,
+    runtime_settings: dict[str, dict[str, Any]],
+) -> None:
+    """Make ``simulation.qin_target_ul_min`` the single source of inlet flow.
+
+    ``settings.hemodynamics.qin_target`` is a deprecated alias. Its deprecation
+    warning is reported when runtime settings are applied; here an alias-only
+    value becomes the inlet flow, and an alias that disagrees with an explicit
+    ``simulation.qin_target_ul_min`` is rejected. Defaults never conflict.
+    """
+    data = dict(raw_simulation or {})
+    aliases = _inlet_flow_alias_entries(data, runtime_settings)
+    if not aliases:
+        return
+    first_path, first_value = aliases[0]
+    for path, value in aliases[1:]:
+        if value != first_value:
+            raise ValueError(
+                f"{first_path}={first_value:g} conflicts with {path}={value:g}. "
+                "Both are deprecated aliases of simulation.qin_target_ul_min; "
+                "set only simulation.qin_target_ul_min."
+            )
+    primary = next(
+        (key for key in ("qin_target_ul_min", "qin_target") if key in data), None
+    )
+    if primary is None:
+        simulation.qin_target_ul_min = first_value
+        return
+    if simulation.qin_target_ul_min != first_value:
+        raise ValueError(
+            f"simulation.{primary}={simulation.qin_target_ul_min:g} conflicts with "
+            f"{first_path}={first_value:g}. {first_path} is a deprecated alias of "
+            "simulation.qin_target_ul_min; remove it and set only "
+            "simulation.qin_target_ul_min."
+        )
 
 
 def _parse_fluid(value: Any, name: str, *, allow_both: bool) -> str:

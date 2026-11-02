@@ -7,7 +7,8 @@ DEFAULTS = {
     "ROOT_PRESSURE": 66661.0,
     # Pressure assigned to terminal outlets before any side-length scaling, in pascals.
     "TERMINAL_PRESSURE": 40000.0,
-    # Target inlet flow used when a run does not provide a different flow, in microliters per minute.
+    # Deprecated alias of simulation.qin_target_ul_min, in microliters per minute; set that key
+    # instead. Each run derives this value from it, and a conflicting alias is a configuration error.
     "QIN_TARGET": 900.0,
     # Density of a user-defined constant-viscosity perfusate, in g/cm^3.
     "CUSTOM_FLUID_DENSITY_G_CM3": 1.0,
@@ -85,4 +86,10 @@ ALIASES = {
 
 PREFIXES = ("KIRCHHOFF_",)
 
-DEPRECATED = {}
+DEPRECATED = {
+    "QIN_TARGET": (
+        "Deprecated: settings.hemodynamics.qin_target is an alias of "
+        "simulation.qin_target_ul_min, which sets the inlet flow; set "
+        "simulation.qin_target_ul_min instead."
+    ),
+}

@@ -96,3 +96,184 @@ def test_acceleration_overrides_do_not_leak_between_serial_runs(frontend):
     for name in names:
         constant = cext.ALIASES[name]
         assert getattr(runtime, constant) == cext.DEFAULTS[constant]
+
+
+def _defaults_runtime():
+    from types import SimpleNamespace
+
+    from cascade.configuration.settings import default_settings
+
+    return SimpleNamespace(
+        **{
+            key: value
+            for section in default_settings().values()
+            for key, value in section.items()
+        }
+    )
+
+
+def _applied_inlet_flow(raw):
+    from cascade.configuration.bridge import apply_runtime_settings
+
+    config = parse_config(raw)
+    runtime = _defaults_runtime()
+    apply_runtime_settings(runtime, config)
+    return config, runtime
+
+
+@pytest.mark.parametrize(
+    "alias",
+    [
+        {"settings": {"hemodynamics": {"qin_target": 5.0}}},
+        {"settings": {"hemodynamics": {"QIN_TARGET": 5.0}}},
+        {"settings": {"hemodynamics": {"qin_target_ul_min": 5.0}}},
+        {"settings": {"flow": {"qin_target": 5.0}}},
+        {"settings": {"runtime": {"QIN_TARGET": 5.0}}},
+        {"simulation": {"tissuesim": {"qin_target": 5.0}}},
+    ],
+)
+def test_deprecated_inlet_flow_alias_alone_sets_the_inlet_flow(alias):
+    config, runtime = _applied_inlet_flow(alias)
+    assert config.simulation.qin_target_ul_min == 5.0
+    assert runtime.QIN_TARGET == 5.0
+    assert any(
+        "Deprecated" in warning and "simulation.qin_target_ul_min" in warning
+        for warning in config.runtime_setting_warnings
+    )
+
+
+def test_deprecated_inlet_flow_alias_equal_to_simulation_flow_warns():
+    config, runtime = _applied_inlet_flow(
+        {
+            "simulation": {"qin_target_ul_min": 5.0},
+            "settings": {"hemodynamics": {"qin_target": 5}},
+        }
+    )
+    assert config.simulation.qin_target_ul_min == 5.0
+    assert runtime.QIN_TARGET == 5.0
+    assert any("qin_target" in w for w in config.runtime_setting_warnings)
+
+
+def test_deprecated_inlet_flow_alias_conflict_is_a_configuration_error():
+    with pytest.raises(ValueError) as error:
+        parse_config(
+            {
+                "simulation": {"qin_target_ul_min": 100.0},
+                "settings": {"hemodynamics": {"qin_target": 5.0}},
+            }
+        )
+    message = str(error.value)
+    assert "simulation.qin_target_ul_min=100" in message
+    assert "settings.hemodynamics.qin_target=5" in message
+
+
+def test_conflicting_deprecated_inlet_flow_aliases_are_rejected():
+    with pytest.raises(ValueError, match="settings.flow.qin_target=6"):
+        parse_config(
+            {
+                "settings": {
+                    "hemodynamics": {"qin_target": 5.0},
+                    "flow": {"qin_target": 6.0},
+                }
+            }
+        )
+
+
+@pytest.mark.parametrize("frontend", ["cli", "gui"])
+def test_runtime_inlet_flow_defaults_to_simulation_flow(frontend):
+    from cascade.configuration.schema import example_config
+    from cascade.gui.model import default_project
+
+    raw = example_config() if frontend == "cli" else default_project()
+    raw["simulation"].pop("qin_target_ul_min")
+    config, runtime = _applied_inlet_flow(raw)
+    assert config.simulation.qin_target_ul_min == 100.0
+    assert runtime.QIN_TARGET == config.simulation.qin_target_ul_min
+    assert not any("qin_target" in w for w in config.runtime_setting_warnings)
+
+
+def test_runtime_inlet_flow_follows_simulation_flow_between_serial_runs():
+    runtime = _defaults_runtime()
+    from cascade.configuration.bridge import apply_runtime_settings
+
+    apply_runtime_settings(
+        runtime, parse_config({"settings": {"hemodynamics": {"qin_target": 5.0}}})
+    )
+    assert runtime.QIN_TARGET == 5.0
+    apply_runtime_settings(runtime, parse_config({}))
+    assert runtime.QIN_TARGET == 100.0
+
+
+def test_studio_default_project_omits_deprecated_inlet_flow_alias():
+    from cascade.configuration.parsing import inlet_flow_aliases
+    from cascade.gui.model import default_project
+
+    project = default_project()
+    assert inlet_flow_aliases(project) == []
+    assert "qin_target" not in project["settings"].get("hemodynamics", {})
+    assert project["simulation"]["qin_target_ul_min"] == 100.0
+
+
+def test_studio_loads_old_project_with_deprecated_inlet_flow_alias(tmp_path):
+    import json
+
+    from cascade.gui.model import load_project, save_project, validate_project
+
+    path = tmp_path / "old.cascade-project.json"
+    path.write_text(
+        json.dumps(
+            {
+                "simulation": {"fluid": "blood"},
+                "settings": {"hemodynamics": {"qin_target": 42.0}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    project = load_project(path)
+    assert project["simulation"]["qin_target_ul_min"] == 42.0
+    assert "qin_target" not in project["settings"]["hemodynamics"]
+    assert parse_config(project).simulation.qin_target_ul_min == 42.0
+    assert not validate_project(project, tmp_path).errors
+
+    saved = json.loads(save_project(path, project).read_text(encoding="utf-8"))
+    assert "qin_target" not in saved["settings"]["hemodynamics"]
+
+
+def test_studio_reports_old_project_with_conflicting_inlet_flow_alias(tmp_path):
+    import json
+
+    from cascade.gui.model import load_project, validate_project
+
+    path = tmp_path / "old.cascade-project.json"
+    path.write_text(
+        json.dumps(
+            {
+                "simulation": {"qin_target_ul_min": 100.0},
+                "settings": {"hemodynamics": {"qin_target": 5.0}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    project = load_project(path)
+    errors = validate_project(project, tmp_path).errors
+    assert any("settings.hemodynamics.qin_target=5" in error for error in errors)
+
+
+def test_sweep_rejects_flows_that_conflict_with_deprecated_alias(tmp_path):
+    import json
+
+    from cascade.simulation.sweep import run_sweep
+
+    path = tmp_path / "sweep.json"
+    path.write_text(
+        json.dumps(
+            {
+                "settings": {"hemodynamics": {"qin_target": 5.0}},
+                "sweep": {"qin_target_ul_min_values": [5.0, 50.0]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="conflicts with the sweep inlet flow"):
+        run_sweep(path)
+

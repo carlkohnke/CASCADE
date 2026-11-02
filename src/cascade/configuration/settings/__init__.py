@@ -9,6 +9,7 @@ from .registry import (
     apply_settings,
     collect_config_settings,
     default_settings,
+    setting_constant,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "apply_settings",
     "collect_config_settings",
     "default_settings",
+    "setting_constant",
 ]

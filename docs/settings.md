@@ -31,7 +31,6 @@ selected network and solver.
 | `simulation.flow_source` and flow inputs | Hemodynamics | Define whether flow is per tree, per inlet, or split from a total. |
 | `simulation.inlet_conditions[]` | Per-inlet solve | Define inlet flow, inlet/outlet pressure, and inlet concentration. |
 | `settings.hemodynamics.root_pressure` / `terminal_pressure` | Hemodynamics | Define the pressure boundary condition when the selected mode uses pressure. |
-| `settings.hemodynamics.qin_target` | Hemodynamics | Defines the runtime flow target used by the underlying solver. |
 | `settings.hematocrit.model` and `hd_discharge` | Blood | Define red-cell partitioning and discharge hematocrit. |
 | `settings.oxygen.concentration_inlet_by_fluid` | Oxygen | Defines inlet solute concentration for each fluid. |
 | `settings.oxygen.solute_diffusivity` | Oxygen | Defines tissue solute diffusivity. |
@@ -220,7 +219,7 @@ Accepted aliases: `growth_assignment`, `nearest_batch_points`,
 
 | `simulation.fluid` | Essential scientific | `"blood"` | `blood`, `water`, `cell media`, `custom`, or `both`. |
 | `simulation.build_fluid` | Essential scientific | selected fluid | Fluid used while building geometry when `fluid` is `both`. |
-| `simulation.qin_target_ul_min` | Essential scientific | `100.0` | Per-tree/inlet target flow, depending on `flow_source`. |
+| `simulation.qin_target_ul_min` | Essential scientific | `100.0` | Per-tree/inlet target flow, depending on `flow_source`. This is the single inlet-flow setting; the runtime `QIN_TARGET` is derived from it. |
 | `simulation.total_qin_ul_min` | Essential scientific | `null` | Total flow divided among inlets by total-split modes. |
 | `simulation.flow_source` | Essential scientific | `"per_tree"` | Per-tree, per-inlet, total-split, or loaded-tree-root flow policy. |
 | `simulation.inlet_conditions[]` | Essential scientific | `[]` | Per-inlet boundary-condition objects described below. |
@@ -248,6 +247,14 @@ accepted and copied into `tissuesim`: `finite_radius_o2_terms`,
 `hematocrit_model`, `hematocrit_flow_iterations`, `kirchhoff_bc_mode`,
 `kirchhoff_solver`, and `solver_timing_details`. Prefer their named runtime
 sections in new files.
+
+`settings.hemodynamics.qin_target` is a deprecated alias of
+`simulation.qin_target_ul_min`. A file that sets only the alias uses its value
+as `simulation.qin_target_ul_min` and reports a deprecation warning; a file
+that sets both to the same value also reports the warning; a file that sets
+them to different values is rejected. Set only `simulation.qin_target_ul_min`
+in new files. Studio moves the alias into `simulation.qin_target_ul_min` when
+it opens an older project.
 
 ### Per-inlet boundary conditions
 
@@ -417,12 +424,12 @@ Physical pressures, flow targets, and fluid properties.
 | --- | --- | --- | --- |
 | `custom_fluid_density_g_cm3` | Essential scientific | `1.0` | Density of a user-defined constant-viscosity perfusate, in g/cm^3. |
 | `custom_fluid_dynamic_viscosity_cp` | Essential scientific | `1.0` | Dynamic viscosity of a user-defined perfusate, in centipoise. |
-| `qin_target` | Essential scientific | `900.0` | Target inlet flow used when a run does not provide a different flow, in microliters per minute. |
 | `root_pressure` | Essential scientific | `66661.0` | Pressure at the root/inlet of the tree, in pascals. |
 | `terminal_pressure` | Essential scientific | `40000.0` | Pressure assigned to terminal outlets before any side-length scaling, in pascals. |
 | `scale_dp_by_volume` `SCALE_dP_BY_VOLUME` | Advanced scientific/numerical | `true` | Scale dp by volume. |
 | `scale_nterms_by_volume` | Advanced scientific/numerical | `false` | If true, scale requested terminal counts by the domain volume. Usually left false in CASCADE runs. |
 | `scale_q_by_volume` | Advanced scientific/numerical | `true` | If true, scale inlet flow by side_length^3 so larger domains receive proportionally more flow. |
+| `qin_target` | Compatibility/internal | `simulation.qin_target_ul_min` | Deprecated alias of simulation.qin_target_ul_min, in microliters per minute; set that key instead. Each run derives this value from it, and a conflicting alias is a configuration error. |
 
 </details>
 

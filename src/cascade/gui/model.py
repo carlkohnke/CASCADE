@@ -22,7 +22,9 @@ import subprocess
 from typing import Any, Iterable
 from uuid import uuid4
 
+from cascade.configuration.parsing import inlet_flow_aliases
 from cascade.configuration.schema import example_config, parse_config
+from cascade.configuration.settings import setting_constant
 from cascade.utils.files import atomic_write_text
 from cascade.vessels.lattice import channel_count, resolve_lattice_layout
 from cascade.utils.resources import resolve_domain_path
@@ -224,9 +226,54 @@ def default_project() -> dict[str, Any]:
 def merge_project(raw: dict[str, Any]) -> dict[str, Any]:
     """Merge older/plain CASCADE JSON with GUI defaults without losing unknown keys."""
     merged = default_project()
-    _deep_merge(merged, deepcopy(raw))
+    source = deepcopy(raw)
+    _migrate_inlet_flow_alias(source)
+    _deep_merge(merged, source)
     merged["schema_version"] = int(raw.get("schema_version", GUI_SCHEMA_VERSION))
     return merged
+
+
+def _migrate_inlet_flow_alias(raw: dict[str, Any]) -> None:
+    """Move deprecated ``settings.hemodynamics.qin_target`` into the simulation flow.
+
+    Studio's defaults always carry ``simulation.qin_target_ul_min``, so the alias
+    is resolved before merging. A conflicting alias is left in place for project
+    validation to report.
+    """
+    try:
+        aliases = inlet_flow_aliases(raw)
+    except ValueError:
+        return
+    alias_values = {value for _path, value in aliases}
+    if len(alias_values) != 1:
+        return
+    (value,) = alias_values
+    simulation = raw.setdefault("simulation", {})
+    if not isinstance(simulation, dict):
+        return
+    flow = simulation.get("qin_target_ul_min", simulation.get("qin_target"))
+    if flow is not None:
+        try:
+            if float(flow) != value:
+                return
+        except (TypeError, ValueError):
+            return
+    else:
+        simulation["qin_target_ul_min"] = value
+    settings = raw.get("settings", raw.get("runtime_settings"))
+    owners = [
+        (str(section), entries)
+        for section, entries in (settings.items() if isinstance(settings, dict) else ())
+    ]
+    owners.extend(
+        ("runtime", simulation.get(name)) for name in ("tissuesim", "overrides")
+    )
+    for section, entries in owners:
+        if not isinstance(entries, dict):
+            continue
+        for key in list(entries):
+            if setting_constant(section, key) == "QIN_TARGET":
+                del entries[key]
 
 
 def _deep_merge(target: dict[str, Any], source: dict[str, Any]) -> None:

@@ -96,7 +96,12 @@ class RuntimeConfiguration:
         runtime.N_EQUAL_BIFURCATIONS = self.equal_bifurcations
         runtime.TREE_DATA_DTYPE = np.float64
         runtime.TREE_INDEX_DTYPE = np.int64
-        return apply_settings(runtime, self.sections)
+        report = apply_settings(runtime, self.sections)
+        # simulation.qin_target_ul_min is the single source of inlet flow. Parsing
+        # reconciles the deprecated settings.hemodynamics.qin_target alias with
+        # it, so the alias can never leave QIN_TARGET at a different value.
+        runtime.QIN_TARGET = self.inlet_flow_ul_min
+        return report
 
 
 __all__ = [

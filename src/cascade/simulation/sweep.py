@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from cascade.configuration.parsing import inlet_flow_aliases
 from cascade.configuration.schema import RunConfig, parse_config
 from cascade.concentration.tissue.cache import (
     build_tissue_cache_from_tree,
@@ -58,15 +59,27 @@ def run_sweep(settings_path: str | Path) -> dict[str, str]:
         ],
         name="sweep.side_lengths",
     )
+    qin_aliases = inlet_flow_aliases(raw)
     qin_values = _float_values(
         sweep.get("qin_target_ul_min_values", sweep.get("qin_target_values")),
         fallback=[
             _simulation_section(raw).get(
-                "qin_target_ul_min", _simulation_section(raw).get("qin_target", 100.0)
+                "qin_target_ul_min",
+                _simulation_section(raw).get(
+                    "qin_target", qin_aliases[0][1] if qin_aliases else 100.0
+                ),
             )
         ],
         name="sweep.qin_target_ul_min_values",
     )
+    if qin_aliases and any(qin != qin_aliases[0][1] for qin in qin_values):
+        alias_path, alias_value = qin_aliases[0]
+        raise ValueError(
+            f"{alias_path}={alias_value:g} conflicts with the sweep inlet flow(s) "
+            f"{', '.join(f'{qin:g}' for qin in qin_values)} uL/min. {alias_path} is a "
+            "deprecated alias of simulation.qin_target_ul_min; remove it and set "
+            "only simulation.qin_target_ul_min or sweep.qin_target_ul_min_values."
+        )
     distance_counts = _int_values(
         sweep.get("distance_sample_counts"),
         fallback=[_simulation_section(raw).get("distance_sample_count", 10000)],

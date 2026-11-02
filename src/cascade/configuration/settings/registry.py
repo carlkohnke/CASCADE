@@ -242,7 +242,8 @@ def _resolve_setting(
     key_norm = key.strip()
     key_lower = key_norm.lower().replace("-", "_")
     if section_name == "runtime":
-        return _resolve_any_setting(key_norm, runtime), None, None
+        const = _resolve_any_setting(key_norm, runtime)
+        return const, None, _deprecation_warning(const)
 
     section = SETTINGS_SECTIONS.get(section_name)
     if section is None:
@@ -253,6 +254,33 @@ def _resolve_setting(
     const = _resolve_in_section(section, key_norm, key_lower)
     warning = section.deprecated.get(const)
     return const, section, warning
+
+
+def _deprecation_warning(const: str) -> str | None:
+    for section in SETTINGS_SECTIONS.values():
+        warning = section.deprecated.get(const)
+        if warning:
+            return warning
+    return None
+
+
+def setting_constant(section_name: str, key: str) -> str | None:
+    """Return the registered constant that ``settings.<section>.<key>`` sets, if any."""
+    name = _section_name(str(section_name))
+    key_norm = str(key).strip()
+    key_lower = key_norm.lower().replace("-", "_")
+    if name == "runtime":
+        sections = list(SETTINGS_SECTIONS.values())
+    elif name in SETTINGS_SECTIONS:
+        sections = [SETTINGS_SECTIONS[name]]
+    else:
+        return None
+    for section in sections:
+        try:
+            return _resolve_in_section(section, key_norm, key_lower)
+        except ValueError:
+            continue
+    return None
 
 
 def _resolve_any_setting(key: str, runtime: Any) -> str:

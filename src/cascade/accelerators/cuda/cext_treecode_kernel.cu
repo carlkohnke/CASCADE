@@ -50,77 +50,66 @@ extern "C" __global__ void cext_treecode_kernel(
     float target_radius = radii_si[target_seg];
     int excl_n = (int)exclude_count[target_seg];
     float total = 0.0f;
-    int stack[64];
+    // Depth-first traversal pushes at most 7 net nodes per level; Morton trees stop at 21 levels.
+    int stack[160];
     int top = 0;
     stack[top++] = 0;
     while (top > 0) {
         int node = stack[--top];
         if (node < 0 || node >= node_count) continue;
+        int total_count = node_point_count[node];
+        if (total_count <= 0) continue;
         float cx = node_center[node * 3 + 0];
         float cy = node_center[node * 3 + 1];
         float cz = node_center[node * 3 + 2];
-        float dx = cx - tx;
-        float dy = cy - ty;
-        float dz = cz - tz;
+        // Expansion about the node centre c uses (t - c): G(|t - c - d|) ~ G(R) + G(R)(1/lam + 1/R) d.(t - c)/R.
+        float dx = tx - cx;
+        float dy = ty - cy;
+        float dz = tz - cz;
         float dist2 = dx * dx + dy * dy + dz * dz;
         float dist = sqrtf(dist2 + 1.0e-24f);
         float node_r = 1.7320508075688772f * node_half[node];
         float sep = dist - node_r;
         if (sep < 1.0e-12f) sep = 1.0e-12f;
         int is_leaf = node_is_leaf[node] != 0;
-        int total_count = node_point_count[node];
-        int active_count = node_active_count[node];
-        int inactive_count = total_count - active_count;
-        if (sep > near_radius_si && inactive_count > 0) {
+        int inactive_count = total_count - node_active_count[node];
+        int accept = sep > near_radius_si && (node_r / sep) <= theta;
+        // Every source is counted once: by the first node the MAC accepts, otherwise directly at its leaf.
+        // Accepted internal nodes expand all sources; accepted leaves expand only frozen ones.
+        int frozen_done = 0;
+        if (accept && (!is_leaf || inactive_count > 0)) {
             for (int bin_idx = 0; bin_idx < n_bins; ++bin_idx) {
                 int base = bin_idx * node_count + node;
-                float mass = node_total_mass[base] - node_active_mass[base];
+                float mass = node_total_mass[base];
+                float px = node_total_dipole[base * 3 + 0];
+                float py = node_total_dipole[base * 3 + 1];
+                float pz = node_total_dipole[base * 3 + 2];
+                if (is_leaf) {
+                    mass -= node_active_mass[base];
+                    px -= node_active_dipole[base * 3 + 0];
+                    py -= node_active_dipole[base * 3 + 1];
+                    pz -= node_active_dipole[base * 3 + 2];
+                }
                 if (!(mass != 0.0f) || !isfinite(mass)) continue;
                 float lam = lambda_centers[bin_idx];
                 if (lam < 1.0e-30f) lam = 1.0e-30f;
                 float g = expf(-dist / lam) / (4.0f * 3.14159265358979323846f * diffusivity_si * dist);
                 float contrib = mass * g;
                 if (order_mode > 0) {
-                    float dotp =
-                        (node_total_dipole[base * 3 + 0] - node_active_dipole[base * 3 + 0]) * dx
-                        + (node_total_dipole[base * 3 + 1] - node_active_dipole[base * 3 + 1]) * dy
-                        + (node_total_dipole[base * 3 + 2] - node_active_dipole[base * 3 + 2]) * dz;
+                    float dotp = px * dx + py * dy + pz * dz;
                     contrib += g * (1.0f / lam + 1.0f / dist) * (dotp / dist);
                 }
                 total += contrib;
             }
             atomicAdd(metrics + 0, (unsigned long long)1);
-        }
-        if (active_count <= 0 && sep > near_radius_si) {
-            continue;
-        }
-        if (!is_leaf && sep > near_radius_si && active_count > 0 && (node_r / sep) <= theta) {
-            for (int bin_idx = 0; bin_idx < n_bins; ++bin_idx) {
-                int base = bin_idx * node_count + node;
-                float mass = node_active_mass[base];
-                if (!(mass != 0.0f) || !isfinite(mass)) continue;
-                float lam = lambda_centers[bin_idx];
-                if (lam < 1.0e-30f) lam = 1.0e-30f;
-                float g = expf(-dist / lam) / (4.0f * 3.14159265358979323846f * diffusivity_si * dist);
-                float contrib = mass * g;
-                if (order_mode > 0) {
-                    float dotp =
-                        node_active_dipole[base * 3 + 0] * dx
-                        + node_active_dipole[base * 3 + 1] * dy
-                        + node_active_dipole[base * 3 + 2] * dz;
-                    contrib += g * (1.0f / lam + 1.0f / dist) * (dotp / dist);
-                }
-                total += contrib;
-            }
-            atomicAdd(metrics + 0, (unsigned long long)1);
-            continue;
+            if (!is_leaf) continue;
+            frozen_done = 1;
         }
         if (is_leaf) {
-            int need_all = sep <= near_radius_si;
             int start = node_start[node];
             int stop = node_end[node];
             for (int pos = start; pos < stop; ++pos) {
-                if (!need_all && point_active[pos] == 0) continue;
+                if (frozen_done && point_active[pos] == 0) continue;
                 int source_seg = source_seg_ids[pos];
                 int excluded = 0;
                 for (int ei = 0; ei < excl_n; ++ei) {
@@ -152,19 +141,7 @@ extern "C" __global__ void cext_treecode_kernel(
         for (int slot = 0; slot < 8; ++slot) {
             int child = node_children[node * 8 + slot];
             if (child < 0) continue;
-            if (node_active_count[child] <= 0) {
-                float chx = node_center[child * 3 + 0];
-                float chy = node_center[child * 3 + 1];
-                float chz = node_center[child * 3 + 2];
-                float cdx = chx - tx;
-                float cdy = chy - ty;
-                float cdz = chz - tz;
-                float cdist = sqrtf(cdx * cdx + cdy * cdy + cdz * cdz + 1.0e-24f);
-                float child_r = 1.7320508075688772f * node_half[child];
-                float child_sep = cdist - child_r;
-                if (child_sep > near_radius_si) continue;
-            }
-            if (top < 64) stack[top++] = child;
+            if (top < 160) stack[top++] = child;
         }
     }
     if (global_cap > 0.0f) total = fminf(total, global_cap);

@@ -46,12 +46,15 @@ def _morton3d_codes(
     if pts.size <= 0:
         return np.zeros((0,), dtype=np.uint64)
     bits = max(min(int(bits), 21), 1)
-    scale = float((1 << bits) - 1)
+    cells = 1 << bits
     local = (pts - np.asarray(origin, dtype=np.float64)[None, :]) / max(
         float(side), 1.0e-30
     )
     local = np.clip(local, 0.0, 1.0)
-    idx = np.floor(local * scale + 0.5).astype(np.uint64)
+    # Truncate onto the 2**bits grid so each code prefix is exactly one octree box.
+    idx = np.minimum(np.floor(local * float(cells)), float(cells - 1)).astype(
+        np.uint64
+    )
     return (
         _part1by2_64(idx[:, 0])
         | (_part1by2_64(idx[:, 1]) << np.uint64(1))
@@ -60,11 +63,13 @@ def _morton3d_codes(
 
 
 def _treecode_child_offset(slot: int) -> np.ndarray:
+    # Morton slots interleave x in bit 0, y in bit 1 and z in bit 2; the child
+    # centre sits one child half-width from the parent centre along each axis.
     return np.asarray(
         [
-            -0.5 if (slot & 0x4) == 0 else 0.5,
-            -0.5 if (slot & 0x2) == 0 else 0.5,
-            -0.5 if (slot & 0x1) == 0 else 0.5,
+            -1.0 if (slot & 0x1) == 0 else 1.0,
+            -1.0 if (slot & 0x2) == 0 else 1.0,
+            -1.0 if (slot & 0x4) == 0 else 1.0,
         ],
         dtype=np.float32,
     )

@@ -111,11 +111,18 @@ def test_windows_dll_directories_are_retained_and_idempotent(
         handles.append(handle)
         return handle
 
+    def component_distribution(name: str) -> _FakeDistribution:
+        # Other CUDA families must remain absent; reporting them as installed
+        # triggers real DLL preloading of the empty fixture file.
+        if name == "fake-cuda":
+            return distribution
+        raise cuda_runtime.metadata.PackageNotFoundError(name)
+
     monkeypatch.setattr(cuda_runtime, "_COMPONENT_DISTRIBUTIONS", ("fake-cuda",))
     monkeypatch.setattr(
         cuda_runtime.metadata,
         "distribution",
-        lambda _name: distribution,
+        component_distribution,
     )
     monkeypatch.setattr(
         cuda_runtime,
@@ -995,14 +1002,19 @@ def test_busy_gpu_auto_run_completes_on_cpu_without_touching_cupy(
 def test_child_processes_write_and_parents_read_utf8_under_ascii_locale() -> None:
     from cascade.utils.console import utf8_child_environment
 
-    # An ASCII locale with Python's UTF-8 fallbacks disabled, as in a bare
-    # container: the child would otherwise escape "…" and "µ".
+    # Force ASCII pipe output as well as the locale: Windows does not use
+    # LC_ALL to select its pipe encoding. The child otherwise escapes "…" and "µ".
     hostile = {
         key: value
         for key, value in os.environ.items()
         if not key.startswith(("LC_", "LANG", "PYTHONUTF8", "PYTHONIOENCODING"))
     }
-    hostile.update({"LC_ALL": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"})
+    hostile.update({
+        "LC_ALL": "C",
+        "PYTHONUTF8": "0",
+        "PYTHONCOERCECLOCALE": "0",
+        "PYTHONIOENCODING": "ascii",
+    })
     code = (
         "from cascade.utils.console import configure_console_error_handling\n"
         "configure_console_error_handling()\n"

@@ -238,9 +238,11 @@ def test_preview_worker_that_fails_to_start_does_not_block_previews(
         assert "Could not start the preview worker" in window._preview_failure_message
 
         window._start_preview_seed(config, "b" * 64)
-        assert window._preview_pending_signature == "b" * 64
+        # Windows may report FailedToStart synchronously from QProcess.start().
         assert _wait_until(lambda: window._preview_process is None)
+        assert window._preview_pending_signature == ""
         assert window._preview_failed_signature == "b" * 64
+        assert "Could not start the preview worker" in window._preview_failure_message
     finally:
         window._prepare_timer.stop()
         window._cancel_preview_seed()
